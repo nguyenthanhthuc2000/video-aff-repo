@@ -3,6 +3,7 @@
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
+use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\VideoProjectController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -23,6 +24,8 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('projects', VideoProjectController::class)
         ->only(['index', 'store', 'show', 'destroy'])
         ->parameters(['projects' => 'project']);
+    Route::post('projects/{project}/script', [ScriptController::class, 'store'])->name('projects.script.store');
+    Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
 
     Route::resource('fashion-models', FashionModelController::class)->only(['index', 'store', 'destroy']);
 });

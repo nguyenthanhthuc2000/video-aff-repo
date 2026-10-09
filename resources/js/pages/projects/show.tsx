@@ -9,6 +9,7 @@ import { type VideoProject } from '@/types/models';
 import { Head, router } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { useEffect } from 'react';
+import ScriptEditor from './script-editor';
 
 export default function ProjectsShow({ project }: { project: VideoProject }) {
     const breadcrumbs: BreadcrumbItem[] = [
@@ -26,6 +27,16 @@ export default function ProjectsShow({ project }: { project: VideoProject }) {
 
         return () => clearInterval(timer);
     }, [project.is_busy]);
+
+    const canWriteScript = ['draft', 'script_ready', 'failed'].includes(project.status);
+
+    const writeScript = () => {
+        if (project.script && !confirm('Viết lại sẽ thay toàn bộ cảnh hiện tại. Tiếp tục?')) {
+            return;
+        }
+
+        router.post(route('projects.script.store', project.id), {}, { preserveScroll: true });
+    };
 
     const destroy = () => {
         if (confirm('Xoá dự án video này?')) {
@@ -61,6 +72,24 @@ export default function ProjectsShow({ project }: { project: VideoProject }) {
                         <img src={project.fashion_model.photo_url} alt="Người mẫu" className="h-40 rounded-lg border object-cover" />
                     )}
                 </div>
+
+                <section className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <h2 className="text-lg font-semibold">1. Kịch bản</h2>
+                        {canWriteScript && (
+                            <Button variant={project.script ? 'outline' : 'default'} onClick={writeScript}>
+                                {project.script ? 'Viết lại kịch bản' : 'Tạo kịch bản'}
+                            </Button>
+                        )}
+                    </div>
+                    {project.status === 'scripting' && <p className="text-muted-foreground text-sm">Claude đang viết kịch bản...</p>}
+                    {!project.script && project.status === 'draft' && (
+                        <p className="text-muted-foreground text-sm">
+                            Claude sẽ viết 3 hook, 5–7 cảnh, caption và hashtag từ ảnh và thông tin sản phẩm.
+                        </p>
+                    )}
+                    {project.script && <ScriptEditor key={project.updated_at} project={project} disabled={project.is_busy} />}
+                </section>
 
                 <Button variant="ghost" className="text-destructive" onClick={destroy}>
                     Xoá dự án
