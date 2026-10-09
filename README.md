@@ -2,6 +2,8 @@
 
 Web tạo video affiliate Shopee: Laravel 12 + React + Inertia (khởi tạo từ `laravel/react-starter-kit`).
 
+Thiết kế: [docs/thiet-ke.md](docs/thiet-ke.md).
+
 ## Chạy bằng Docker
 
 Cần Docker và Docker Compose.
