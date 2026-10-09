@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\SceneImageStatus;
 use App\Enums\VideoProjectStatus;
 use Database\Factories\VideoProjectFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -60,6 +61,31 @@ class VideoProject extends Model
     public function renders(): HasMany
     {
         return $this->hasMany(Render::class)->latest('id');
+    }
+
+    /** Chuyển sang bước duyệt khi không còn ảnh cảnh nào đang tạo. */
+    public function syncImagingStatus(): void
+    {
+        $this->refresh();
+
+        if ($this->status !== VideoProjectStatus::Imaging) {
+            return;
+        }
+
+        $pending = $this->scenes()
+            ->whereHas('latestImage', fn ($query) => $query->where('status', SceneImageStatus::Pending))
+            ->exists();
+
+        if (! $pending) {
+            $this->update(['status' => VideoProjectStatus::Reviewing]);
+        }
+    }
+
+    /** Mọi cảnh đều có ảnh đã duyệt (điều kiện để xuất video). */
+    public function allScenesApproved(): bool
+    {
+        return $this->scenes()->exists()
+            && $this->scenes()->whereDoesntHave('approvedImage')->doesntExist();
     }
 
     public function markFailed(string $error): void

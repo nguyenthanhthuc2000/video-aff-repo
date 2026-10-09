@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\SceneImageStatus;
 use App\Models\VideoProject;
 use App\Support\Media;
 use Illuminate\Http\Request;
@@ -44,6 +45,8 @@ class VideoProjectResource extends JsonResource
                     'error' => $scene->latestImage->error,
                 ] : null,
             ])),
+            'all_approved' => $this->whenLoaded('scenes', fn () => $this->scenes->isNotEmpty()
+                && $this->scenes->every(fn ($scene) => $scene->latestImage?->status === SceneImageStatus::Approved)),
             'renders' => $this->whenLoaded('renders', fn () => $this->renders->map(fn ($render) => [
                 'id' => $render->id,
                 'hook' => $render->hook,

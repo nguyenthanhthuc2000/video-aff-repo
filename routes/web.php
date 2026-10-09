@@ -3,6 +3,7 @@
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
+use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\VideoProjectController;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +27,9 @@ Route::middleware(['auth'])->group(function () {
         ->parameters(['projects' => 'project']);
     Route::post('projects/{project}/script', [ScriptController::class, 'store'])->name('projects.script.store');
     Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
+    Route::post('projects/{project}/images', [SceneImageController::class, 'store'])->name('projects.images.store');
+    Route::post('scenes/{scene}/image', [SceneImageController::class, 'regenerate'])->name('scenes.image.regenerate');
+    Route::post('scene-images/{image}/approve', [SceneImageController::class, 'approve'])->name('scene-images.approve');
 
     Route::resource('fashion-models', FashionModelController::class)->only(['index', 'store', 'destroy']);
 });

@@ -16,4 +16,17 @@ return [
         'max_tokens' => (int) env('CLAUDE_MAX_TOKENS', 16000),
     ],
 
+    // Tạo ảnh cảnh: "fal" gọi Meta Muse Image qua fal, "fake" dùng lại ảnh người mẫu.
+    'image_driver' => env('MUSE_DRIVER', env('FAL_KEY') ? 'fal' : 'fake'),
+
+    'fal' => [
+        'key' => env('FAL_KEY'),
+        'endpoint' => env('FAL_MUSE_ENDPOINT', 'meta/muse-image/edit'),
+        // Giá tham khảo để ghi chi phí; kiểm tra lại trên trang giá của fal.
+        'cost_per_image' => (float) env('FAL_MUSE_COST_USD', 0.01),
+    ],
+
+    // Số ảnh sản phẩm tối đa gửi kèm ảnh người mẫu khi tạo ảnh cảnh.
+    'image_product_refs' => 3,
+
 ];

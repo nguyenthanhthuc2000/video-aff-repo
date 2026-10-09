@@ -76,6 +76,7 @@ export interface VideoProject {
     product?: { id: number; name: string; primary_image_url: string | null };
     fashion_model?: { id: number; name: string; photo_url: string };
     scenes?: Scene[];
+    all_approved?: boolean;
     renders?: Render[];
     created_at: string;
     updated_at: string;

@@ -28,6 +28,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SCRIPT_DRIVER" value="fake"/>
+        <env name="MUSE_DRIVER" value="fake"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
