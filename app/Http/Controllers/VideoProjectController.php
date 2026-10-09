@@ -49,6 +49,7 @@ class VideoProjectController extends Controller
         $this->authorize('view', $project);
 
         $project->load(['product.primaryImage', 'fashionModel', 'scenes.latestImage', 'renders']);
+        $project->loadSum('sceneImages as image_cost_usd', 'cost_usd');
 
         return Inertia::render('projects/show', [
             'project' => VideoProjectResource::make($project)->resolve(),

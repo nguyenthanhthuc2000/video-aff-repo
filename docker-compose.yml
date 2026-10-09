@@ -31,7 +31,7 @@ services:
     <<: *php
     container_name: video-aff-queue
     restart: unless-stopped
-    command: php artisan queue:work --tries=3 --timeout=600
+    command: php artisan queue:work --timeout=900
 
   nginx:
     container_name: video-aff-nginx

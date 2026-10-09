@@ -76,6 +76,7 @@ export interface VideoProject {
     script: Script | null;
     selected_hook: number;
     has_music: boolean;
+    image_cost_usd?: number;
     product?: { id: number; name: string; primary_image_url: string | null };
     fashion_model?: { id: number; name: string; photo_url: string };
     scenes?: Scene[];

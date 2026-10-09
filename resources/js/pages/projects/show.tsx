@@ -103,7 +103,7 @@ export default function ProjectsShow({ project }: { project: VideoProject }) {
                 {project.script && (project.scenes?.length ?? 0) > 0 && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold">3. Xuất video</h2>
-                        <RenderPanel project={project} />
+                        <RenderPanel key={`${project.selected_hook}-${project.updated_at}`} project={project} />
                     </section>
                 )}
 

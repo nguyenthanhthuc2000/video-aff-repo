@@ -39,6 +39,7 @@ export default function SceneImages({ project }: { project: VideoProject }) {
             )}
             <p className="text-muted-foreground text-sm">
                 Muse mặc sản phẩm lên ảnh người mẫu cho từng cảnh. Chỉ duyệt ảnh giữ đúng màu, hoạ tiết và kiểu dáng sản phẩm.
+                {(project.image_cost_usd ?? 0) > 0 && ` Chi phí ảnh đến nay: ${project.image_cost_usd} USD.`}
             </p>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {scenes.map((scene) => {

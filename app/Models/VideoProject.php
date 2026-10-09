@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class VideoProject extends Model
 {
@@ -56,6 +57,11 @@ class VideoProject extends Model
     public function scenes(): HasMany
     {
         return $this->hasMany(Scene::class)->orderBy('position');
+    }
+
+    public function sceneImages(): HasManyThrough
+    {
+        return $this->hasManyThrough(SceneImage::class, Scene::class);
     }
 
     public function renders(): HasMany

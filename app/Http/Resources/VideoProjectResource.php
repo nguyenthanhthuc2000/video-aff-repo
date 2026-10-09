@@ -21,6 +21,7 @@ class VideoProjectResource extends JsonResource
             'script' => $this->script,
             'selected_hook' => $this->selected_hook,
             'has_music' => $this->music !== null,
+            'image_cost_usd' => $this->when(isset($this->image_cost_usd), fn () => round((float) $this->image_cost_usd, 4)),
             'product' => $this->whenLoaded('product', fn () => [
                 'id' => $this->product->id,
                 'name' => $this->product->name,

@@ -2,6 +2,8 @@
 
 Theo [thiet-ke.md](thiet-ke.md). Làm theo thứ tự; mỗi task xong là một commit lên `main`, có test.
 
+**Trạng thái (2026-10-09):** T1–T9 đã xong. Cả luồng đã chạy thử trên trình duyệt với driver giả (kịch bản mẫu, ảnh người mẫu) và ffmpeg thật. Chưa chạy với khoá Claude và fal thật.
+
 | # | Task | Phụ thuộc | Cần từ bạn |
 | --- | --- | --- | --- |
 | T1 | Nền tảng dữ liệu: migrations, models, factories, policy theo `user_id` | | |
