@@ -9,6 +9,7 @@ import { type VideoProject } from '@/types/models';
 import { Head, router } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { useEffect } from 'react';
+import RenderPanel from './render-panel';
 import SceneImages from './scene-images';
 import ScriptEditor from './script-editor';
 
@@ -96,6 +97,13 @@ export default function ProjectsShow({ project }: { project: VideoProject }) {
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold">2. Ảnh cảnh</h2>
                         <SceneImages project={project} />
+                    </section>
+                )}
+
+                {project.script && (project.scenes?.length ?? 0) > 0 && (
+                    <section className="space-y-4">
+                        <h2 className="text-lg font-semibold">3. Xuất video</h2>
+                        <RenderPanel project={project} />
                     </section>
                 )}
 

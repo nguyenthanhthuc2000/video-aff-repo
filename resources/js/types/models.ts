@@ -62,6 +62,8 @@ export interface Render {
     hook: number;
     status: 'pending' | 'done' | 'failed';
     url: string | null;
+    download_url: string | null;
+    duration_ms: number | null;
     error: string | null;
     created_at: string;
 }
@@ -73,6 +75,7 @@ export interface VideoProject {
     error: string | null;
     script: Script | null;
     selected_hook: number;
+    has_music: boolean;
     product?: { id: number; name: string; primary_image_url: string | null };
     fashion_model?: { id: number; name: string; photo_url: string };
     scenes?: Scene[];

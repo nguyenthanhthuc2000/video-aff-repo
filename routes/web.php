@@ -3,6 +3,7 @@
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
+use App\Http\Controllers\RenderController;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\VideoProjectController;
@@ -30,6 +31,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('projects/{project}/images', [SceneImageController::class, 'store'])->name('projects.images.store');
     Route::post('scenes/{scene}/image', [SceneImageController::class, 'regenerate'])->name('scenes.image.regenerate');
     Route::post('scene-images/{image}/approve', [SceneImageController::class, 'approve'])->name('scene-images.approve');
+    Route::post('projects/{project}/renders', [RenderController::class, 'store'])->name('projects.renders.store');
+    Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');
 
     Route::resource('fashion-models', FashionModelController::class)->only(['index', 'store', 'destroy']);
 });

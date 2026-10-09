@@ -20,6 +20,7 @@ class VideoProjectResource extends JsonResource
             'error' => $this->error,
             'script' => $this->script,
             'selected_hook' => $this->selected_hook,
+            'has_music' => $this->music !== null,
             'product' => $this->whenLoaded('product', fn () => [
                 'id' => $this->product->id,
                 'name' => $this->product->name,
@@ -52,6 +53,8 @@ class VideoProjectResource extends JsonResource
                 'hook' => $render->hook,
                 'status' => $render->status->value,
                 'url' => Media::url($render->path),
+                'download_url' => $render->path ? route('renders.download', $render) : null,
+                'duration_ms' => $render->duration_ms,
                 'error' => $render->error,
                 'created_at' => $render->created_at,
             ])),

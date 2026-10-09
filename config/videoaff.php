@@ -8,7 +8,7 @@ return [
     'product_images_max' => 5,
 
     // Viết kịch bản: "claude" gọi API thật, "fake" trả kịch bản mẫu (dev/test không cần khoá).
-    'script_driver' => env('SCRIPT_DRIVER', env('ANTHROPIC_API_KEY') ? 'claude' : 'fake'),
+    'script_driver' => env('SCRIPT_DRIVER') ?: (env('ANTHROPIC_API_KEY') ? 'claude' : 'fake'),
 
     'claude' => [
         'api_key' => env('ANTHROPIC_API_KEY'),
@@ -17,7 +17,7 @@ return [
     ],
 
     // Tạo ảnh cảnh: "fal" gọi Meta Muse Image qua fal, "fake" dùng lại ảnh người mẫu.
-    'image_driver' => env('MUSE_DRIVER', env('FAL_KEY') ? 'fal' : 'fake'),
+    'image_driver' => env('MUSE_DRIVER') ?: (env('FAL_KEY') ? 'fal' : 'fake'),
 
     'fal' => [
         'key' => env('FAL_KEY'),
@@ -25,6 +25,8 @@ return [
         // Giá tham khảo để ghi chi phí; kiểm tra lại trên trang giá của fal.
         'cost_per_image' => (float) env('FAL_MUSE_COST_USD', 0.01),
     ],
+
+    'ffmpeg' => env('FFMPEG_BINARY', 'ffmpeg'),
 
     // Số ảnh sản phẩm tối đa gửi kèm ảnh người mẫu khi tạo ảnh cảnh.
     'image_product_refs' => 3,

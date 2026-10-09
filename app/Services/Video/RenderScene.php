@@ -1,0 +1,16 @@
+<?php
+
+namespace App\Services\Video;
+
+final class RenderScene
+{
+    public function __construct(
+        /** Đường dẫn ảnh trên máy (không phải disk media). */
+        public readonly string $imagePath,
+        public readonly int $durationMs,
+        /** Chữ lớn trên màn hình. */
+        public readonly string $title = '',
+        /** Phụ đề phía dưới (lời đọc). */
+        public readonly string $subtitle = '',
+    ) {}
+}

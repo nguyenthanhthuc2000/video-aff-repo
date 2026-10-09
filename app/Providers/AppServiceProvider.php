@@ -9,6 +9,8 @@ use App\Services\Image\ImageGenerator;
 use App\Services\Script\ClaudeScriptWriter;
 use App\Services\Script\FakeScriptWriter;
 use App\Services\Script\ScriptWriter;
+use App\Services\Video\FfmpegVideoRenderer;
+use App\Services\Video\VideoRenderer;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -41,6 +43,11 @@ class AppServiceProvider extends ServiceProvider
                 default => throw new \InvalidArgumentException('MUSE_DRIVER không hợp lệ: '.config('videoaff.image_driver')),
             };
         });
+
+        $this->app->bind(VideoRenderer::class, fn () => new FfmpegVideoRenderer(
+            config('videoaff.ffmpeg'),
+            resource_path('fonts'),
+        ));
     }
 
     /**
