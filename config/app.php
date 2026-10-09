@@ -123,4 +123,20 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Account
+    |--------------------------------------------------------------------------
+    |
+    | Tài khoản do AdminUserSeeder tạo. Để trống mật khẩu thì seeder tự sinh
+    | mật khẩu ngẫu nhiên khi tạo mới và in ra một lần.
+    |
+    */
+
+    'admin' => [
+        'name' => env('ADMIN_NAME', 'Admin'),
+        'email' => env('ADMIN_EMAIL', 'admin@video-aff.local'),
+        'password' => env('ADMIN_PASSWORD'),
+    ],
+
 ];

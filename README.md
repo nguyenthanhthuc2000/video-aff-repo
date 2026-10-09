@@ -14,7 +14,7 @@ docker compose build
 docker compose run --rm app composer install
 docker compose run --rm app php artisan key:generate
 docker compose up -d
-docker compose exec app php artisan migrate
+docker compose exec app php artisan migrate --seed
 docker compose exec app php artisan storage:link
 ```
 
@@ -28,7 +28,9 @@ Mở http://localhost:8080. Vite (hot reload) chạy ở cổng 5173.
 | `db` | MySQL 8.4 | 3306 (`FORWARD_DB_PORT`) |
 | `node` | Vite dev server | 5173 |
 
-Thông tin MySQL lấy từ biến `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` trong `.env` (mặc định `video_aff` / `video_aff` / `secret`). Docker ghi đè `DB_CONNECTION` và `DB_HOST`, nên `.env` vẫn có thể để `sqlite` khi chạy không qua Docker.
+App dùng MySQL. `.env.example` đã đặt sẵn `DB_HOST=db`, `video_aff` / `video_aff` / `secret`, khớp với service `db` trong Docker.
+
+**Tài khoản admin:** `migrate --seed` chạy `AdminUserSeeder`, tạo tài khoản theo `ADMIN_NAME`, `ADMIN_EMAIL` (mặc định `admin@video-aff.local`) và `ADMIN_PASSWORD` trong `.env`. Để trống `ADMIN_PASSWORD` thì seeder sinh mật khẩu ngẫu nhiên khi tạo mới và in ra terminal một lần. Muốn đặt lại mật khẩu: điền `ADMIN_PASSWORD` rồi chạy `docker compose exec app php artisan db:seed --class=AdminUserSeeder`.
 
 Trên Linux, nếu file tạo ra bị sai quyền, build lại với UID của bạn: `UID=$(id -u) GID=$(id -g) docker compose build`.
 
@@ -47,9 +49,11 @@ docker compose down -v     # dừng và xoá dữ liệu MySQL
 ```bash
 composer install && npm install
 cp .env.example .env && php artisan key:generate
-php artisan migrate && php artisan storage:link
+php artisan migrate --seed && php artisan storage:link
 composer run dev
 ```
+
+Khi chạy không qua Docker, đổi `DB_HOST=127.0.0.1` trong `.env` (MySQL của Docker vẫn mở cổng 3306), hoặc dùng `DB_CONNECTION=sqlite`.
 
 Cần cài `ffmpeg` trên máy (có libass). `composer run dev` đã chạy kèm queue worker.
 

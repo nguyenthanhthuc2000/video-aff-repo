@@ -12,7 +12,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # Chạy PHP bằng UID/GID của máy host để file tạo ra không bị root sở hữu
 ARG UID=1000
 ARG GID=1000
-RUN groupmod -o -g ${GID} www-data && usermod -o -u ${UID} -g www-data www-data
+RUN groupmod -o -g ${GID} www-data && usermod -o -u ${UID} -g www-data www-data \
+    # Thư mục home của www-data phải ghi được (tinker/psysh, cache composer)
+    && chown www-data:www-data /var/www
 
 WORKDIR /var/www/html
 USER www-data
