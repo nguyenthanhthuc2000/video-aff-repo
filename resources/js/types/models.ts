@@ -30,3 +30,53 @@ export interface FashionModel {
     has_consent: boolean;
     consent_at: string | null;
 }
+
+export type VideoProjectStatus = 'draft' | 'scripting' | 'script_ready' | 'imaging' | 'reviewing' | 'rendering' | 'done' | 'failed';
+
+export interface Script {
+    hooks: string[];
+    caption: string;
+    hashtags: string[];
+}
+
+export interface SceneImage {
+    id: number;
+    status: 'pending' | 'ready' | 'approved' | 'rejected' | 'failed';
+    url: string | null;
+    error: string | null;
+}
+
+export interface Scene {
+    id: number;
+    position: number;
+    duration_ms: number;
+    visual: string;
+    on_screen_text: string | null;
+    voiceover: string | null;
+    image_prompt: string;
+    image: SceneImage | null;
+}
+
+export interface Render {
+    id: number;
+    hook: number;
+    status: 'pending' | 'done' | 'failed';
+    url: string | null;
+    error: string | null;
+    created_at: string;
+}
+
+export interface VideoProject {
+    id: number;
+    status: VideoProjectStatus;
+    is_busy: boolean;
+    error: string | null;
+    script: Script | null;
+    selected_hook: number;
+    product?: { id: number; name: string; primary_image_url: string | null };
+    fashion_model?: { id: number; name: string; photo_url: string };
+    scenes?: Scene[];
+    renders?: Render[];
+    created_at: string;
+    updated_at: string;
+}

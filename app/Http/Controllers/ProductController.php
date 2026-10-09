@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ProductRequest;
 use App\Http\Resources\FashionModelResource;
 use App\Http\Resources\ProductResource;
+use App\Http\Resources\VideoProjectResource;
 use App\Models\Product;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
@@ -54,6 +55,9 @@ class ProductController extends Controller
                 $request->user()->fashionModels()->whereNotNull('consent_at')->latest()->get()
             )->resolve(),
             'maxImages' => config('videoaff.product_images_max'),
+            'projects' => VideoProjectResource::collection(
+                $product->videoProjects()->with('fashionModel')->latest()->get()
+            )->resolve(),
         ]);
     }
 
