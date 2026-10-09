@@ -44,7 +44,7 @@ flowchart LR
 
 | Bảng | Cột chính | Ghi chú |
 | --- | --- | --- |
-| `products` | `user_id`, `shopee_url`, `name`, `price`, `attributes` (json: size, chất liệu, màu), `reviews` (text) | Dữ liệu người dùng nhập |
+| `products` | `user_id`, `shopee_url`, `name`, `price`, `details` (json: size, chất liệu, màu), `reviews` (text) | Dữ liệu người dùng nhập |
 | `product_images` | `product_id`, `path`, `is_primary` | Ảnh nền trắng đánh dấu `is_primary` |
 | `fashion_models` | `user_id`, `name`, `photo_path`, `consent_at` | Không cho dùng nếu `consent_at` rỗng |
 | `video_projects` | `product_id`, `fashion_model_id`, `status`, `script` (json), `selected_hook`, `music`, `error` | Trạng thái ở mục 5 |
