@@ -11,6 +11,7 @@ use App\Http\Controllers\SceneClipController;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\VideoProjectController;
+use App\Http\Controllers\VideoSettingsController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -48,6 +49,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('scene-images/{image}/approve', [SceneImageController::class, 'approve'])->name('scene-images.approve');
     Route::post('projects/{project}/renders', [RenderController::class, 'store'])->name('projects.renders.store');
     Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');
+
+    Route::get('video-settings', [VideoSettingsController::class, 'show'])->name('video-settings.show');
+    Route::put('video-settings', [VideoSettingsController::class, 'update'])->name('video-settings.update');
 
     Route::get('claude', [ClaudeAuthController::class, 'show'])->name('claude.auth');
     Route::post('claude/start', [ClaudeAuthController::class, 'start'])->name('claude.start');

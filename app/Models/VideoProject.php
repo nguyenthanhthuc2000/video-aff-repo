@@ -12,6 +12,7 @@ use App\Http\Controllers\ScriptController;
 use App\Jobs\GenerateSceneImageJob;
 use App\Jobs\GenerateScriptJob;
 use App\Jobs\RenderVideoJob;
+use App\Support\VideoPreset;
 use Database\Factories\VideoProjectFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -112,7 +113,7 @@ class VideoProject extends Model
     /**
      * Lưu kịch bản (đã chuẩn hoá bằng ScriptSchema) và thay toàn bộ cảnh cũ.
      *
-     * @param  array{hooks: list<string>, scenes: list<array>, caption: string, hashtags: list<string>}  $script
+     * @param  array{hooks: list<string>, hook_themes: list<string>, recommended_hook: int, scenes: list<array>, caption: string, hashtags: list<string>}  $script
      */
     public function applyScript(array $script): void
     {
@@ -126,10 +127,13 @@ class VideoProject extends Model
             $this->update([
                 'script' => [
                     'hooks' => $script['hooks'],
+                    'hook_themes' => $script['hook_themes'] ?? [],
+                    'recommended_hook' => $script['recommended_hook'] ?? 0,
                     'caption' => $script['caption'],
                     'hashtags' => $script['hashtags'],
                 ],
-                'selected_hook' => 0,
+                // Hook Claude đề xuất được chọn sẵn để xuất video.
+                'selected_hook' => $script['recommended_hook'] ?? 0,
                 'status' => VideoProjectStatus::ScriptReady,
                 'error' => null,
             ]);
@@ -235,6 +239,16 @@ class VideoProject extends Model
         $jobs->each(fn (array $job) => GenerateSceneImageJob::dispatch(...$job));
 
         return $jobs->count();
+    }
+
+    /**
+     * Số cảnh và tổng số giây cho kịch bản, theo menu Cài đặt video (đề xuất theo sản phẩm hoặc cố định).
+     *
+     * @return array{scenes: int, seconds: int, preset: ?string, mode: string, reason: string}
+     */
+    public function videoSettings(): array
+    {
+        return VideoPreset::resolve($this->product);
     }
 
     /**

@@ -1,4 +1,5 @@
 import InputError from '@/components/input-error';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -58,7 +59,7 @@ export default function ScriptEditor({ project, disabled }: { project: VideoProj
         <form onSubmit={submit} className="space-y-6">
             <fieldset disabled={disabled} className="space-y-6">
                 <div className="space-y-2">
-                    <Label>Hook (chọn 1 câu mở đầu)</Label>
+                    <Label>Hook (chọn 1 câu mở đầu; Claude đã chọn sẵn hook đề xuất)</Label>
                     {data.hooks.map((hook, i) => (
                         <div key={i} className="flex items-center gap-2">
                             <input
@@ -68,7 +69,13 @@ export default function ScriptEditor({ project, disabled }: { project: VideoProj
                                 checked={data.selected_hook === i}
                                 onChange={() => setData('selected_hook', i)}
                             />
+                            {project.script?.hook_themes?.[i] && (
+                                <Badge variant="outline" className="shrink-0">
+                                    {project.script.hook_themes[i]}
+                                </Badge>
+                            )}
                             <Input value={hook} onChange={(e) => setHook(i, e.target.value)} />
+                            {project.script?.recommended_hook === i && <Badge className="shrink-0">Đề xuất</Badge>}
                         </div>
                     ))}
                     <InputError message={fieldErrors.selected_hook ?? Object.entries(fieldErrors).find(([k]) => k.startsWith('hooks'))?.[1]} />

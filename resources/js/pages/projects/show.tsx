@@ -148,10 +148,20 @@ export default function ProjectsShow({
                             </Button>
                         )}
                     </div>
+                    {project.video_settings && (
+                        <p className="text-muted-foreground text-sm">
+                            Độ dài khi viết kịch bản: {project.video_settings.scenes} cảnh · {project.video_settings.seconds} giây.{' '}
+                            {project.video_settings.reason}{' '}
+                            <Link href={route('video-settings.show')} className="underline">
+                                Đổi ở Cài đặt video
+                            </Link>
+                        </p>
+                    )}
                     {project.status === 'scripting' && <p className="text-muted-foreground text-sm">Claude đang viết kịch bản...</p>}
                     {!project.script && project.status === 'draft' && project.script_mode === 'api' && (
                         <p className="text-muted-foreground text-sm">
-                            Claude sẽ viết 3 hook, 5–7 cảnh, caption và hashtag từ ảnh và thông tin sản phẩm.
+                            Claude sẽ viết 5 hook theo 5 chủ đề (tự chọn hook hợp nhất), {project.video_settings?.scenes ?? 6} cảnh trong khoảng{' '}
+                            {project.video_settings?.seconds ?? 25} giây, caption và hashtag từ ảnh và thông tin sản phẩm.
                         </p>
                     )}
                     {canWriteScript &&
@@ -172,6 +182,16 @@ export default function ProjectsShow({
                 {project.script && (project.scenes?.length ?? 0) > 0 && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold">2. Ảnh cảnh</h2>
+                        {(project.scene_suggestions?.length ?? 0) > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                                <span className="text-muted-foreground">Bối cảnh hợp với sản phẩm:</span>
+                                {project.scene_suggestions?.map((setting) => (
+                                    <Badge key={setting} variant="outline">
+                                        {setting}
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
                         {project.image_mode === 'web' ? <MuseWebImages project={project} /> : <SceneImages project={project} />}
                     </section>
                 )}

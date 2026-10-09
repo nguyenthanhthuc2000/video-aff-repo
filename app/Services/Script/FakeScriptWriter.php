@@ -3,26 +3,42 @@
 namespace App\Services\Script;
 
 use App\Models\VideoProject;
+use App\Support\SceneSettings;
 
-/** Kịch bản mẫu, dùng khi chưa có khoá Claude và trong test. */
+/** Kịch bản mẫu, dùng khi chưa có khoá Claude và trong test. Theo đúng số cảnh / thời lượng đã cài. */
 class FakeScriptWriter implements ScriptWriter
 {
     public function write(VideoProject $project): array
     {
         $name = $project->product->name;
+        $settings = $project->videoSettings();
+        $places = SceneSettings::suggestFor($project->product);
+        $duration = (int) round($settings['seconds'] * 1000 / $settings['scenes']);
+
+        $scenes = [];
+        for ($i = 0; $i < $settings['scenes']; $i++) {
+            $last = $i === $settings['scenes'] - 1;
+            $place = $places[$i % count($places)];
+            $scenes[] = [
+                'visual' => $last ? 'Người mẫu mỉm cười, chỉ xuống giỏ hàng' : "Người mẫu mặc sản phẩm, {$place}",
+                'on_screen_text' => $last ? 'Xem màu, size, ưu đãi trong giỏ hàng' : ucfirst($place),
+                'voiceover' => $last ? 'Xem màu, size và ưu đãi trong giỏ hàng nha.' : "Mặc đi {$place} là hợp.",
+                'image_prompt' => "model wearing the product, {$place}, natural light, 9:16",
+                'duration_ms' => $duration,
+            ];
+        }
 
         return ScriptSchema::normalize([
             'hooks' => [
                 "Mặc {$name} đi đâu cũng được khen",
-                'Một món mà phối được cả tuần',
-                'Đừng mua trước khi xem video này',
+                'Người mua nói gì về mẫu này?',
+                'Mẫu đang được săn nhiều tuần này',
+                'Một món phối được cả tuần',
+                'Nhìn kỹ chi tiết này nha',
             ],
-            'scenes' => [
-                ['visual' => 'Người mẫu đứng toàn thân, xoay nhẹ', 'on_screen_text' => 'Hook', 'voiceover' => 'Mẫu này đang hot lắm nè.', 'image_prompt' => 'full body, model wearing the product, studio light, 9:16', 'duration_ms' => 3000],
-                ['visual' => 'Cận chất vải', 'on_screen_text' => 'Chất vải', 'voiceover' => 'Nhìn kỹ chất vải nha.', 'image_prompt' => 'close-up of the fabric texture, model wearing the product, 9:16', 'duration_ms' => 3000],
-                ['visual' => 'Người mẫu đi dạo phố', 'on_screen_text' => 'Đi chơi', 'voiceover' => 'Đi chơi cuối tuần là hợp.', 'image_prompt' => 'model wearing the product walking on a city street, 9:16', 'duration_ms' => 3000],
-                ['visual' => 'Bảng size và giỏ hàng', 'on_screen_text' => 'Xem màu, size, ưu đãi trong giỏ hàng', 'voiceover' => 'Xem màu, size và ưu đãi trong giỏ hàng nha.', 'image_prompt' => 'model wearing the product, smiling, plain background, 9:16', 'duration_ms' => 3000],
-            ],
+            'hook_themes' => ['Tò mò', 'Người mua nói gì', 'Xu hướng', 'Cách phối đồ', 'Chi tiết đáng tiền'],
+            'recommended_hook' => 0,
+            'scenes' => $scenes,
             'caption' => "{$name}: xem màu, size, ưu đãi trong giỏ hàng.",
             'hashtags' => ['#shopee', '#thoitrang', '#review'],
         ]);

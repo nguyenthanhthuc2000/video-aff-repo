@@ -15,16 +15,22 @@ export type ShopeeSnapshot = {
     price: number | null;
 };
 
-// Chạy trên trang Shopee: gom chữ, link ảnh CDN và JSON-LD, mở trang này rồi gửi dữ liệu qua postMessage.
+// Chạy trên trang Shopee: gom chữ, ảnh sản phẩm và JSON-LD, mở trang này rồi gửi dữ liệu qua postMessage.
+// Ảnh chỉ lấy từ các phần tử slide ảnh sản phẩm (.page-product .qIctnQ): src/srcset/data-src/background của chính
+// phần tử và ảnh con. Không quét cả trang (lẫn ảnh gợi ý, đánh giá). Shopee đổi tên class (không còn .qIctnQ)
+// thì lấy ảnh chính (JSON-LD, og:image), quá ít thì mới quét khu vực sản phẩm.
 // Viết dạng chuỗi (String.raw) để bundler không biến đổi code.
 const BOOKMARKLET = String.raw`(function(app){
 if(!/(^|\.)shopee\./.test(location.hostname)){alert('Hãy mở trang sản phẩm trên Shopee rồi bấm lại.');return;}
 var images=[],seen={},product={};
 function add(u){var m=/^https:\/\/([a-z0-9-]+\.img\.susercontent\.com)\/file\/([A-Za-z0-9-]+)/i.exec(u||'');if(m&&!seen[m[2]]){seen[m[2]]=1;images.push('https://'+m[1]+'/file/'+m[2]);}}
 document.querySelectorAll('script[type="application/ld+json"]').forEach(function(s){try{[].concat(JSON.parse(s.textContent)).forEach(function(d){if(d&&d['@type']==='Product'){product=d;}});}catch(e){}});
-[].concat(product.image||[]).forEach(add);
-var og=document.querySelector('meta[property="og:image"]');if(og){add(og.content);}
-(document.body.innerHTML.match(/https:\/\/[a-z0-9-]+\.img\.susercontent\.com\/file\/[A-Za-z0-9-]+/gi)||[]).forEach(add);
+var re=/https:\/\/[a-z0-9-]+\.img\.susercontent\.com\/file\/[A-Za-z0-9-]+/gi;
+var slides=document.querySelectorAll('.page-product .qIctnQ');
+if(slides.length){slides.forEach(function(n){(n.outerHTML.match(re)||[]).forEach(add);});}
+else{[].concat(product.image||[]).forEach(add);var og=document.querySelector('meta[property="og:image"]');if(og){add(og.content);}
+if(images.length<2){var page=document.querySelector('.page-product')||document.body;(page.innerHTML.match(re)||[]).forEach(add);}}
+console.log('[Lấy từ Shopee] '+slides.length+' phần tử .qIctnQ, '+images.length+' ảnh');
 var offer=[].concat(product.offers||[])[0]||{};
 var data={type:'videoaff:product',url:location.origin+location.pathname,title:document.title,text:document.body.innerText.slice(0,50000),images:images.slice(0,30),name:product.name||'',price:Number(offer.lowPrice||offer.price)||null};
 var w=window.open(app+'/products/create?import=1','videoaff-import');
@@ -117,6 +123,10 @@ export default function ShopeeImport() {
             <ol className="text-muted-foreground list-decimal space-y-2 pl-5 text-sm">
                 <li className="space-y-2">
                     <span>Tạo bookmark "Lấy từ Shopee" (chỉ cần làm một lần):</span>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Đã cập nhật: bookmark mới chỉ lấy ảnh trong khung slide ảnh sản phẩm. Nếu đã tạo bookmark trước đây, hãy xoá bookmark cũ và
+                        tạo lại.
+                    </p>
                     <div className="flex flex-wrap items-center gap-2">
                         <a
                             ref={bookmarkletRef}

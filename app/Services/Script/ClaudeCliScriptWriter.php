@@ -23,7 +23,7 @@ class ClaudeCliScriptWriter implements ScriptWriter
                 $content[] = $block;
             }
         }
-        $content[] = ['type' => 'text', 'text' => ScriptPrompt::productInfo($product)."\nẢnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng."];
+        $content[] = ['type' => 'text', 'text' => ScriptPrompt::userText($project)."\nẢnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng."];
 
         try {
             $script = $this->cli->json(ScriptPrompt::SYSTEM, $content, ScriptSchema::schema(), "script:{$project->id}");

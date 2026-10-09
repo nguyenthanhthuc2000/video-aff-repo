@@ -9,6 +9,7 @@ use App\Jobs\GenerateSceneImageJob;
 use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
 use App\Support\Media;
+use App\Support\SceneSettings;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -32,11 +33,14 @@ class VideoProjectResource extends JsonResource
             'has_music' => $this->music !== null,
             'script_mode' => ScriptController::webMode() ? 'web' : 'api',
             'claude_web_url' => config('videoaff.claude_web_url'),
-            'script_prompt' => $this->when(ScriptController::webMode() && $this->relationLoaded('scenes'), fn () => ScriptPrompt::forWeb($this->product)),
+            'script_prompt' => $this->when(ScriptController::webMode() && $this->relationLoaded('scenes'), fn () => ScriptPrompt::forWeb($this->resource)),
             'motion_style' => $this->motion_style?->value,
             'motion_styles' => array_map(fn ($style) => $style->value, $this->motionStyles()),
             'motion_style_label' => implode(', ', array_map(fn ($style) => $style->label(), $this->motionStyles())) ?: null,
             'motion_web_url' => config('videoaff.motion_web_url'),
+            // Cài đặt video và bối cảnh gợi ý theo sản phẩm (trang dự án).
+            'video_settings' => $this->whenLoaded('scenes', fn () => $this->videoSettings()),
+            'scene_suggestions' => $this->whenLoaded('scenes', fn () => SceneSettings::suggestFor($this->product)),
             'image_mode' => SceneImageController::webMode() ? 'web' : 'api',
             'muse_web_url' => config('videoaff.muse_web_url'),
             'references' => $this->whenLoaded('scenes', fn () => [

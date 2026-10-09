@@ -5,6 +5,8 @@ namespace App\Services\Script;
 /** JSON schema cho đầu ra kịch bản (structured outputs). */
 class ScriptSchema
 {
+    public const MAX_HOOKS = 5;
+
     public static function schema(): array
     {
         $string = ['type' => 'string'];
@@ -12,9 +14,11 @@ class ScriptSchema
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['hooks', 'scenes', 'caption', 'hashtags'],
+            'required' => ['hooks', 'hook_themes', 'recommended_hook', 'scenes', 'caption', 'hashtags'],
             'properties' => [
                 'hooks' => ['type' => 'array', 'items' => $string],
+                'hook_themes' => ['type' => 'array', 'items' => $string],
+                'recommended_hook' => ['type' => 'integer'],
                 'scenes' => [
                     'type' => 'array',
                     'items' => [
@@ -62,8 +66,15 @@ class ScriptSchema
             ];
         }
 
+        $hooks = array_values(array_slice(array_map('strval', $data['hooks']), 0, self::MAX_HOOKS));
+        $themes = array_values(array_map('strval', (array) ($data['hook_themes'] ?? [])));
+        $recommended = (int) ($data['recommended_hook'] ?? 0);
+
         return [
-            'hooks' => array_values(array_slice(array_map('strval', $data['hooks']), 0, 3)),
+            'hooks' => $hooks,
+            // Chủ đề từng hook (bản cũ / claude.ai có thể thiếu: để trống).
+            'hook_themes' => array_map(fn (int $i) => mb_substr($themes[$i] ?? '', 0, 60), array_keys($hooks)),
+            'recommended_hook' => $recommended >= 0 && $recommended < count($hooks) ? $recommended : 0,
             'scenes' => $scenes,
             'caption' => (string) ($data['caption'] ?? ''),
             'hashtags' => array_values(array_map('strval', $data['hashtags'] ?? [])),

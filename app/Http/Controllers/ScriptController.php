@@ -6,6 +6,7 @@ use App\Enums\VideoProjectStatus;
 use App\Jobs\GenerateScriptJob;
 use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
+use App\Services\Script\ScriptSchema;
 use App\Services\Script\ScriptWriterException;
 use App\Support\ScriptDriver;
 use Illuminate\Http\RedirectResponse;
@@ -78,7 +79,7 @@ class ScriptController extends Controller
         $sceneIds = $project->scenes()->pluck('id')->all();
 
         $validated = $request->validate([
-            'hooks' => ['required', 'array', 'min:1', 'max:3'],
+            'hooks' => ['required', 'array', 'min:1', 'max:'.ScriptSchema::MAX_HOOKS],
             'hooks.*' => ['required', 'string', 'max:200'],
             'selected_hook' => ['required', 'integer', 'min:0', 'lt:'.count($request->input('hooks', []))],
             'caption' => ['nullable', 'string', 'max:2000'],

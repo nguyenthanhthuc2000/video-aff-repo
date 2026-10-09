@@ -12,6 +12,7 @@ use App\Services\Script\FakeScriptWriter;
 use App\Services\Script\ScriptSchema;
 use App\Services\Script\ScriptWriter;
 use App\Services\Script\ScriptWriterException;
+use App\Support\VideoPreset;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -49,19 +50,23 @@ class ScriptTest extends TestCase
 
     public function test_generate_writes_script_and_scenes()
     {
+        VideoPreset::saveSettings(['mode' => 'fixed', 'scene_count' => 4, 'target_seconds' => 16]);
         $project = VideoProject::factory()->create();
 
         $this->actingAs($project->user)->post(route('projects.script.store', $project));
 
         $project->refresh();
         $this->assertSame(VideoProjectStatus::ScriptReady, $project->status);
-        $this->assertCount(3, $project->script['hooks']);
-        $this->assertSame(0, $project->selected_hook);
+        $this->assertCount(5, $project->script['hooks']);
+        $this->assertCount(5, $project->script['hook_themes']);
+        $this->assertSame($project->script['recommended_hook'], $project->selected_hook);
         $this->assertSame([1, 2, 3, 4], $project->scenes->pluck('position')->all());
+        $this->assertSame(16000, $project->scenes->sum('duration_ms'));
     }
 
     public function test_regenerate_replaces_old_scenes()
     {
+        VideoPreset::saveSettings(['mode' => 'fixed', 'scene_count' => 4, 'target_seconds' => 16]);
         $project = VideoProject::factory()->create(['status' => VideoProjectStatus::ScriptReady, 'script' => ['hooks' => ['a']]]);
         $old = Scene::factory()->for($project)->create();
 
@@ -159,11 +164,15 @@ class ScriptTest extends TestCase
     public function test_schema_normalize_clamps_and_validates()
     {
         $script = ScriptSchema::normalize([
-            'hooks' => ['a', 'b', 'c', 'd'],
+            'hooks' => ['a', 'b', 'c', 'd', 'e', 'f'],
+            'hook_themes' => ['Tò mò'],
+            'recommended_hook' => 9,
             'scenes' => [['visual' => 'v', 'image_prompt' => 'p', 'duration_ms' => 50000]],
         ]);
 
-        $this->assertCount(3, $script['hooks']);
+        $this->assertCount(5, $script['hooks']);
+        $this->assertSame(['Tò mò', '', '', '', ''], $script['hook_themes']);
+        $this->assertSame(0, $script['recommended_hook']);
         $this->assertSame(10000, $script['scenes'][0]['duration_ms']);
         $this->assertSame([], $script['hashtags']);
 

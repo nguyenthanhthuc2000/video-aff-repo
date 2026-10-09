@@ -9,6 +9,9 @@ class AppSetting extends Model
 {
     public const CLAUDE_OAUTH_TOKEN = 'claude_oauth_token';
 
+    /** Cài đặt độ dài video (menu Cài đặt video), JSON: {mode: auto|fixed, scene_count, target_seconds}. */
+    public const VIDEO_LENGTH = 'video_length';
+
     protected $primaryKey = 'key';
 
     protected $keyType = 'string';

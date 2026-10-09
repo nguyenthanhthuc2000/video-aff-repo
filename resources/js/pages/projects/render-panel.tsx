@@ -43,11 +43,13 @@ export default function RenderPanel({ project }: { project: VideoProject }) {
             <form onSubmit={submit} className="space-y-4">
                 <fieldset disabled={!canRender} className="space-y-4">
                     <div className="space-y-2">
-                        <Label>Hook mở đầu</Label>
+                        <Label>Hook mở đầu ({hooks.length} chủ đề, đã chọn sẵn hook Claude đề xuất)</Label>
                         {hooks.map((hook, i) => (
                             <label key={i} className="flex items-center gap-2 text-sm">
                                 <input type="radio" name="hook" checked={data.hook === i} onChange={() => setData('hook', i)} />
-                                {hook}
+                                {project.script?.hook_themes?.[i] && <Badge variant="outline">{project.script.hook_themes[i]}</Badge>}
+                                <span>{hook}</span>
+                                {project.script?.recommended_hook === i && <Badge>Đề xuất</Badge>}
                             </label>
                         ))}
                         <InputError message={errors.hook} />

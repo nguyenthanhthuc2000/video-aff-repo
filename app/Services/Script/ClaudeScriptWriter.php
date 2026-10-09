@@ -79,7 +79,7 @@ class ClaudeScriptWriter implements ScriptWriter
     private function userContent(VideoProject $project): array
     {
         $product = $project->product;
-        $text = ScriptPrompt::productInfo($product)."\nẢnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng.";
+        $text = ScriptPrompt::userText($project)."\nẢnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng.";
 
         $content = [];
         foreach ($product->images()->orderByDesc('is_primary')->limit(3)->get() as $image) {

@@ -42,6 +42,10 @@ export type VideoProjectStatus = 'draft' | 'scripting' | 'script_ready' | 'imagi
 
 export interface Script {
     hooks: string[];
+    /** Chủ đề từng hook (Tò mò, Người mua nói gì...). */
+    hook_themes?: string[];
+    /** Hook Claude đề xuất để mở video. */
+    recommended_hook?: number;
     caption: string;
     hashtags: string[];
 }
@@ -82,6 +86,23 @@ export interface Render {
     created_at: string;
 }
 
+export interface VideoPresetOption {
+    key: string;
+    label: string;
+    seconds: number;
+    scenes: number;
+    hint: string;
+    recommended: boolean;
+}
+
+export interface VideoSettings {
+    scenes: number;
+    seconds: number;
+    preset: string | null;
+    mode: 'auto' | 'fixed';
+    reason: string;
+}
+
 export interface VideoProject {
     id: number;
     status: VideoProjectStatus;
@@ -104,6 +125,8 @@ export interface VideoProject {
     motion_style_label: string | null;
     motion_web_url: string;
     references?: { label: string; url: string }[];
+    video_settings?: VideoSettings;
+    scene_suggestions?: string[];
     image_cost_usd?: number;
     product?: { id: number; name: string; primary_image_url: string | null };
     fashion_model?: { id: number; name: string; photo_url: string };

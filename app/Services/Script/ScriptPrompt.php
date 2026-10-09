@@ -3,26 +3,30 @@
 namespace App\Services\Script;
 
 use App\Models\Product;
+use App\Models\VideoProject;
+use App\Support\SceneSettings;
 
 /** Nội dung prompt viết kịch bản, dùng chung cho Claude API và Claude bản web. */
 class ScriptPrompt
 {
     public const SYSTEM = <<<'PROMPT'
-    Bạn là người viết kịch bản video affiliate ngắn (Shopee Video, dọc 9:16, 20–30 giây) cho sản phẩm thời trang.
+    Bạn là người viết kịch bản video affiliate ngắn (Shopee Video, dọc 9:16) cho sản phẩm thời trang.
 
     Viết bằng tiếng Việt tự nhiên, giọng người thật đang giới thiệu đồ mình thích, câu ngắn, dễ đọc thành lời.
 
     Đầu ra:
-    - hooks: đúng 3 câu mở đầu khác nhau (mỗi câu dưới 12 từ), gây tò mò trong 2 giây đầu.
-    - scenes: 5–7 cảnh, tổng thời lượng 20–30 giây. Mỗi cảnh có:
+    - hooks: đúng 5 câu mở đầu (mỗi câu dưới 12 từ), gây tò mò trong 2 giây đầu, mỗi câu theo một chủ đề khác nhau, chọn từ:
+      Tò mò, Vấn đề – giải pháp, Người mua nói gì, Xu hướng, Cách phối đồ, Khoảnh khắc / cảm xúc, Chi tiết đáng tiền.
+    - hook_themes: tên chủ đề của từng hook, cùng thứ tự với hooks.
+    - recommended_hook: vị trí (0–4) của hook hợp nhất với sản phẩm và người xem, dùng để mở video.
+    - scenes: đúng số cảnh và tổng thời lượng như phần "Yêu cầu video". Mỗi cảnh có:
       - visual: mô tả khung hình bằng tiếng Việt.
       - on_screen_text: chữ trên màn hình, tối đa 8 từ.
       - voiceover: lời đọc cho cảnh, khớp thời lượng (khoảng 3 từ mỗi giây).
       - image_prompt: prompt tiếng Anh để AI chỉnh ảnh người mẫu mặc đúng sản phẩm trong ảnh tham chiếu. Mở đầu bằng bối cảnh cụ thể (địa điểm, đồ vật xung quanh, thời điểm trong ngày), rồi đến tư thế, hành động, góc máy, ánh sáng. Giữ nguyên màu, hoạ tiết, kiểu dáng sản phẩm; khung dọc 9:16.
-      - duration_ms: 2000–6000.
-    - Mỗi cảnh một bối cảnh khác hẳn nhau, không lặp địa điểm, như một ngày mặc sản phẩm. Chọn bối cảnh hợp với sản phẩm, ví dụ:
-      phòng thay đồ / soi gương thử đồ, đi dạo phố, ngồi quán cà phê, đi làm ở văn phòng, trung tâm thương mại, công viên cuối tuần,
-      hẹn hò buổi tối ở nhà hàng, du lịch biển, ở nhà buổi sáng, cận cảnh chất vải và đường may trên nền trơn.
+      - duration_ms: thời lượng cảnh; tổng các cảnh bằng tổng thời lượng yêu cầu.
+    - Mỗi cảnh một bối cảnh khác hẳn nhau, không lặp địa điểm, như một ngày mặc sản phẩm.
+      Ưu tiên các bối cảnh trong mục "Bối cảnh hợp với sản phẩm" (chọn theo tên và kiểu sản phẩm, nơi người mua thật sự sẽ mặc).
     - Đổi cả tư thế và góc máy giữa các cảnh (toàn thân đang bước đi, ngồi, xoay người, nửa người, cận chi tiết); không lặp cùng một kiểu đứng tạo dáng.
     - Phong cách trang nhã, lịch sự như ảnh thời trang thương mại: KHÔNG gợi cảm, không sexy, không khiêu khích.
       Không mô tả hay nhấn vào cơ thể (ngực, eo, đùi, khe xẻ, phần hở, độ mỏng xuyên thấu), không góc máy thấp nhìn lên hay cận cơ thể.
@@ -60,11 +64,24 @@ class ScriptPrompt
         return implode("\n", $lines);
     }
 
+    /** Phần tin nhắn gửi Claude: thông tin sản phẩm, bối cảnh gợi ý và yêu cầu độ dài video. */
+    public static function userText(VideoProject $project): string
+    {
+        $settings = $project->videoSettings();
+        $perScene = round($settings['seconds'] / max(1, $settings['scenes']), 1);
+
+        return self::productInfo($project->product)."\n\n"
+            .'Bối cảnh hợp với sản phẩm: '.implode('; ', SceneSettings::suggestFor($project->product)).".\n\n"
+            ."Yêu cầu video: đúng {$settings['scenes']} cảnh, tổng khoảng {$settings['seconds']} giây (mỗi cảnh khoảng {$perScene} giây; cảnh cuối là kêu gọi mua).";
+    }
+
     /** Prompt đầy đủ để dán vào claude.ai (không có structured outputs nên yêu cầu JSON theo mẫu). */
-    public static function forWeb(Product $product): string
+    public static function forWeb(VideoProject $project): string
     {
         $example = json_encode([
-            'hooks' => ['...', '...', '...'],
+            'hooks' => ['...', '...', '...', '...', '...'],
+            'hook_themes' => ['Tò mò', '...', '...', '...', '...'],
+            'recommended_hook' => 0,
             'scenes' => [[
                 'visual' => '...',
                 'on_screen_text' => '...',
@@ -77,7 +94,7 @@ class ScriptPrompt
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return self::SYSTEM."\n\n"
-            .self::productInfo($product)."\n\n"
+            .self::userText($project)."\n\n"
             ."Ảnh đính kèm là ảnh sản phẩm.\n\n"
             ."Chỉ trả lời bằng một khối JSON đúng cấu trúc sau, không thêm chữ nào khác:\n"
             .$example;
