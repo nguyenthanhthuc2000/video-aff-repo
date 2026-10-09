@@ -5,18 +5,27 @@ namespace App\Http\Controllers;
 use App\Enums\VideoProjectStatus;
 use App\Jobs\GenerateScriptJob;
 use App\Models\VideoProject;
+use App\Services\Script\ScriptPrompt;
+use App\Services\Script\ScriptWriterException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ScriptController extends Controller
 {
+    private const WRITE_ALLOWED = [VideoProjectStatus::Draft, VideoProjectStatus::ScriptReady, VideoProjectStatus::Failed];
+
     /** Đưa việc viết kịch bản vào hàng đợi. Viết lại sẽ xoá các cảnh cũ. */
     public function store(VideoProject $project): RedirectResponse
     {
         $this->authorize('update', $project);
 
-        if (! in_array($project->status, [VideoProjectStatus::Draft, VideoProjectStatus::ScriptReady, VideoProjectStatus::Failed], true)) {
+        if (self::webMode()) {
+            return back()->with('status', 'Đang ở chế độ Claude bản web: copy prompt sang claude.ai rồi dán câu trả lời về.');
+        }
+
+        if (! in_array($project->status, self::WRITE_ALLOWED, true)) {
             return back()->with('status', 'Không thể viết lại kịch bản ở bước này.');
         }
 
@@ -25,6 +34,35 @@ class ScriptController extends Controller
         GenerateScriptJob::dispatch($project);
 
         return back()->with('status', 'Đang viết kịch bản...');
+    }
+
+    /** Nhập kịch bản từ câu trả lời của Claude bản web (claude.ai). Thay toàn bộ cảnh cũ. */
+    public function import(Request $request, VideoProject $project): RedirectResponse
+    {
+        $this->authorize('update', $project);
+
+        $validated = $request->validate([
+            'reply' => ['required', 'string', 'max:50000'],
+        ], [], ['reply' => 'câu trả lời của Claude']);
+
+        if (! in_array($project->status, self::WRITE_ALLOWED, true)) {
+            return back()->with('status', 'Không thể thay kịch bản ở bước này.');
+        }
+
+        try {
+            $script = ScriptPrompt::parseWebReply($validated['reply']);
+        } catch (ScriptWriterException $e) {
+            throw ValidationException::withMessages(['reply' => $e->getMessage()]);
+        }
+
+        $project->applyScript($script);
+
+        return back()->with('status', 'Đã nhập kịch bản.');
+    }
+
+    public static function webMode(): bool
+    {
+        return config('videoaff.script_driver') === 'web';
     }
 
     /** Lưu chỉnh sửa hook, caption và các cảnh. */

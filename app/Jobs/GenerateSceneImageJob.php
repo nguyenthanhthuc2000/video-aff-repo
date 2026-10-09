@@ -83,7 +83,7 @@ class GenerateSceneImageJob implements ShouldQueue
     public static function prompt(string $scenePrompt): string
     {
         return trim($scenePrompt)."\n\n"
-            .'The person in the first reference image wears the exact garment shown in the other reference images. '
+            .'The person in the first attached image wears the exact garment shown in the other attached images. '
             .'Keep the person\'s face and body the same. Keep the garment\'s color, pattern, fabric and cut identical. '
             .'Photorealistic vertical 9:16 photo, no text, no watermark.';
     }

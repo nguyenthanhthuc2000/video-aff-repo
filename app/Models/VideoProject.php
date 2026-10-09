@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Facades\DB;
 
 class VideoProject extends Model
 {
@@ -92,6 +93,33 @@ class VideoProject extends Model
     {
         return $this->scenes()->exists()
             && $this->scenes()->whereDoesntHave('approvedImage')->doesntExist();
+    }
+
+    /**
+     * Lưu kịch bản (đã chuẩn hoá bằng ScriptSchema) và thay toàn bộ cảnh cũ.
+     *
+     * @param  array{hooks: list<string>, scenes: list<array>, caption: string, hashtags: list<string>}  $script
+     */
+    public function applyScript(array $script): void
+    {
+        DB::transaction(function () use ($script) {
+            $this->scenes()->delete();
+
+            foreach ($script['scenes'] as $i => $scene) {
+                $this->scenes()->create([...$scene, 'position' => $i + 1]);
+            }
+
+            $this->update([
+                'script' => [
+                    'hooks' => $script['hooks'],
+                    'caption' => $script['caption'],
+                    'hashtags' => $script['hashtags'],
+                ],
+                'selected_hook' => 0,
+                'status' => VideoProjectStatus::ScriptReady,
+                'error' => null,
+            ]);
+        });
     }
 
     public function markFailed(string $error): void

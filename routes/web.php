@@ -28,8 +28,10 @@ Route::middleware(['auth'])->group(function () {
         ->parameters(['projects' => 'project']);
     Route::post('projects/{project}/script', [ScriptController::class, 'store'])->name('projects.script.store');
     Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
+    Route::post('projects/{project}/script/import', [ScriptController::class, 'import'])->name('projects.script.import');
     Route::post('projects/{project}/images', [SceneImageController::class, 'store'])->name('projects.images.store');
     Route::post('scenes/{scene}/image', [SceneImageController::class, 'regenerate'])->name('scenes.image.regenerate');
+    Route::post('scenes/{scene}/upload', [SceneImageController::class, 'upload'])->name('scenes.image.upload');
     Route::post('scene-images/{image}/approve', [SceneImageController::class, 'approve'])->name('scene-images.approve');
     Route::post('projects/{project}/renders', [RenderController::class, 'store'])->name('projects.renders.store');
     Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');

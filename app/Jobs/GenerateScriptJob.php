@@ -2,13 +2,11 @@
 
 namespace App\Jobs;
 
-use App\Enums\VideoProjectStatus;
 use App\Models\VideoProject;
 use App\Services\Script\ScriptWriter;
 use App\Services\Script\ScriptWriterException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class GenerateScriptJob implements ShouldQueue
@@ -42,24 +40,7 @@ class GenerateScriptJob implements ShouldQueue
             return;
         }
 
-        DB::transaction(function () use ($project, $script) {
-            $project->scenes()->delete();
-
-            foreach ($script['scenes'] as $i => $scene) {
-                $project->scenes()->create([...$scene, 'position' => $i + 1]);
-            }
-
-            $project->update([
-                'script' => [
-                    'hooks' => $script['hooks'],
-                    'caption' => $script['caption'],
-                    'hashtags' => $script['hashtags'],
-                ],
-                'selected_hook' => 0,
-                'status' => VideoProjectStatus::ScriptReady,
-                'error' => null,
-            ]);
-        });
+        $project->applyScript($script);
     }
 
     public function failed(?Throwable $e): void

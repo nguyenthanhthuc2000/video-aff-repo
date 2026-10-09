@@ -7,8 +7,13 @@ return [
 
     'product_images_max' => 5,
 
-    // Viết kịch bản: "claude" gọi API thật, "fake" trả kịch bản mẫu (dev/test không cần khoá).
-    'script_driver' => env('SCRIPT_DRIVER') ?: (env('ANTHROPIC_API_KEY') ? 'claude' : 'fake'),
+    // Viết kịch bản:
+    // - "web": copy prompt sang claude.ai (tài khoản đăng nhập), dán câu trả lời JSON về. Không cần khoá.
+    // - "claude": gọi Claude API (cần ANTHROPIC_API_KEY).
+    // - "fake": kịch bản mẫu (test).
+    'script_driver' => env('SCRIPT_DRIVER') ?: (env('ANTHROPIC_API_KEY') ? 'claude' : 'web'),
+
+    'claude_web_url' => env('CLAUDE_WEB_URL', 'https://claude.ai/new'),
 
     'claude' => [
         'api_key' => env('ANTHROPIC_API_KEY'),
@@ -16,8 +21,13 @@ return [
         'max_tokens' => (int) env('CLAUDE_MAX_TOKENS', 16000),
     ],
 
-    // Tạo ảnh cảnh: "fal" gọi Meta Muse Image qua fal, "fake" dùng lại ảnh người mẫu.
-    'image_driver' => env('MUSE_DRIVER') ?: (env('FAL_KEY') ? 'fal' : 'fake'),
+    // Tạo ảnh cảnh:
+    // - "web": người dùng tự tạo ảnh trên meta.ai (Muse bản web) rồi tải lên. Không cần khoá.
+    // - "fal": gọi Meta Muse Image qua API của fal.
+    // - "fake": dùng lại ảnh người mẫu (test).
+    'image_driver' => env('MUSE_DRIVER') ?: (env('FAL_KEY') ? 'fal' : 'web'),
+
+    'muse_web_url' => env('MUSE_WEB_URL', 'https://www.meta.ai/'),
 
     'fal' => [
         'key' => env('FAL_KEY'),

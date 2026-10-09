@@ -12,29 +12,6 @@ use Illuminate\Support\Facades\Log;
 
 class ClaudeScriptWriter implements ScriptWriter
 {
-    private const SYSTEM_PROMPT = <<<'PROMPT'
-    Bạn là người viết kịch bản video affiliate ngắn (Shopee Video, dọc 9:16, 20–30 giây) cho sản phẩm thời trang.
-
-    Viết bằng tiếng Việt tự nhiên, giọng người thật đang giới thiệu đồ mình thích, câu ngắn, dễ đọc thành lời.
-
-    Đầu ra:
-    - hooks: đúng 3 câu mở đầu khác nhau (mỗi câu dưới 12 từ), gây tò mò trong 2 giây đầu.
-    - scenes: 5–7 cảnh, tổng thời lượng 20–30 giây. Mỗi cảnh có:
-      - visual: mô tả khung hình bằng tiếng Việt.
-      - on_screen_text: chữ trên màn hình, tối đa 8 từ.
-      - voiceover: lời đọc cho cảnh, khớp thời lượng (khoảng 3 từ mỗi giây).
-      - image_prompt: prompt tiếng Anh để AI chỉnh ảnh người mẫu mặc đúng sản phẩm trong ảnh tham chiếu. Giữ nguyên màu, hoạ tiết, kiểu dáng sản phẩm; ghi bối cảnh, góc máy, ánh sáng; khung dọc 9:16.
-      - duration_ms: 2000–6000.
-    - Cảnh cuối là kêu gọi mua: "xem màu, size, ưu đãi trong giỏ hàng".
-    - caption: 1–2 câu cho bài đăng.
-    - hashtags: 3–6 hashtag, có dấu #.
-
-    Quy tắc:
-    - Chỉ nói những gì có trong thông tin sản phẩm, ảnh và đánh giá. Không bịa chất liệu ("lụa cao cấp"), công dụng ("không lộ", "che bụng"), số liệu bán hàng hay giá cố định, giảm giá.
-    - Không so sánh hạ thấp thương hiệu khác. Không dùng từ tuyệt đối ("nhất", "100%").
-    - Nếu đánh giá có điểm chê (ví dụ form nhỏ), có thể khéo léo khuyên chọn size phù hợp, không giấu.
-    PROMPT;
-
     public function __construct(
         private readonly Client $client,
         private readonly string $model,
@@ -49,7 +26,7 @@ class ClaudeScriptWriter implements ScriptWriter
                 model: $this->model,
                 system: [[
                     'type' => 'text',
-                    'text' => self::SYSTEM_PROMPT,
+                    'text' => ScriptPrompt::SYSTEM,
                     'cacheControl' => ['type' => 'ephemeral'],
                 ]],
                 messages: [['role' => 'user', 'content' => $this->userContent($project)]],
@@ -102,22 +79,7 @@ class ClaudeScriptWriter implements ScriptWriter
     private function userContent(VideoProject $project): array
     {
         $product = $project->product;
-        $details = array_filter($product->details ?? []);
-
-        $lines = ["Sản phẩm: {$product->name}"];
-        if ($product->price) {
-            $lines[] = 'Giá tham khảo (không ghi vào kịch bản): '.number_format($product->price, 0, ',', '.').'đ';
-        }
-        $labels = ['sizes' => 'Size', 'material' => 'Chất liệu', 'colors' => 'Màu', 'notes' => 'Ghi chú'];
-        foreach ($labels as $key => $label) {
-            if (! empty($details[$key])) {
-                $lines[] = "{$label}: {$details[$key]}";
-            }
-        }
-        if ($product->reviews) {
-            $lines[] = "Đánh giá của người mua:\n{$product->reviews}";
-        }
-        $lines[] = 'Ảnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng.';
+        $text = ScriptPrompt::productInfo($product)."\nẢnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng.";
 
         $content = [];
         foreach ($product->images()->orderByDesc('is_primary')->limit(3)->get() as $image) {
@@ -136,7 +98,7 @@ class ClaudeScriptWriter implements ScriptWriter
                 ],
             ];
         }
-        $content[] = ['type' => 'text', 'text' => implode("\n", $lines)];
+        $content[] = ['type' => 'text', 'text' => $text];
 
         return $content;
     }

@@ -9,6 +9,8 @@ import { type VideoProject } from '@/types/models';
 import { Head, router } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { useEffect } from 'react';
+import ClaudeWebScript from './claude-web-script';
+import MuseWebImages from './muse-web-images';
 import RenderPanel from './render-panel';
 import SceneImages from './scene-images';
 import ScriptEditor from './script-editor';
@@ -78,25 +80,37 @@ export default function ProjectsShow({ project }: { project: VideoProject }) {
                 <section className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <h2 className="text-lg font-semibold">1. Kịch bản</h2>
-                        {canWriteScript && (
+                        {canWriteScript && project.script_mode === 'api' && (
                             <Button variant={project.script ? 'outline' : 'default'} onClick={writeScript}>
                                 {project.script ? 'Viết lại kịch bản' : 'Tạo kịch bản'}
                             </Button>
                         )}
                     </div>
                     {project.status === 'scripting' && <p className="text-muted-foreground text-sm">Claude đang viết kịch bản...</p>}
-                    {!project.script && project.status === 'draft' && (
+                    {!project.script && project.status === 'draft' && project.script_mode === 'api' && (
                         <p className="text-muted-foreground text-sm">
                             Claude sẽ viết 3 hook, 5–7 cảnh, caption và hashtag từ ảnh và thông tin sản phẩm.
                         </p>
                     )}
+                    {canWriteScript &&
+                        project.script_mode === 'web' &&
+                        (project.script ? (
+                            <details className="rounded-lg border p-4">
+                                <summary className="cursor-pointer text-sm font-medium">Viết lại kịch bản bằng claude.ai</summary>
+                                <div className="pt-4">
+                                    <ClaudeWebScript project={project} />
+                                </div>
+                            </details>
+                        ) : (
+                            <ClaudeWebScript project={project} />
+                        ))}
                     {project.script && <ScriptEditor key={project.updated_at} project={project} disabled={project.is_busy} />}
                 </section>
 
                 {project.script && (project.scenes?.length ?? 0) > 0 && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold">2. Ảnh cảnh</h2>
-                        <SceneImages project={project} />
+                        {project.image_mode === 'web' ? <MuseWebImages project={project} /> : <SceneImages project={project} />}
                     </section>
                 )}
 

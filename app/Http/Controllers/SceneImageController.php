@@ -8,6 +8,7 @@ use App\Jobs\GenerateSceneImageJob;
 use App\Models\Scene;
 use App\Models\SceneImage;
 use App\Models\VideoProject;
+use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -25,6 +26,10 @@ class SceneImageController extends Controller
     public function store(VideoProject $project): RedirectResponse
     {
         $this->authorize('update', $project);
+
+        if (self::webMode()) {
+            return back()->with('status', 'Đang ở chế độ Muse bản web: tạo ảnh trên meta.ai rồi tải lên từng cảnh.');
+        }
 
         if (! in_array($project->status, self::IMAGING_ALLOWED, true) || $project->scenes()->doesntExist()) {
             return back()->with('status', 'Cần có kịch bản trước khi tạo ảnh.');
@@ -59,6 +64,10 @@ class SceneImageController extends Controller
             'image_prompt' => ['nullable', 'string', 'max:2000'],
         ]);
 
+        if (self::webMode()) {
+            return back()->with('status', 'Đang ở chế độ Muse bản web: tạo ảnh trên meta.ai rồi tải lên.');
+        }
+
         if (! in_array($project->status, self::IMAGING_ALLOWED, true)) {
             return back()->with('status', 'Không thể tạo ảnh ở bước này.');
         }
@@ -81,6 +90,46 @@ class SceneImageController extends Controller
         GenerateSceneImageJob::dispatch($scene->images()->create());
 
         return back()->with('status', 'Đang tạo lại ảnh cảnh '.$scene->position.'...');
+    }
+
+    /**
+     * Tải lên ảnh cảnh đã tạo trên meta.ai (Muse bản web).
+     * Người dùng đã tự chọn ảnh nên ảnh tải lên được duyệt luôn.
+     */
+    public function upload(Request $request, Scene $scene): RedirectResponse
+    {
+        $project = $scene->videoProject;
+        $this->authorize('update', $project);
+
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:15360'],
+        ], [], ['image' => 'ảnh']);
+
+        if (! in_array($project->status, self::IMAGING_ALLOWED, true)) {
+            return back()->with('status', 'Không thể tải ảnh ở bước này.');
+        }
+
+        $scene->images()
+            ->whereIn('status', [SceneImageStatus::Ready, SceneImageStatus::Approved])
+            ->update(['status' => SceneImageStatus::Rejected]);
+
+        $scene->images()->create([
+            'status' => SceneImageStatus::Approved,
+            'path' => Media::store($request->file('image'), "scenes/{$project->id}"),
+            'provider' => 'meta.ai-web',
+            'cost_usd' => 0,
+        ]);
+
+        if ($project->status !== VideoProjectStatus::Reviewing) {
+            $project->update(['status' => VideoProjectStatus::Reviewing, 'error' => null]);
+        }
+
+        return back()->with('status', "Đã tải ảnh cảnh {$scene->position}.");
+    }
+
+    public static function webMode(): bool
+    {
+        return config('videoaff.image_driver') === 'web';
     }
 
     public function approve(SceneImage $image): RedirectResponse

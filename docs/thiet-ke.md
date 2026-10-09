@@ -113,13 +113,18 @@ Job đặt `$tries = 3`, `$backoff` tăng dần, `$timeout` 600 giây cho render
 - Nhạc nền chọn từ thư viện có bản quyền dùng thương mại, giảm âm lượng.
 - Cảnh cuối cố định: bảng size + CTA giỏ hàng.
 
+### Chế độ bản web (nhánh `muse-web`)
+
+Không cần khoá API. Claude: app tạo prompt đầy đủ (quy tắc + thông tin sản phẩm + mẫu JSON), người dùng dán vào claude.ai, rồi dán câu trả lời về (`POST /projects/{id}/script/import`). Muse: mỗi cảnh hiện prompt + ảnh tham chiếu; người dùng tạo ảnh trên meta.ai và tải lên (`POST /scenes/{id}/upload`). Không tự động hoá trình duyệt vì cần đăng nhập tài khoản và dễ vỡ khi giao diện meta.ai/claude.ai thay đổi.
+
 ## 8. Cấu hình (`.env`)
 
 | Biến | Ý nghĩa |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Khoá Claude API |
 | `CLAUDE_MODEL` | Mặc định `claude-opus-5-5` |
-| `MUSE_DRIVER` | `meta` hoặc `fal` |
+| `SCRIPT_DRIVER` | `web` (mặc định khi không có khoá), `claude`, `fake` |
+| `MUSE_DRIVER` | `web` (mặc định khi không có khoá), `fal`, `fake` |
 | `META_API_KEY` / `FAL_KEY` | Khoá theo driver |
 | `FILESYSTEM_DISK` | `public` (local) hoặc `s3` |
 | `QUEUE_CONNECTION` | `database` |

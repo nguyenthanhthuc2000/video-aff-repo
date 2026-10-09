@@ -53,24 +53,29 @@ composer run dev
 
 Cần cài `ffmpeg` trên máy (có libass). `composer run dev` đã chạy kèm queue worker.
 
-## Khoá API
+## Chế độ Claude và Muse
 
-Đặt trong `.env` (không commit, không gửi qua chat):
+Mặc định (không có khoá API) app chạy **bản web**, không tốn phí API:
+
+- **Claude bản web:** app tạo sẵn prompt, bạn copy sang [claude.ai](https://claude.ai) (đăng nhập tài khoản của bạn) kèm ảnh sản phẩm, rồi dán câu trả lời JSON về để nhập kịch bản.
+- **Muse bản web:** mỗi cảnh có prompt sẵn và ảnh tham chiếu để tải. Bạn tạo ảnh trên [meta.ai](https://www.meta.ai), tải về rồi tải lên đúng cảnh. Ảnh tải lên được tính là đã duyệt.
+
+Muốn tự động qua API thì đặt khoá trong `.env` (không commit, không gửi qua chat):
 
 | Biến | Dùng cho | Khi để trống |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Claude viết kịch bản (`CLAUDE_MODEL`, mặc định `claude-opus-5-5`) | Dùng kịch bản mẫu |
-| `FAL_KEY` | Meta Muse Image qua fal (`meta/muse-image/edit`) mặc đồ lên người mẫu | Dùng lại ảnh người mẫu làm ảnh cảnh |
+| `ANTHROPIC_API_KEY` | Claude API viết kịch bản (`CLAUDE_MODEL`, mặc định `claude-opus-5-5`) | Claude bản web |
+| `FAL_KEY` | Meta Muse Image qua fal (`meta/muse-image/edit`) | Muse bản web |
 
-Có thể ép driver bằng `SCRIPT_DRIVER=fake|claude` và `MUSE_DRIVER=fake|fal`. Sau khi sửa `.env` trong Docker, chạy `docker compose restart app queue`.
+Có thể ép chế độ bằng `SCRIPT_DRIVER=web|claude|fake` và `MUSE_DRIVER=web|fal|fake`. Sau khi sửa `.env` trong Docker, chạy `docker compose restart app queue`.
 
 ## Luồng dùng
 
 1. **Người mẫu**: tải ảnh toàn thân, tick xác nhận đã có đồng ý của người mẫu.
 2. **Sản phẩm**: dán link Shopee, tải 2–5 ảnh, nhập size, chất liệu, màu, vài đánh giá. Shopee chặn lấy dữ liệu tự động nên phải nhập tay.
 3. Ở trang sản phẩm, tạo **dự án video** với một người mẫu.
-4. **Tạo kịch bản** → sửa hook, chữ, lời, prompt ảnh → Lưu.
-5. **Tạo ảnh** cho các cảnh → duyệt ảnh giữ đúng sản phẩm, tạo lại ảnh sai (có thể sửa prompt).
+4. **Kịch bản**: copy prompt sang claude.ai và dán câu trả lời về (hoặc bấm Tạo kịch bản nếu có khoá API) → sửa hook, chữ, lời, prompt ảnh → Lưu.
+5. **Ảnh cảnh**: tạo ảnh trên meta.ai theo prompt từng cảnh rồi tải lên (hoặc bấm Tạo ảnh nếu có khoá fal, rồi duyệt / tạo lại).
 6. **Xuất video**: chọn hook, thêm nhạc nền (tuỳ chọn) → tải MP4 1080×1920.
 7. Đăng Shopee Video và **bật nhãn nội dung AI**.
 

@@ -21,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(ScriptWriter::class, function () {
+            // "web" không chạy job viết kịch bản; người dùng dán câu trả lời từ claude.ai.
             if (config('videoaff.script_driver') !== 'claude') {
                 return new FakeScriptWriter;
             }
@@ -39,7 +40,8 @@ class AppServiceProvider extends ServiceProvider
                     config('videoaff.fal.endpoint'),
                     config('videoaff.fal.cost_per_image'),
                 ),
-                'fake' => new FakeImageGenerator,
+                // Chế độ web không gọi API; job tạo ảnh không được đưa vào hàng đợi.
+                'fake', 'web' => new FakeImageGenerator,
                 default => throw new \InvalidArgumentException('MUSE_DRIVER không hợp lệ: '.config('videoaff.image_driver')),
             };
         });

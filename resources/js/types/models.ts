@@ -54,6 +54,7 @@ export interface Scene {
     on_screen_text: string | null;
     voiceover: string | null;
     image_prompt: string;
+    full_prompt: string;
     image: SceneImage | null;
 }
 
@@ -76,6 +77,12 @@ export interface VideoProject {
     script: Script | null;
     selected_hook: number;
     has_music: boolean;
+    script_mode: 'web' | 'api';
+    claude_web_url: string;
+    script_prompt?: string;
+    image_mode: 'web' | 'api';
+    muse_web_url: string;
+    references?: { label: string; url: string }[];
     image_cost_usd?: number;
     product?: { id: number; name: string; primary_image_url: string | null };
     fashion_model?: { id: number; name: string; photo_url: string };
