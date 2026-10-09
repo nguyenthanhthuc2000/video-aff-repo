@@ -94,7 +94,9 @@ export default function RenderPanel({ project }: { project: VideoProject }) {
                                 )}
                                 <div className="flex items-center justify-between gap-2">
                                     <Badge variant={render.status === 'failed' ? 'destructive' : 'secondary'}>
-                                        {renderStatusLabels[render.status]}
+                                        {render.status === 'pending'
+                                            ? `${renderStatusLabels.pending} ${render.progress}%`
+                                            : renderStatusLabels[render.status]}
                                     </Badge>
                                     {render.download_url && (
                                         <Button size="sm" variant="outline" asChild>

@@ -7,6 +7,7 @@ use App\Jobs\GenerateScriptJob;
 use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
 use App\Services\Script\ScriptWriterException;
+use App\Support\ScriptDriver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -62,7 +63,7 @@ class ScriptController extends Controller
 
     public static function webMode(): bool
     {
-        return config('videoaff.script_driver') === 'web';
+        return ScriptDriver::current() === 'web';
     }
 
     /** Lưu chỉnh sửa hook, caption và các cảnh. */

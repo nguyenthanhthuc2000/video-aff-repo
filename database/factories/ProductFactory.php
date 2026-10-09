@@ -20,6 +20,13 @@ class ProductFactory extends Factory
             'price' => fake()->numberBetween(100, 500) * 1000,
             'details' => ['sizes' => 'XS–XL', 'material' => 'lụa', 'colors' => 'be, đen'],
             'reviews' => 'Vải mềm, mặc tôn dáng.',
+            'images_approved_at' => now(),
         ];
+    }
+
+    /** Ảnh vừa lấy từ Shopee, chưa duyệt. */
+    public function imagesNotApproved(): static
+    {
+        return $this->state(['images_approved_at' => null]);
     }
 }

@@ -56,6 +56,7 @@ class ProductTest extends TestCase
 
     public function test_product_needs_at_least_one_image_and_at_most_five()
     {
+        config(['videoaff.product_images_max' => 5]);
         $user = User::factory()->create();
 
         $this->actingAs($user)->post('/products', ['name' => 'Không ảnh'])
@@ -69,6 +70,7 @@ class ProductTest extends TestCase
 
     public function test_update_respects_image_limit()
     {
+        config(['videoaff.product_images_max' => 5]);
         $product = Product::factory()->create();
         ProductImage::factory()->count(4)->for($product)->create();
 

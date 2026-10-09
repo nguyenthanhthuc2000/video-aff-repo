@@ -41,6 +41,7 @@ class GenerateScriptJob implements ShouldQueue
         }
 
         $project->applyScript($script);
+        $project->advanceAutopilot();
     }
 
     public function failed(?Throwable $e): void

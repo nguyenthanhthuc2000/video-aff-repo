@@ -2,7 +2,7 @@ FROM php:8.3-fpm
 
 # ffmpeg: ghép video; các extension cần cho Laravel + MySQL; gd cho xử lý/kiểm tra ảnh (và test)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg git unzip libzip-dev libicu-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev libwebp-dev \
+        ffmpeg git unzip curl libzip-dev libicu-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev libwebp-dev \
     && docker-php-ext-configure gd --with-jpeg --with-freetype --with-webp \
     && docker-php-ext-install pdo_mysql zip intl bcmath pcntl gd \
     && rm -rf /var/lib/apt/lists/*
@@ -18,3 +18,7 @@ RUN groupmod -o -g ${GID} www-data && usermod -o -u ${UID} -g www-data www-data 
 
 WORKDIR /var/www/html
 USER www-data
+
+# Claude Code CLI: viết kịch bản bằng gói Claude Pro/Max (SCRIPT_DRIVER=claude_cli, token từ `claude setup-token`)
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/var/www/.local/bin:${PATH}"

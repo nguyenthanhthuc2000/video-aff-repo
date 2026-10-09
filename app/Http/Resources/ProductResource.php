@@ -2,7 +2,10 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\ProductImportStatus;
 use App\Models\Product;
+use App\Services\ProductImport\PageSnapshot;
+use App\Services\ProductImport\ProductExtractPrompt;
 use App\Support\Media;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -19,6 +22,19 @@ class ProductResource extends JsonResource
             'price' => $this->price,
             'details' => (object) ($this->details ?? []),
             'reviews' => $this->reviews,
+            'import_status' => $this->import_status?->value,
+            'import_error' => $this->import_error,
+            // Chế độ Claude bản web: prompt để copy sang claude.ai.
+            'import_prompt' => $this->when(
+                $this->import_status === ProductImportStatus::AwaitingReply && $this->import_snapshot !== null,
+                fn () => ProductExtractPrompt::forWeb(new PageSnapshot(
+                    $this->import_snapshot['url'] ?? '',
+                    $this->import_snapshot['title'] ?? '',
+                    $this->import_snapshot['text'] ?? '',
+                )),
+            ),
+            'claude_web_url' => config('videoaff.claude_web_url'),
+            'images_approved' => $this->images_approved_at !== null,
             'primary_image_url' => Media::url($this->primaryImage?->path),
             'images' => $this->whenLoaded('images', fn () => $this->images->map(fn ($image) => [
                 'id' => $image->id,

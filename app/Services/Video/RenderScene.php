@@ -12,5 +12,7 @@ final class RenderScene
         public readonly string $title = '',
         /** Phụ đề phía dưới (lời đọc). */
         public readonly string $subtitle = '',
+        /** Clip chuyển động trên máy; có thì dùng thay ảnh (ảnh vẫn dùng cho cảnh kết). */
+        public readonly ?string $clipPath = null,
     ) {}
 }

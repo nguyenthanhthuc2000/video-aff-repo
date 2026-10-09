@@ -2,8 +2,10 @@ import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import HeadingSmall from '@/components/heading-small';
 import InputError from '@/components/input-error';
+import ProgressBar from '@/components/progress-bar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { projectStatusLabels } from '@/lib/project-status';
 import { type BreadcrumbItem } from '@/types';
@@ -11,6 +13,8 @@ import { type FashionModel, type Product, type VideoProject } from '@/types/mode
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Star, Trash2 } from 'lucide-react';
 import CreateProjectForm from './create-project-form';
+import ImageReview from './image-review';
+import ImportStatus from './import-status';
 import ProductForm from './product-form';
 
 export default function ProductsEdit({
@@ -18,12 +22,16 @@ export default function ProductsEdit({
     fashionModels,
     maxImages,
     projects,
+    autopilotAvailable,
 }: {
     product: Product;
     fashionModels: FashionModel[];
     maxImages: number;
     projects: VideoProject[];
+    autopilotAvailable: boolean;
 }) {
+    // Tự làm mới khi đang lấy sản phẩm hoặc có video đang chạy ngầm.
+    usePoll(product.import_status === 'importing' || projects.some((project) => project.is_busy), ['product', 'projects']);
     const { errors } = usePage().props as { errors: Record<string, string> };
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -44,43 +52,52 @@ export default function ProductsEdit({
                 <div className="max-w-3xl space-y-6">
                     <Heading title={product.name} />
                     <FlashStatus />
+                    <ImportStatus product={product} />
 
-                    <section className="space-y-3">
-                        <HeadingSmall title="Ảnh sản phẩm" description="Ảnh chính (có sao) được dùng để AI mặc sản phẩm lên người mẫu." />
-                        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-                            {product.images?.map((image) => (
-                                <div key={image.id} className="relative overflow-hidden rounded-lg border">
-                                    <img src={image.url} alt="" className="aspect-square w-full object-cover" />
-                                    {image.is_primary && <Badge className="absolute top-1 left-1">Ảnh chính</Badge>}
-                                    <div className="absolute right-1 bottom-1 flex gap-1">
-                                        {!image.is_primary && (
+                    {product.images_approved ? (
+                        <section className="space-y-3">
+                            <HeadingSmall title="Ảnh sản phẩm" description="Ảnh chính (có sao) được dùng để AI mặc sản phẩm lên người mẫu." />
+                            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+                                {product.images?.map((image) => (
+                                    <div key={image.id} className="relative overflow-hidden rounded-lg border">
+                                        <img src={image.url} alt="" className="aspect-square w-full object-cover" />
+                                        {image.is_primary && <Badge className="absolute top-1 left-1">Ảnh chính</Badge>}
+                                        <div className="absolute right-1 bottom-1 flex gap-1">
+                                            {!image.is_primary && (
+                                                <Button
+                                                    size="icon"
+                                                    variant="secondary"
+                                                    className="size-7"
+                                                    title="Đặt làm ảnh chính"
+                                                    onClick={() =>
+                                                        router.post(route('product-images.primary', image.id), {}, { preserveScroll: true })
+                                                    }
+                                                >
+                                                    <Star />
+                                                </Button>
+                                            )}
                                             <Button
                                                 size="icon"
                                                 variant="secondary"
                                                 className="size-7"
-                                                title="Đặt làm ảnh chính"
-                                                onClick={() => router.post(route('product-images.primary', image.id), {}, { preserveScroll: true })}
+                                                title="Xoá ảnh"
+                                                onClick={() => router.delete(route('product-images.destroy', image.id), { preserveScroll: true })}
                                             >
-                                                <Star />
+                                                <Trash2 />
                                             </Button>
-                                        )}
-                                        <Button
-                                            size="icon"
-                                            variant="secondary"
-                                            className="size-7"
-                                            title="Xoá ảnh"
-                                            onClick={() => router.delete(route('product-images.destroy', image.id), { preserveScroll: true })}
-                                        >
-                                            <Trash2 />
-                                        </Button>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-                        <InputError message={errors.images} />
-                    </section>
+                                ))}
+                            </div>
+                            <InputError message={errors.images} />
+                        </section>
+                    ) : (
+                        // Đếm ảnh làm key: chọn lại từ đầu khi job nền tải thêm ảnh.
+                        <ImageReview key={product.images?.length ?? 0} product={product} />
+                    )}
 
-                    <ProductForm product={product} maxImages={maxImages} />
+                    {/* Tạo lại form khi job nền điền xong thông tin. */}
+                    <ProductForm key={`${product.import_status}-${product.name}-${product.price}`} product={product} maxImages={maxImages} />
 
                     <Button variant="destructive" onClick={destroy}>
                         Xoá sản phẩm
@@ -89,7 +106,9 @@ export default function ProductsEdit({
 
                 <aside className="space-y-3">
                     <HeadingSmall title="Tạo video" description="Chọn người mẫu để bắt đầu một dự án video." />
-                    {fashionModels.length === 0 ? (
+                    {!product.images_approved ? (
+                        <p className="text-muted-foreground text-sm">Duyệt ảnh sản phẩm trước, sau đó mới tạo video và phân cảnh được.</p>
+                    ) : fashionModels.length === 0 ? (
                         <p className="text-muted-foreground text-sm">
                             Chưa có người mẫu.{' '}
                             <Link href={route('fashion-models.index')} className="underline">
@@ -97,7 +116,7 @@ export default function ProductsEdit({
                             </Link>
                         </p>
                     ) : (
-                        <CreateProjectForm productId={product.id} fashionModels={fashionModels} />
+                        <CreateProjectForm productId={product.id} fashionModels={fashionModels} autopilotAvailable={autopilotAvailable} />
                     )}
 
                     {projects.length > 0 && (
@@ -107,10 +126,17 @@ export default function ProductsEdit({
                                 <Link
                                     key={project.id}
                                     href={route('projects.show', project.id)}
-                                    className="hover:bg-muted/50 flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                                    className="hover:bg-muted/50 block space-y-2 rounded-md border px-3 py-2 text-sm"
                                 >
-                                    <span>{project.fashion_model?.name}</span>
-                                    <Badge variant="secondary">{projectStatusLabels[project.status]}</Badge>
+                                    <div className="flex items-center justify-between">
+                                        <span>{project.fashion_model?.name}</span>
+                                        <Badge variant="secondary">{projectStatusLabels[project.status]}</Badge>
+                                    </div>
+                                    <ProgressBar
+                                        percent={project.progress.percent}
+                                        label={project.progress.label}
+                                        failed={project.status === 'failed'}
+                                    />
                                 </Link>
                             ))}
                         </div>

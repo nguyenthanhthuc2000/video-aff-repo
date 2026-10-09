@@ -21,9 +21,11 @@ class AssSubtitles
             '[V4+ Styles]',
             'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
             // Màu ASS: &HAABBGGRR.
-            "Style: Hook,{$font},86,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,8,80,80,260,1",
-            "Style: Title,{$font},70,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,3,18,0,8,90,90,300,1",
-            "Style: Sub,{$font},60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,1,2,90,90,420,1",
+            // Hook, tiêu đề và lời đọc xếp ở phần dưới (canh đáy) để không che mặt người mẫu ở phần trên;
+            // chừa ~400px đáy cho caption/nút của TikTok, Shopee Video và lề phải cho cột nút.
+            "Style: Hook,{$font},80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,2,80,140,600,1",
+            "Style: Title,{$font},66,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,3,16,0,2,90,140,600,1",
+            "Style: Sub,{$font},56,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,1,2,90,140,400,1",
             "Style: End,{$font},84,&H0000E5FF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,5,90,90,0,1",
             "Style: EndSub,{$font},62,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,1,2,90,90,640,1",
             '',

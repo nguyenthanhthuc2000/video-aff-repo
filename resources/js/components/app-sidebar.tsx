@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Clapperboard, Package, Users } from 'lucide-react';
+import { BookOpen, Clapperboard, KeyRound, Package, Sparkles, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -22,6 +22,16 @@ const mainNavItems: NavItem[] = [
         title: 'Người mẫu',
         url: '/fashion-models',
         icon: Users,
+    },
+    {
+        title: 'Xác thực Claude',
+        url: '/claude',
+        icon: Sparkles,
+    },
+    {
+        title: 'Xác thực Muse',
+        url: '/muse',
+        icon: KeyRound,
     },
 ];
 

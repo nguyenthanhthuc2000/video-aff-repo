@@ -19,14 +19,8 @@ export default function SceneImages({ project }: { project: VideoProject }) {
 
     const generateAll = () => router.post(route('projects.images.store', project.id), {}, { preserveScroll: true });
 
-    const regenerate = (sceneId: number, currentPrompt: string) => {
-        const prompt = window.prompt('Prompt ảnh (có thể sửa trước khi tạo lại):', currentPrompt);
-        if (prompt === null) {
-            return;
-        }
-
-        router.post(route('scenes.image.regenerate', sceneId), { image_prompt: prompt }, { preserveScroll: true });
-    };
+    // Không hỏi prompt: máy chủ tự viết prompt mới (bản trang nhã nếu Muse đã từ chối) rồi tạo lại.
+    const regenerate = (sceneId: number) => router.post(route('scenes.image.regenerate', sceneId), {}, { preserveScroll: true });
 
     const approve = (imageId: number) => router.post(route('scene-images.approve', imageId), {}, { preserveScroll: true });
 
@@ -73,7 +67,12 @@ export default function SceneImages({ project }: { project: VideoProject }) {
                                             <Check /> Duyệt
                                         </Button>
                                     )}
-                                    <Button size="sm" variant="outline" onClick={() => regenerate(scene.id, scene.image_prompt)}>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => regenerate(scene.id)}
+                                        title="Tự viết prompt mới cho cảnh rồi tạo lại ảnh"
+                                    >
                                         <RefreshCw /> Tạo lại
                                     </Button>
                                 </div>

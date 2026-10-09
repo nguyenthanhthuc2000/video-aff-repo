@@ -1,0 +1,12 @@
+{
+    "name": "video-aff-browser",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "playwright": "1.64.0",
+        "@xterm/headless": "6.0.0"
+    }
+}

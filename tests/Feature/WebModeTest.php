@@ -47,7 +47,9 @@ class WebModeTest extends TestCase
         $config = require config_path('videoaff.php');
 
         // phpunit.xml ép driver "fake"; ở đây chỉ kiểm tra giá trị mặc định khi không có biến môi trường nào.
-        $this->assertStringContainsString("(env('ANTHROPIC_API_KEY') ? 'claude' : 'web')", file_get_contents(config_path('videoaff.php')));
+        $this->assertStringContainsString("(bool) env('ANTHROPIC_API_KEY') => 'claude'", file_get_contents(config_path('videoaff.php')));
+        $this->assertStringContainsString("(bool) env('CLAUDE_CODE_OAUTH_TOKEN') => 'claude_cli'", file_get_contents(config_path('videoaff.php')));
+        $this->assertStringContainsString("default => 'web'", file_get_contents(config_path('videoaff.php')));
         $this->assertStringContainsString("(env('FAL_KEY') ? 'fal' : 'web')", file_get_contents(config_path('videoaff.php')));
         $this->assertArrayHasKey('claude_web_url', $config);
     }

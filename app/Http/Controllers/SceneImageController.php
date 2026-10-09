@@ -8,6 +8,7 @@ use App\Jobs\GenerateSceneImageJob;
 use App\Models\Scene;
 use App\Models\SceneImage;
 use App\Models\VideoProject;
+use App\Services\Image\Prompt\RewritePrompt;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,23 +36,12 @@ class SceneImageController extends Controller
             return back()->with('status', 'Cần có kịch bản trước khi tạo ảnh.');
         }
 
-        $scenes = $project->scenes()
-            ->with('latestImage')
-            ->get()
-            ->filter(fn (Scene $scene) => in_array($scene->latestImage?->status, [null, SceneImageStatus::Failed, SceneImageStatus::Rejected], true));
-
-        if ($scenes->isEmpty()) {
+        $count = $project->queueMissingImages();
+        if ($count === 0) {
             return back()->with('status', 'Mọi cảnh đã có ảnh.');
         }
 
-        $project->update(['status' => VideoProjectStatus::Imaging, 'error' => null]);
-
-        // Tạo hết các dòng "pending" trước rồi mới đưa job vào hàng đợi,
-        // để dự án không chuyển sang bước duyệt khi ảnh đầu tiên xong.
-        $images = $scenes->map(fn (Scene $scene) => $scene->images()->create());
-        $images->each(fn (SceneImage $image) => GenerateSceneImageJob::dispatch($image));
-
-        return back()->with('status', "Đang tạo {$images->count()} ảnh cảnh...");
+        return back()->with('status', "Đang tạo {$count} ảnh cảnh...");
     }
 
     /** Tạo lại ảnh một cảnh, có thể kèm prompt mới. */
@@ -77,8 +67,13 @@ class SceneImageController extends Controller
             return back()->with('status', 'Ảnh cảnh này đang được tạo.');
         }
 
-        if (filled($validated['image_prompt'] ?? null)) {
+        // Gửi kèm prompt khác thì dùng prompt đó; còn lại job tự viết prompt mới
+        // (bản trang nhã nếu lần trước bị Muse từ chối, không thì một biến thể khác của cảnh).
+        $rewriteReason = null;
+        if (filled($validated['image_prompt'] ?? null) && trim($validated['image_prompt']) !== trim($scene->image_prompt)) {
             $scene->update(['image_prompt' => $validated['image_prompt']]);
+        } else {
+            $rewriteReason = $latest?->museRejection() ?? RewritePrompt::VARIATION;
         }
 
         $scene->images()
@@ -87,9 +82,13 @@ class SceneImageController extends Controller
 
         $project->update(['status' => VideoProjectStatus::Imaging, 'error' => null]);
 
-        GenerateSceneImageJob::dispatch($scene->images()->create());
+        GenerateSceneImageJob::dispatch($scene->images()->create(), $rewriteReason);
 
-        return back()->with('status', 'Đang tạo lại ảnh cảnh '.$scene->position.'...');
+        return back()->with('status', match ($rewriteReason) {
+            null => "Đang tạo lại ảnh cảnh {$scene->position}...",
+            RewritePrompt::VARIATION => "Đang viết prompt mới rồi tạo lại ảnh cảnh {$scene->position}...",
+            default => "Muse đã từ chối prompt cũ: đang viết prompt mới phù hợp hơn rồi tạo lại ảnh cảnh {$scene->position}...",
+        });
     }
 
     /**

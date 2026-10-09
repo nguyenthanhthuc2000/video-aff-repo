@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\SceneClipStatus;
 use App\Enums\SceneImageStatus;
+use App\Jobs\GenerateSceneClipJob;
 use Database\Factories\SceneFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +24,10 @@ class Scene extends Model
         'on_screen_text',
         'voiceover',
         'image_prompt',
+        'clip_path',
+        'clip_status',
+        'clip_error',
+        'clip_request_id',
     ];
 
     protected function casts(): array
@@ -29,6 +35,7 @@ class Scene extends Model
         return [
             'position' => 'integer',
             'duration_ms' => 'integer',
+            'clip_status' => SceneClipStatus::class,
         ];
     }
 
@@ -54,5 +61,12 @@ class Scene extends Model
             ['id' => 'max'],
             fn ($query) => $query->where('status', SceneImageStatus::Approved),
         );
+    }
+
+    /** Đưa việc tạo clip chuyển động (muse.ai) vào hàng đợi. */
+    public function queueClip(): void
+    {
+        $this->update(['clip_status' => SceneClipStatus::Pending, 'clip_error' => null, 'clip_request_id' => null]);
+        GenerateSceneClipJob::dispatch($this);
     }
 }

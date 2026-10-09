@@ -34,7 +34,8 @@ class ProductController extends Controller
     public function store(ProductRequest $request): RedirectResponse
     {
         $product = DB::transaction(function () use ($request) {
-            $product = $request->user()->products()->create($request->safe()->except('images'));
+            // Ảnh tự tải lên coi như đã duyệt.
+            $product = $request->user()->products()->create([...$request->safe()->except('images'), 'images_approved_at' => now()]);
             $this->storeImages($product, $request->file('images', []));
 
             return $product;
@@ -55,6 +56,7 @@ class ProductController extends Controller
                 $request->user()->fashionModels()->whereNotNull('consent_at')->latest()->get()
             )->resolve(),
             'maxImages' => config('videoaff.product_images_max'),
+            'autopilotAvailable' => VideoProjectController::autopilotAvailable(),
             'projects' => VideoProjectResource::collection(
                 $product->videoProjects()->with('fashionModel')->latest()->get()
             )->resolve(),
@@ -65,7 +67,7 @@ class ProductController extends Controller
     {
         $this->authorize('update', $product);
 
-        $maxNew = config('videoaff.product_images_max') - $product->images()->count();
+        $maxNew = max(0, config('videoaff.product_images_max') - $product->images()->count());
         $newImages = $request->file('images', []);
 
         if (count($newImages) > $maxNew) {

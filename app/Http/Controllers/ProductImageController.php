@@ -2,13 +2,36 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Product;
 use App\Models\ProductImage;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ProductImageController extends Controller
 {
+    /** Duyệt ảnh lấy từ Shopee: giữ ảnh đã chọn, xoá phần còn lại. */
+    public function approve(Request $request, Product $product): RedirectResponse
+    {
+        $this->authorize('update', $product);
+
+        $ids = $product->images()->pluck('id')->all();
+        $validated = $request->validate([
+            'image_ids' => ['required', 'array', 'min:1'],
+            'image_ids.*' => ['integer', 'distinct', Rule::in($ids)],
+            'primary_id' => ['required', 'integer', Rule::in($request->input('image_ids', []))],
+        ], [
+            'image_ids.required' => 'Chọn ít nhất 1 ảnh.',
+            'primary_id.in' => 'Ảnh chính phải nằm trong các ảnh đã chọn.',
+        ], ['image_ids' => 'ảnh', 'primary_id' => 'ảnh chính']);
+
+        $product->approveImages(array_map(intval(...), $validated['image_ids']), (int) $validated['primary_id']);
+
+        return back()->with('status', 'Đã duyệt '.count($validated['image_ids']).' ảnh. Giờ có thể tạo video.');
+    }
+
     /** Đánh dấu ảnh chính (ảnh nền trắng dùng để AI mặc lên người mẫu). */
     public function makePrimary(ProductImage $image): RedirectResponse
     {

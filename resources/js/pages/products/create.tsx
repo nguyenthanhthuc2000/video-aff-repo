@@ -2,7 +2,7 @@ import Heading from '@/components/heading';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
-import ProductForm from './product-form';
+import ShopeeImport from './shopee-import';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Sản phẩm', href: '/products' },
@@ -14,11 +14,8 @@ export default function ProductsCreate() {
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Thêm sản phẩm" />
             <div className="max-w-3xl space-y-6 p-4">
-                <Heading
-                    title="Thêm sản phẩm"
-                    description="Shopee không cho lấy dữ liệu tự động, nên bạn dán thông tin và tải ảnh từ trang sản phẩm lên đây."
-                />
-                <ProductForm maxImages={5} />
+                <Heading title="Thêm sản phẩm" description="Chỉ cần bấm bookmark trên trang Shopee, sản phẩm được thêm tự động." />
+                <ShopeeImport />
             </div>
         </AppLayout>
     );

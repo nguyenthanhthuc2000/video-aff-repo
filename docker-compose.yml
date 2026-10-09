@@ -2,6 +2,7 @@ x-php: &php
   image: video-aff-php
   volumes:
     - ./:/var/www/html
+    - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
   environment:
     DB_CONNECTION: mysql
     DB_HOST: db
@@ -9,6 +10,7 @@ x-php: &php
     DB_DATABASE: ${DB_DATABASE:-video_aff}
     DB_USERNAME: ${DB_USERNAME:-video_aff}
     DB_PASSWORD: ${DB_PASSWORD:-secret}
+    MUSE_BROWSER_URL: http://browser:3000
   depends_on:
     db:
       condition: service_healthy
@@ -70,6 +72,23 @@ services:
     networks:
       - internal
 
+  # Trình duyệt ngầm (Playwright) đăng nhập muse.ai bằng tài khoản của bạn và gửi lệnh tạo ảnh.
+  # Không mở cổng ra ngoài; chỉ app/queue gọi được qua mạng nội bộ.
+  browser:
+    container_name: video-aff-browser
+    image: video-aff-browser
+    build:
+      context: ./docker/browser
+    restart: unless-stopped
+    environment:
+      BROWSER_TOKEN: ${MUSE_BROWSER_TOKEN:-}
+    volumes:
+      # Phiên đăng nhập muse.ai (cookie) giữ qua các lần khởi động lại.
+      - browser-data:/data
+    shm_size: 1gb
+    networks:
+      - internal
+
   # Vite dev server (hot reload cho React)
   node:
     container_name: video-aff-node
@@ -87,6 +106,7 @@ services:
 
 volumes:
   mysql-data:
+  browser-data:
   node-modules:
 
 networks:

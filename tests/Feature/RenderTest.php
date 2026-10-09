@@ -39,7 +39,7 @@ class RenderTest extends TestCase
         {
             public function __construct(private array &$rendered) {}
 
-            public function render(RenderSpec $spec): void
+            public function render(RenderSpec $spec, ?callable $onProgress = null): void
             {
                 $this->rendered[] = $spec;
                 file_put_contents($spec->outputPath, 'mp4-bytes');
@@ -124,7 +124,7 @@ class RenderTest extends TestCase
     {
         $this->app->instance(VideoRenderer::class, new class implements VideoRenderer
         {
-            public function render(RenderSpec $spec): void
+            public function render(RenderSpec $spec, ?callable $onProgress = null): void
             {
                 throw new VideoRenderException('ffmpeg lỗi: hỏng');
             }
@@ -193,15 +193,63 @@ class RenderTest extends TestCase
         mkdir($dir);
         Process::run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=pink:s=300x400', '-frames:v', '1', "{$dir}/a.png"])->throw();
 
+        $progress = [];
         (new FfmpegVideoRenderer('ffmpeg', resource_path('fonts'), 270, 480))->render(new RenderSpec(
             [new RenderScene("{$dir}/a.png", 1000, 'Chữ', 'Lời'), new RenderScene("{$dir}/a.png", 1000)],
             'Hook tiếng Việt',
             "{$dir}/out.mp4",
             endCardMs: 1000,
-        ));
+        ), function (int $percent) use (&$progress) {
+            $progress[] = $percent;
+        });
+
+        $this->assertNotEmpty($progress);
+        $this->assertGreaterThanOrEqual(90, max($progress));
+        $this->assertLessThanOrEqual(100, max($progress));
 
         $probe = Process::run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_name,width,height', '-of', 'csv=p=0', "{$dir}/out.mp4"])->throw();
         $this->assertStringContainsString('h264,270,480', $probe->output());
         $this->assertStringContainsString('aac', $probe->output());
+    }
+
+    public function test_ffmpeg_renders_scene_clip_instead_of_image()
+    {
+        if (! Process::run(['ffmpeg', '-version'])->successful()) {
+            $this->markTestSkipped('ffmpeg không có trên máy.');
+        }
+
+        $dir = sys_get_temp_dir().'/render-test-'.uniqid();
+        mkdir($dir);
+        Process::run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=pink:s=300x400', '-frames:v', '1', "{$dir}/a.png"])->throw();
+        // Clip ngang, có tiếng, ngắn hơn cảnh: phải được cắt khung dọc và lặp lại.
+        Process::run([
+            'ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=s=320x240:r=24:d=0.6',
+            '-f', 'lavfi', '-i', 'sine=d=0.6', '-shortest', '-pix_fmt', 'yuv420p', "{$dir}/clip.mp4",
+        ])->throw();
+
+        (new FfmpegVideoRenderer('ffmpeg', resource_path('fonts'), 270, 480))->render(new RenderSpec(
+            [new RenderScene("{$dir}/a.png", 1500, 'Nhảy', clipPath: "{$dir}/clip.mp4"), new RenderScene("{$dir}/a.png", 1000)],
+            'Hook',
+            "{$dir}/out.mp4",
+            endCardMs: 1000,
+        ));
+
+        $probe = Process::run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_name,width,height:format=duration', '-of', 'csv=p=0', "{$dir}/out.mp4"])->throw();
+        $this->assertStringContainsString('h264,270,480', $probe->output());
+        $this->assertMatchesRegularExpression('/^3\.\d+/m', $probe->output());
+    }
+
+    public function test_render_job_passes_scene_clip_to_renderer()
+    {
+        $project = $this->approvedProject();
+        Media::disk()->put('clips/x.mp4', 'clip');
+        $project->scenes()->where('position', 1)->update(['clip_path' => 'clips/x.mp4']);
+
+        $render = $project->renders()->create(['hook' => 0]);
+        (new RenderVideoJob($render))->handle(app(VideoRenderer::class));
+
+        $this->assertSame(RenderStatus::Done, $render->fresh()->status);
+        $this->assertStringEndsWith('clip-1.mp4', (string) $this->rendered[0]->scenes[0]->clipPath);
+        $this->assertNull($this->rendered[0]->scenes[1]->clipPath);
     }
 }

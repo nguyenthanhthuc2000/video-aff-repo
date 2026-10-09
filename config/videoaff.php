@@ -5,13 +5,30 @@ return [
     // Disk lưu ảnh sản phẩm, ảnh người mẫu, ảnh cảnh và video xuất ra.
     'disk' => env('MEDIA_DISK', 'public'),
 
-    'product_images_max' => 5,
+    // Lấy từ Shopee tải hết ảnh trên trang (tối đa số này) để người dùng chọn.
+    'product_images_max' => 30,
+
+    // Host được phép tải ảnh khi lấy sản phẩm từ trang Shopee (bookmarklet). Khớp cả subdomain.
+    'import_image_hosts' => ['susercontent.com', 'shopee.vn', 'shopeemobile.com'],
 
     // Viết kịch bản:
     // - "web": copy prompt sang claude.ai (tài khoản đăng nhập), dán câu trả lời JSON về. Không cần khoá.
     // - "claude": gọi Claude API (cần ANTHROPIC_API_KEY).
+    // - "claude_cli": Claude Code CLI đăng nhập bằng gói Claude Pro/Max (CLAUDE_CODE_OAUTH_TOKEN từ `claude setup-token`).
     // - "fake": kịch bản mẫu (test).
-    'script_driver' => env('SCRIPT_DRIVER') ?: (env('ANTHROPIC_API_KEY') ? 'claude' : 'web'),
+    'script_driver' => env('SCRIPT_DRIVER') ?: match (true) {
+        (bool) env('ANTHROPIC_API_KEY') => 'claude',
+        (bool) env('CLAUDE_CODE_OAUTH_TOKEN') => 'claude_cli',
+        default => 'web',
+    },
+
+    'claude_cli' => [
+        'binary' => env('CLAUDE_CLI_BINARY', 'claude'),
+        'oauth_token' => env('CLAUDE_CODE_OAUTH_TOKEN'),
+        // Alias như "sonnet", "opus"; để trống thì dùng mặc định của gói.
+        'model' => env('CLAUDE_CLI_MODEL'),
+        'timeout' => (int) env('CLAUDE_CLI_TIMEOUT', 280),
+    ],
 
     'claude_web_url' => env('CLAUDE_WEB_URL', 'https://claude.ai/new'),
 
@@ -29,11 +46,24 @@ return [
 
     'muse_web_url' => env('MUSE_WEB_URL', 'https://www.meta.ai/'),
 
+    // Clip chuyển động (nhân vật nhảy, xoay...) tạo bằng tay trên công cụ video AI (mặc định meta.ai) rồi tải lên từng cảnh.
+    'motion_web_url' => env('MOTION_WEB_URL', 'https://www.meta.ai/'),
+
     'fal' => [
         'key' => env('FAL_KEY'),
         'endpoint' => env('FAL_MUSE_ENDPOINT', 'meta/muse-image/edit'),
         // Giá tham khảo để ghi chi phí; kiểm tra lại trên trang giá của fal.
         'cost_per_image' => (float) env('FAL_MUSE_COST_USD', 0.01),
+    ],
+
+    // MUSE_DRIVER=browser: dịch vụ trình duyệt ngầm (docker service "browser") thao tác muse.ai.
+    'muse_browser' => [
+        'url' => env('MUSE_BROWSER_URL', 'http://browser:3000'),
+        'token' => env('MUSE_BROWSER_TOKEN'),
+        // Chờ muse.ai tạo xong ảnh (giây, tính từ lúc gửi); job hỏi lại định kỳ, không giữ hàng đợi.
+        'timeout' => (int) env('MUSE_BROWSER_TIMEOUT', 480),
+        // Chờ muse.ai tạo xong clip chuyển động (giây).
+        'clip_timeout' => (int) env('MUSE_CLIP_TIMEOUT', 900),
     ],
 
     'ffmpeg' => env('FFMPEG_BINARY', 'ffmpeg'),

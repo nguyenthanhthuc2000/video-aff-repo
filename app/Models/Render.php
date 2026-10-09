@@ -16,6 +16,7 @@ class Render extends Model
     protected $fillable = [
         'hook',
         'status',
+        'progress',
         'path',
         'duration_ms',
         'error',
@@ -31,6 +32,7 @@ class Render extends Model
             'status' => RenderStatus::class,
             'hook' => 'integer',
             'duration_ms' => 'integer',
+            'progress' => 'integer',
         ];
     }
 

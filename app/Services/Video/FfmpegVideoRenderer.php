@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
 /**
- * Ghép ảnh cảnh thành MP4 dọc: mỗi ảnh zoom chậm (zoompan), chuyển cảnh xfade,
+ * Ghép ảnh cảnh thành MP4 dọc: mỗi ảnh zoom chậm (zoompan) hoặc dùng clip chuyển động nếu có, chuyển cảnh xfade,
  * chữ + phụ đề vẽ bằng libass, cảnh kết làm mờ ảnh cuối, nhạc nền hoặc âm thanh im lặng.
  */
 class FfmpegVideoRenderer implements VideoRenderer
@@ -22,7 +22,7 @@ class FfmpegVideoRenderer implements VideoRenderer
         private readonly int $timeout = 600,
     ) {}
 
-    public function render(RenderSpec $spec): void
+    public function render(RenderSpec $spec, ?callable $onProgress = null): void
     {
         if ($spec->scenes === []) {
             throw new VideoRenderException('Không có cảnh nào để ghép.');
@@ -38,7 +38,16 @@ class FfmpegVideoRenderer implements VideoRenderer
             $filterPath = $workDir.'/filter.txt';
             File::put($filterPath, $this->filterGraph($spec, $assPath));
 
-            $result = Process::timeout($this->timeout)->run($this->command($spec, $filterPath));
+            // -progress in "out_time_us=..." ra stdout; quy ra phần trăm theo tổng thời lượng.
+            $totalUs = max(1, $spec->durationMs() * 1000);
+            $result = Process::timeout($this->timeout)->run(
+                $this->command($spec, $filterPath),
+                function (string $type, string $output) use ($onProgress, $totalUs) {
+                    if ($onProgress && $type === 'out' && preg_match_all('/out_time_us=(\d+)/', $output, $m)) {
+                        $onProgress(min(100, (int) floor(((int) end($m[1])) * 100 / $totalUs)));
+                    }
+                },
+            );
 
             if ($result->failed() || ! is_file($spec->outputPath)) {
                 throw new VideoRenderException('ffmpeg lỗi: '.mb_substr(trim($result->errorOutput()), -800));
@@ -51,12 +60,16 @@ class FfmpegVideoRenderer implements VideoRenderer
     /** @return list<string> */
     public function command(RenderSpec $spec, string $filterPath): array
     {
-        $cmd = [$this->ffmpeg, '-y', '-hide_banner', '-loglevel', 'error'];
+        $cmd = [$this->ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1'];
 
-        $last = $spec->scenes[array_key_last($spec->scenes)];
-        foreach ([...$spec->scenes, $last] as $scene) {
-            $cmd = [...$cmd, '-i', $scene->imagePath];
+        foreach ($spec->scenes as $scene) {
+            // Lặp clip nếu ngắn hơn thời lượng cảnh; tiếng của clip bị bỏ (chỉ dùng nhạc nền).
+            $cmd = $scene->clipPath
+                ? [...$cmd, '-stream_loop', '-1', '-i', $scene->clipPath]
+                : [...$cmd, '-i', $scene->imagePath];
         }
+        // Cảnh kết luôn dùng ảnh tĩnh của cảnh cuối.
+        $cmd = [...$cmd, '-i', $spec->scenes[array_key_last($spec->scenes)]->imagePath];
 
         $seconds = $this->seconds($spec->durationMs());
         if ($spec->musicPath) {
@@ -102,9 +115,14 @@ class FfmpegVideoRenderer implements VideoRenderer
                 default => "1.10-0.10*on/{$frames}",
             };
 
-            $chain = "[{$i}:v]scale={$bigW}:{$bigH}:force_original_aspect_ratio=increase,crop={$bigW}:{$bigH},"
-                ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps={$this->fps},"
-                .'setsar=1,format=yuv420p';
+            $clip = $isEndCard ? null : $spec->scenes[$i]->clipPath;
+            // Clip: cắt khung dọc, lấy đúng thời lượng; fps đặt sau trim để xfade nhận frame rate cố định.
+            $chain = $clip
+                ? "[{$i}:v]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},"
+                    .'trim=duration='.$this->seconds($clipMs).",setpts=PTS-STARTPTS,fps={$this->fps},setsar=1,format=yuv420p"
+                : "[{$i}:v]scale={$bigW}:{$bigH}:force_original_aspect_ratio=increase,crop={$bigW}:{$bigH},"
+                    ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps={$this->fps},"
+                    .'setsar=1,format=yuv420p';
             if ($isEndCard) {
                 $chain .= ',boxblur=30:2,eq=brightness=-0.25';
             }
