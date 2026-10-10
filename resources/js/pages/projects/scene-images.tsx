@@ -40,6 +40,11 @@ export default function SceneImages({
     const changeBackground = (sceneId: number, value: string) =>
         router.put(route('scenes.background', sceneId), { background_id: value === '' ? null : Number(value) }, { preserveScroll: true });
 
+    // Đổi góc quay sản phẩm của cảnh (rỗng = theo kịch bản); bấm Tạo lại để áp dụng.
+    const changeAngle = (sceneId: number, value: string) =>
+        router.put(route('scenes.angle', sceneId), { angle: value === '' ? null : value }, { preserveScroll: true });
+    const angleOptions = project.angle_options ?? [];
+
     const approve = (imageId: number) => router.post(route('scene-images.approve', imageId), {}, { preserveScroll: true });
 
     return (
@@ -96,6 +101,22 @@ export default function SceneImages({
                                 )}
                                 Cảnh {scene.position}: {scene.on_screen_text}
                             </div>
+                            {angleOptions.length > 0 && scene.phase !== 'before' && (
+                                <select
+                                    aria-label={`Góc quay cảnh ${scene.position}`}
+                                    className="border-input bg-background h-7 w-full rounded-md border px-2 text-xs"
+                                    value={scene.angle ?? ''}
+                                    disabled={project.is_busy}
+                                    onChange={(e) => changeAngle(scene.id, e.target.value)}
+                                >
+                                    <option value="">Góc quay: theo kịch bản</option>
+                                    {angleOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            Góc quay: {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                             {(backgrounds.length > 0 || scene.background) && !fromClip && (
                                 <div className="flex items-center gap-2">
                                     {scene.background?.photo_url && (

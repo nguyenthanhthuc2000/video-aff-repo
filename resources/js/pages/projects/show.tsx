@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { projectStatusLabels } from '@/lib/project-status';
+import { voiceModes } from '@/lib/voice-modes';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { type AudioTrack, type Background, type FashionModel, type OutfitProduct, type SampleVideo, type VideoProject } from '@/types/models';
 import { Head, Link, router, usePage } from '@inertiajs/react';
@@ -76,7 +77,7 @@ export default function ProjectsShow({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <Heading
                         title={project.product?.name ?? 'Dự án video'}
-                        description={`${project.video_type_label} · Người mẫu: ${project.before_fashion_model ? `${project.before_fashion_model.name} → ` : ''}${project.fashion_model?.name ?? ''}${project.motion_style_label ? ` · Chuyển động: ${project.motion_style_label}` : ''}${project.one_take ? ' · Một cảnh quay liền' : ''}`}
+                        description={`${project.video_type_label} · Người mẫu: ${project.before_fashion_model ? `${project.before_fashion_model.name} → ` : ''}${project.fashion_model?.name ?? ''}${project.motion_style_label ? ` · Chuyển động: ${project.motion_style_label}` : ''}${project.one_take ? ' · Một cảnh quay liền' : ''}${project.voice_mode && project.voice_mode !== 'music' ? ` · ${voiceModes.find((mode) => mode.value === project.voice_mode)?.label}` : ''}`}
                     />
                     <div className="flex items-center gap-2">
                         {project.is_busy && <LoaderCircle className="size-4 animate-spin" />}

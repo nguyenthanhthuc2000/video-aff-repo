@@ -26,6 +26,7 @@ final class OneTake
                     .'with the same camera position, framing, lighting and location; no cut, no jump, no reset to a new pose. ')
             .$scene->productLine().' '
             ."What happens in this part: {$scene->visual}. "
+            .(($angle = ProductCoverage::moveLine($scene->angle)) !== '' ? $angle.' ' : '')
             .($style ? "The person {$style->moves()}. " : '')
             .'End this part on a clear, steady, natural moment (no motion blur, face visible) so the next part can continue from the last frame. '
             .MotionStyle::CONTINUITY.' '

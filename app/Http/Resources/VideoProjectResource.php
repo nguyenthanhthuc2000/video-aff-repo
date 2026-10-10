@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Enums\MotionStyle;
 use App\Enums\SceneImageStatus;
+use App\Enums\VoiceMode;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Jobs\GenerateSceneImageJob;
@@ -13,6 +14,7 @@ use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
 use App\Support\Media;
 use App\Support\MotionCopy;
+use App\Support\ProductCoverage;
 use App\Support\SceneSettings;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -80,6 +82,10 @@ class VideoProjectResource extends JsonResource
             ]),
             'video_type' => $this->video_type->value,
             'one_take' => (bool) $this->one_take,
+            // Góc quay sản phẩm chọn được cho từng cảnh.
+            'angle_options' => ProductCoverage::applies($this->resource) ? ProductCoverage::options($this->resource) : [],
+            'voice_mode' => ($this->voice_mode ?? VoiceMode::Music)->value,
+            'music_start_ms' => $this->music_start_ms,
             'video_type_label' => $this->video_type->label(),
             'before_fashion_model' => $this->whenLoaded('beforeFashionModel', fn () => $this->beforeFashionModel ? [
                 'id' => $this->beforeFashionModel->id,
@@ -95,12 +101,14 @@ class VideoProjectResource extends JsonResource
                 'id' => $scene->id,
                 'position' => $scene->position,
                 'phase' => $scene->phase?->value,
+                'angle' => $scene->angle,
+                'angle_label' => ProductCoverage::label($scene->angle),
                 'duration_ms' => $scene->duration_ms,
                 'visual' => $scene->visual,
                 'on_screen_text' => $scene->on_screen_text,
                 'voiceover' => $scene->voiceover,
                 ...($isAdmin ? ['image_prompt' => $scene->image_prompt] : []),
-                ...($showImagePrompt ? ['full_prompt' => GenerateSceneImageJob::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->background_id !== null)] : []),
+                ...($showImagePrompt ? ['full_prompt' => GenerateSceneImageJob::scenePrompt($scene)] : []),
                 // Có video mẫu (của cảnh hoặc dự án) thì sao chép chuyển động, không thì kiểu có sẵn.
                 ...($showMotionPrompt ? ['motion_prompt' => $scene->motionReference() ? MotionCopy::prompt($scene) : $this->motionStyleFor($scene)?->prompt($scene)] : []),
                 'sample_video_id' => $scene->sample_video_id,

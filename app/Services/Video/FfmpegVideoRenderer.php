@@ -61,7 +61,7 @@ class FfmpegVideoRenderer implements VideoRenderer
         $cmd = [$this->ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1'];
 
         foreach ($spec->scenes as $scene) {
-            // Lặp clip nếu ngắn hơn thời lượng cảnh; tiếng của clip bị bỏ (chỉ dùng nhạc nền).
+            // Lặp clip nếu ngắn hơn thời lượng cảnh; tiếng của clip chỉ giữ khi người mẫu nói (clipAudio).
             $cmd = $scene->clipPath
                 ? [...$cmd, '-stream_loop', '-1', '-i', $scene->clipPath]
                 : [...$cmd, '-i', $scene->imagePath];
@@ -123,7 +123,8 @@ class FfmpegVideoRenderer implements VideoRenderer
             // Clip: cắt khung dọc, lấy đúng thời lượng; fps đặt sau trim để xfade nhận frame rate cố định.
             $chain = $clip
                 ? "[{$i}:v]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},"
-                    .'trim=duration='.$this->seconds($clipMs).",setpts=PTS-STARTPTS,fps={$this->fps},setsar=1,format=yuv420p"
+                    .'trim='.($spec->scenes[$i]->clipOffsetMs > 0 ? 'start='.$this->seconds($spec->scenes[$i]->clipOffsetMs).':' : '')
+                    .'duration='.$this->seconds($clipMs).",setpts=PTS-STARTPTS,fps={$this->fps},setsar=1,format=yuv420p"
                 : "[{$i}:v]scale={$bigW}:{$bigH}:force_original_aspect_ratio=increase,crop={$bigW}:{$bigH},"
                     ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps={$this->fps},"
                     .'setsar=1,format=yuv420p';
@@ -159,9 +160,29 @@ class FfmpegVideoRenderer implements VideoRenderer
         $total = $this->seconds($spec->durationMs());
         $fadeStart = $this->seconds(max(0, $spec->durationMs() - 1500));
         $audioIndex = $count;
-        $graph[] = $spec->musicPath
-            ? "[{$audioIndex}:a]volume=0.3,atrim=0:{$total},afade=t=out:st={$fadeStart}:d=1.5,asetpts=PTS-STARTPTS[aout]"
-            : "[{$audioIndex}:a]anull[aout]";
+        $start = $this->seconds($spec->musicStartMs);
+        $end = $this->seconds($spec->musicStartMs + $spec->durationMs());
+        $music = $spec->musicPath
+            ? "[{$audioIndex}:a]atrim={$start}:{$end},asetpts=PTS-STARTPTS,volume=".$spec->musicVolume().",afade=t=out:st={$fadeStart}:d=1.5"
+            : "[{$audioIndex}:a]anull";
+
+        if (! $spec->clipAudio) {
+            $graph[] = "{$music}[aout]";
+
+            return implode(";\n", $graph);
+        }
+
+        // Người mẫu nói: nối tiếng từng clip đúng thời lượng cảnh (cảnh ảnh tĩnh / cảnh kết là im lặng) rồi trộn nhạc nền nhỏ.
+        foreach ($durations as $i => $ms) {
+            $seconds = $this->seconds($ms);
+            $scene = $spec->scenes[$i] ?? null;
+            $graph[] = $scene?->clipPath && $scene->clipHasAudio
+                ? "[{$i}:a]aresample=44100,aformat=channel_layouts=stereo,atrim=0:{$seconds},asetpts=PTS-STARTPTS,apad=whole_dur={$seconds}[a{$i}]"
+                : "anullsrc=r=44100:cl=stereo,atrim=0:{$seconds}[a{$i}]";
+        }
+        $graph[] = implode('', array_map(fn (int $i) => "[a{$i}]", range(0, $count - 1)))."concat=n={$count}:v=0:a=1[voice]";
+        $graph[] = "{$music},aresample=44100,aformat=channel_layouts=stereo[music]";
+        $graph[] = '[voice][music]amix=inputs=2:duration=first:normalize=0[aout]';
 
         return implode(";\n", $graph);
     }

@@ -13,6 +13,7 @@ use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\ProductImportController;
 use App\Http\Controllers\RenderController;
 use App\Http\Controllers\SampleVideoController;
+use App\Http\Controllers\SceneAngleController;
 use App\Http\Controllers\SceneClipController;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\SceneOrderController;
@@ -45,6 +46,7 @@ Route::middleware(['auth'])->group(function () {
         ->only(['index', 'store', 'show', 'destroy'])
         ->parameters(['projects' => 'project']);
     Route::post('projects/{project}/autopilot', [VideoProjectController::class, 'autopilot'])->name('projects.autopilot');
+    Route::put('projects/{project}/voice', [VideoProjectController::class, 'voice'])->name('projects.voice');
     Route::post('projects/{project}/script', [ScriptController::class, 'store'])->name('projects.script.store');
     Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
     Route::put('projects/{project}/scenes/order', [SceneOrderController::class, 'update'])->name('projects.scenes.order');
@@ -118,6 +120,7 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('backgrounds', BackgroundController::class)->only(['index', 'store', 'update', 'destroy']);
     Route::put('scenes/{scene}/background', [BackgroundController::class, 'scene'])->name('scenes.background');
     Route::put('scenes/{scene}/outfit', [SceneOutfitController::class, 'update'])->name('scenes.outfit');
+    Route::put('scenes/{scene}/angle', [SceneAngleController::class, 'update'])->name('scenes.angle');
 });
 
 require __DIR__.'/settings.php';

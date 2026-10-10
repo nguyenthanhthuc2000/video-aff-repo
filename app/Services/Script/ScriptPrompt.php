@@ -2,9 +2,11 @@
 
 namespace App\Services\Script;
 
+use App\Enums\VoiceMode;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\VideoProject;
+use App\Support\ProductCoverage;
 use App\Support\SceneSettings;
 
 /** Nội dung prompt viết kịch bản, dùng chung cho Claude API và Claude bản web. */
@@ -28,16 +30,18 @@ class ScriptPrompt
       - image_prompt: prompt tiếng Anh để AI chỉnh ảnh người mẫu mặc đúng sản phẩm trong ảnh tham chiếu. Mở đầu bằng bối cảnh cụ thể (địa điểm, đồ vật xung quanh, thời điểm trong ngày), rồi đến tư thế, hành động, góc máy, ánh sáng; khung dọc 9:16.
         image_prompt không tả lại thiết kế sản phẩm (màu, hoạ tiết, chất liệu, độ dài, cổ áo, tay áo...) và không yêu cầu sửa sản phẩm: chỉ gọi là "the exact product from the product photos" kèm cách mặc / cầm theo mục "Cách dùng sản phẩm". Muốn ảnh kín đáo thì đổi tư thế, góc máy, khoảng cách, bối cảnh; KHÔNG viết thêm áo khoác, khăn, lớp lót hay đổi kiểu sản phẩm.
       - duration_ms: thời lượng cảnh; tổng các cảnh bằng tổng thời lượng yêu cầu.
-    - Mỗi cảnh một bối cảnh khác hẳn nhau, không lặp địa điểm, như một ngày mặc sản phẩm.
-      Ưu tiên các bối cảnh trong mục "Bối cảnh hợp với sản phẩm" (chọn theo tên và kiểu sản phẩm, nơi người mua thật sự sẽ mặc).
-    - Đổi cả tư thế và góc máy giữa các cảnh (toàn thân đang bước đi, ngồi, xoay người, nửa người, cận chi tiết); không lặp cùng một kiểu đứng tạo dáng.
+    - Quay như MỘT buổi quay thật của một người: tối đa 2–3 địa điểm gần nhau, đi theo trình tự hợp lý (ví dụ trong phòng → trước gương → ra cửa),
+      các cảnh liền nhau cùng địa điểm giữ đúng địa điểm và ánh sáng đó; không nhảy sang nơi khác ở mỗi cảnh (ghép lại sẽ rời rạc).
+      Chọn địa điểm trong mục "Bối cảnh hợp với sản phẩm" (nơi người mua thật sự sẽ dùng).
+    - Đổi góc máy và khoảng cách giữa các cảnh liền nhau (toàn thân → cận → nghiêng...), không lặp cùng một kiểu đứng tạo dáng; có mục "Góc quay sản phẩm" thì theo đúng mục đó.
+    - Sản phẩm là nhân vật chính: mọi cảnh đều thấy rõ sản phẩm; lời đọc và chữ trên màn hình nói về đúng phần sản phẩm đang thấy trong cảnh đó.
     - Chỉ có đúng MỘT sản phẩm đang bán trong mỗi cảnh. image_prompt không được nhắc túi, ví, mũ, kính, trang sức, điện thoại
       hay phụ kiện nào khác (trừ khi đó chính là sản phẩm). Sản phẩm luôn được mặc / đeo / cầm trên người mẫu ngay trong khung hình
       theo đúng mục "Cách dùng sản phẩm", không đặt rời, không lơ lửng, không "xuất hiện" giữa chừng.
     - Phong cách trang nhã, lịch sự như ảnh thời trang thương mại: KHÔNG gợi cảm, không sexy, không khiêu khích.
       Không mô tả hay nhấn vào cơ thể (ngực, eo, đùi, khe xẻ, phần hở, độ mỏng xuyên thấu), không góc máy thấp nhìn lên hay cận cơ thể.
       Với đồ ren, đồ mỏng, đồ ôm, đồ ngủ: tư thế kín đáo tự nhiên, góc máy ngang tầm mắt, cận chi tiết thì chụp vải trên móc/manơcanh hoặc trải phẳng.
-    - Ánh sáng và thời điểm cũng nên khác nhau (nắng sáng, chiều vàng, đèn quán ấm, đèn văn phòng, đèn tối).
+    - Cùng một buổi trong ngày, ánh sáng nhất quán giữa các cảnh để ghép lại tự nhiên như quay liền một lần.
     - Video phải trông như người mua thật tự quay bằng điện thoại (UGC), không phải quảng cáo bóng bẩy: image_prompt tả một khoảnh khắc đời thường có thật (chỉnh váy trước gương, cầm ly cà phê, bước ra cửa, ngồi bậc thềm...), ánh sáng có sẵn ở nơi đó, góc chụp kiểu điện thoại (selfie gương, bạn chụp hộ ngang tầm mắt, dựng máy trên kệ); KHÔNG dùng các từ cinematic, studio, professional photoshoot, perfect, flawless, 8k, ultra-detailed, dreamy, glamour.
     - Lời đọc và chữ trên màn như người thật nói chuyện với bạn bè (tự nhiên, có cảm xúc, có thể dùng "nè", "nha", "xinh xỉu"), không giọng quảng cáo đọc thông số.
     - Cảnh cuối là kêu gọi mua: "xem màu, size trong giỏ hàng" (sản phẩm không có size: "xem chi tiết trong giỏ hàng").
@@ -85,11 +89,44 @@ class ScriptPrompt
             .($category ? "Loại sản phẩm: {$category->name}. Cách dùng sản phẩm trong ảnh: {$category->usage()}.\n\n" : '')
             .self::settingsText($project)
             .self::outfitsText($project, $settings['scenes'])
+            .self::coverageText($project, $settings['scenes'])
             ."Yêu cầu video: đúng {$settings['scenes']} cảnh, tổng khoảng {$settings['seconds']} giây (mỗi cảnh khoảng {$perScene} giây; cảnh cuối là kêu gọi mua)."
             .self::piecesText($project)
             .($project->isTransformation() ? "\n\n".self::TRANSFORMATION : '')
-            .($project->one_take ? "\n\n".self::ONE_TAKE : '');
+            .($project->one_take ? "\n\n".self::ONE_TAKE : '')
+            ."\n\n".self::voiceText($project);
     }
+
+    /** Tiếng trong video: người mẫu nói thật lời voiceover, hát nhép, hay chỉ có nhạc nền. */
+    private static function voiceText(VideoProject $project): string
+    {
+        return match ($project->voice_mode) {
+            VoiceMode::Speak => self::SPEAK,
+            VoiceMode::Sing => self::SING,
+            default => 'Video chỉ có nhạc nền, người mẫu không nói: voiceover chỉ hiện thành phụ đề; visual không tả người mẫu đang nói chuyện hay hát.',
+        };
+    }
+
+    /** Người mẫu tự nói lời review: AI làm clip cho người mẫu nói đúng câu voiceover của cảnh, khớp khẩu hình. */
+    public const SPEAK = <<<'PROMPT'
+    Video REVIEW người mẫu tự nói trước camera: AI làm clip cho người mẫu nói ĐÚNG câu voiceover của từng cảnh (có tiếng, khớp khẩu hình), mỗi cảnh là một clip riêng nên:
+    - voiceover của các cảnh ghép lại phải thành MỘT bài review liền mạch của cùng một người, đọc nối tiếp nghe như nói một hơi:
+      cảnh 1 mở bằng chính câu hook được đề xuất (recommended_hook) rồi nói đang mặc gì; các cảnh giữa mỗi cảnh nói MỘT ý mới theo thứ tự
+      (cảm giác vải / form theo đánh giá, chi tiết đáng chú ý, mặc đi đâu, khuyên chọn size); cảnh cuối chốt ý và kêu gọi xem giỏ hàng.
+    - Câu sau nối ý câu trước (dùng "mà", "thêm nữa", "đặc biệt là", "nên"), không chào lại, không giới thiệu lại sản phẩm, không lặp ý hay lặp từ giữa các cảnh.
+    - Luôn xưng "mình", gọi người xem là "mọi người"; cùng một giọng điệu từ đầu đến cuối.
+    - Mỗi câu phải nói xong trong thời lượng cảnh: tối đa khoảng 2,5 từ mỗi giây (cảnh 5 giây thì không quá 12 từ), câu hoàn chỉnh, không bỏ lửng sang cảnh sau.
+    - visual tả người mẫu nhìn camera nói chuyện tự nhiên, cử chỉ tay chỉ vào chi tiết đang nói (ví dụ nói về cổ áo thì chạm nhẹ cổ áo).
+    - on_screen_text là ý chính ngắn của câu nói (phụ đề sẽ hiện đúng lời nói).
+    PROMPT;
+
+    /** Hát nhép theo nhạc nền: không có lời đọc. */
+    public const SING = <<<'PROMPT'
+    Video HÁT NHÉP theo nhạc nền (lip-sync kiểu TikTok): người mẫu nhép miệng theo bài nhạc, không có lời đọc.
+    - voiceover để trống "" ở mọi cảnh.
+    - visual tả biểu cảm hát nhép hợp tâm trạng bài, nhún nhảy và cử chỉ theo nhịp nhạc, vẫn khoe rõ sản phẩm; nhìn vào camera.
+    - on_screen_text là câu ngắn về sản phẩm (không chép lời bài hát).
+    PROMPT;
 
     /** Bối cảnh: do người dùng cung cấp (cố định cho từng cảnh) hoặc gợi ý theo sản phẩm. */
     private static function settingsText(VideoProject $project): string
@@ -105,7 +142,7 @@ class ScriptPrompt
             $lines[] = 'Cảnh '.($i + 1).': '.$backgrounds[$i % $backgrounds->count()]->label();
         }
 
-        return "Bối cảnh do người dùng cung cấp (có ảnh nền thật, gửi kèm khi tạo ảnh). Dùng ĐÚNG bối cảnh này cho từng cảnh, thay cho quy tắc mỗi cảnh một địa điểm khác:\n"
+        return "Bối cảnh do người dùng cung cấp (có ảnh nền thật, gửi kèm khi tạo ảnh). Dùng ĐÚNG bối cảnh này cho từng cảnh, thay cho quy tắc chọn địa điểm ở trên:\n"
             .implode("\n", $lines)."\n"
             .'Với các cảnh này, image_prompt mở đầu bằng "In the exact location shown in the background photo (<tên bối cảnh bằng tiếng Anh>)", '
             .'không tả thêm địa điểm, đồ đạc hay người khác; tạo khác biệt giữa các cảnh bằng tư thế, hành động, góc máy và ánh sáng.'."\n\n";
@@ -144,6 +181,22 @@ class ScriptPrompt
             .'cảnh đổi sang bộ mới mở đầu bằng khoảnh khắc chuyển đồ (xoay người, che camera, búng tay); on_screen_text / voiceover có thể gọi tên ngắn hoặc màu của bộ đang mặc; '
             .'caption và hashtag nhắc đủ các sản phẩm.'."\n\n"
             .($others !== '' ? "Thông tin các sản phẩm khác trong video:\n{$others}\n\n" : '');
+    }
+
+    /** Góc quay sản phẩm của từng cảnh (đủ các góc như người review thật), cũng được thêm vào prompt ảnh / clip. */
+    private static function coverageText(VideoProject $project, int $sceneCount): string
+    {
+        $plan = ProductCoverage::plan($project, $sceneCount);
+        if (array_filter($plan) === []) {
+            return '';
+        }
+
+        $rows = array_map(fn (?string $angle, int $i) => 'Cảnh '.($i + 1).': '.ProductCoverage::label($angle).' — '.ProductCoverage::ANGLES[$angle]['image'], $plan, array_keys($plan));
+
+        return "Góc quay sản phẩm (video review phải cho thấy đủ sản phẩm từ nhiều góc, mỗi cảnh đúng một góc):\n".implode("\n", $rows)."\n"
+            .'Quy tắc: visual và image_prompt của cảnh tả đúng góc đó (cận cảnh thì khung hình chủ yếu là phần sản phẩm, không cần thấy mặt); '
+            .'voiceover và on_screen_text nói về đúng phần đang thấy (cận cổ áo thì nói cổ áo, cận vải thì nói chất vải theo đánh giá, mặt sau thì nói dáng sau); '
+            .'cảnh cận ngắn hơn (2–3 giây), cảnh toàn thân dài hơn. Nếu ảnh sản phẩm không có mặt sau thì cảnh mặt sau chỉ nói về dáng, không tả chi tiết mặt sau.'."\n\n";
     }
 
     /** Video mẫu nhiều shot: độ dài từng cảnh theo shot (sao chép chuyển động từng shot). */

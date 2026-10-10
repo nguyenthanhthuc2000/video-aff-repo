@@ -19,6 +19,7 @@ use App\Services\Image\Prompt\ScenePromptRewriter;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
+use App\Support\ProductCoverage;
 use App\Support\ProductFidelity;
 use App\Support\Realism;
 use DateTimeInterface;
@@ -274,7 +275,7 @@ class GenerateSceneImageJob implements ShouldQueue
     /** Prompt đầy đủ của cảnh (theo pha, loại sản phẩm, có ảnh nền bối cảnh hay không). */
     public static function scenePrompt(Scene $scene): string
     {
-        return self::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->background_id !== null);
+        return self::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->background_id !== null, $scene->angle);
     }
 
     /** Ảnh nền bối cảnh của người dùng: đặt người vào đúng nơi đó, không lấy người / đồ trong ảnh nền. */
@@ -282,7 +283,7 @@ class GenerateSceneImageJob implements ShouldQueue
         .'as if photographed there; if the description above mentions a different place, ignore it and use the background photo. '
         .'Do not copy any people, clothing, bags or products that may appear in the background photo.';
 
-    public static function prompt(string $scenePrompt, ?ScenePhase $phase = null, ?string $productLine = null, bool $background = false): string
+    public static function prompt(string $scenePrompt, ?ScenePhase $phase = null, ?string $productLine = null, bool $background = false, ?string $angle = null): string
     {
         // Cảnh "trước" của video biến hình: giữ nguyên vẻ ngoài cũ trong ảnh "trước", không mặc sản phẩm.
         if ($phase === ScenePhase::Before) {
@@ -297,7 +298,10 @@ class GenerateSceneImageJob implements ShouldQueue
                 .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';
         }
 
+        $angleLine = ProductCoverage::imageLine($angle);
+
         return trim($scenePrompt)."\n\n"
+            .($angleLine !== '' ? $angleLine.' ' : '')
             .($productLine ?? 'The person is wearing or holding the exact product shown in the other attached images.').' '
             .($background
                 ? 'The first attached image is the person; the second attached image is the background location; the other attached images show only the product. '.self::BACKGROUND.' '
@@ -308,7 +312,9 @@ class GenerateSceneImageJob implements ShouldQueue
             .'Vertical 9:16 photo, no text, no watermark. '
             .Realism::IMAGE.' '
             .self::MODEST_IMAGE.' '
-            // Chữ của video nằm ở phần dưới khung hình: giữ mặt ở phần trên để không bị che.
-            .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';
+            // Chữ của video nằm ở phần dưới khung hình: giữ mặt (hoặc chi tiết sản phẩm khi cận) ở phần trên để không bị che.
+            .(ProductCoverage::isClose($angle)
+                ? 'Compose so the product detail is sharp in the upper two thirds of the frame; keep the bottom quarter simple.'
+                : 'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).');
     }
 }

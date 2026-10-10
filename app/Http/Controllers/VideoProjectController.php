@@ -6,6 +6,7 @@ use App\Enums\FashionModelKind;
 use App\Enums\MotionStyle;
 use App\Enums\VideoProjectStatus;
 use App\Enums\VideoType;
+use App\Enums\VoiceMode;
 use App\Http\Resources\FashionModelResource;
 use App\Http\Resources\VideoProjectResource;
 use App\Models\ProductImage;
@@ -15,6 +16,7 @@ use App\Services\Video\SampleAudio;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\ProjectCredits;
+use App\Support\Voice;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -69,6 +71,8 @@ class VideoProjectController extends Controller
             'autopilot' => ['boolean'],
             // Một cảnh quay liền (không cắt cảnh): các nhịp nối nhau bằng khung cuối clip trước.
             'one_take' => ['boolean'],
+            // Tiếng: chỉ nhạc nền / người mẫu nói lời review / hát nhép theo nhạc nền.
+            'voice_mode' => ['nullable', Rule::enum(VoiceMode::class)],
             'video_type' => ['nullable', Rule::enum(VideoType::class)],
             'audio_track_id' => ['nullable', Rule::exists('audio_tracks', 'id')->where('user_id', $userId)->whereNotNull('path')],
             // Sao chép chuyển động từ video mẫu cho mọi cảnh.
@@ -138,6 +142,10 @@ class VideoProjectController extends Controller
             }
         }
         unset($validated['use_sample_audio']);
+        $validated['voice_mode'] ??= VoiceMode::Music->value;
+        if ($message = self::voiceBlocker(VoiceMode::from($validated['voice_mode']), ($validated['audio_track_id'] ?? null) !== null)) {
+            throw ValidationException::withMessages(['voice_mode' => $message]);
+        }
         $validated['background_ids'] = array_values(array_map('intval', $validated['background_ids'] ?? [])) ?: null;
         $validated['outfits'] = self::outfits($validated['outfits'] ?? []);
 
@@ -236,6 +244,33 @@ class VideoProjectController extends Controller
         $project->startAutopilot();
 
         return back()->with('status', 'Đang chạy ngầm, bạn có thể rời trang này.');
+    }
+
+    /** Đổi tiếng của video (dự án đã tạo); clip làm lại mới áp dụng. */
+    public function voice(Request $request, VideoProject $project): RedirectResponse
+    {
+        $this->authorize('update', $project);
+
+        $mode = VoiceMode::from($request->validate(['voice_mode' => ['required', Rule::enum(VoiceMode::class)]])['voice_mode']);
+        if ($message = self::voiceBlocker($mode, Voice::musicPath($project) !== null)) {
+            throw ValidationException::withMessages(['voice_mode' => $message]);
+        }
+        $project->update(['voice_mode' => $mode, 'music_start_ms' => null]);
+
+        return back()->with('status', match ($mode) {
+            VoiceMode::Speak => 'Đã chọn "Người mẫu nói". Viết lại kịch bản để lời nói nối thành một bài review, rồi tạo lại clip.',
+            VoiceMode::Sing => 'Đã chọn "Hát nhép theo nhạc". Tạo lại clip để người mẫu hát nhép theo nhạc nền.',
+            VoiceMode::Music => 'Đã chọn "Chỉ nhạc nền". Tạo lại clip để người mẫu không nhép miệng.',
+        });
+    }
+
+    private static function voiceBlocker(VoiceMode $mode, bool $hasMusic): ?string
+    {
+        return match (true) {
+            $mode !== VoiceMode::Music && ! VideoProject::clipsAvailable() => 'Người mẫu nói / hát nhép cần hệ thống tự tạo clip. Liên hệ quản trị viên.',
+            $mode === VoiceMode::Sing && ! $hasMusic => 'Hát nhép cần chọn nhạc nền (thư viện Âm thanh hoặc nhạc của video mẫu).',
+            default => null,
+        };
     }
 
     /** Có khoá API cho cả Claude và Muse: dự án mới chạy ngầm được từ đầu đến cuối. */

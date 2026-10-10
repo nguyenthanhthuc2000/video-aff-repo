@@ -5,6 +5,7 @@ namespace App\Enums;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\Scene;
+use App\Support\ProductCoverage;
 use App\Support\ProductFidelity;
 use App\Support\Realism;
 
@@ -65,15 +66,31 @@ enum MotionStyle: string
         .'The product stays worn or held naturally the whole time; it never appears, disappears, floats in the air, duplicates or changes shape. '
         .'Do not add any new objects, bags, wallets, hats, glasses, jewelry or accessories that are not in the photo.';
 
+    /** Clip được cắt ghép thẳng với nhau: chuyển động liên tục từ đầu đến cuối thì chỗ cắt trông như quay thật. */
+    public const NATURAL_CUT = 'Motion starts immediately in the first frame and continues naturally until the very last frame: no frozen start, no final pose held still, no fade.';
+
     public function prompt(Scene $scene): string
+    {
+        return self::animate($scene, $this);
+    }
+
+    /** Prompt clip từ ảnh cảnh; không có kiểu thì người mẫu làm theo mô tả cảnh (người mẫu nói / hát nhép). */
+    public static function animate(Scene $scene, ?self $style = null): string
     {
         // Cảnh "trước" của video biến hình: chưa có sản phẩm.
         $product = $scene->phase === ScenePhase::Before
             ? 'The person is not wearing or holding the product yet; her clothes, hair and face stay exactly as in the photo.'
             : $scene->productLine();
 
-        return "Animate this photo into a 5-second vertical 9:16 video. {$product} The same person {$this->moves()}. "
+        // Cảnh cận chi tiết: không nhảy, chỉ làm hành động của góc quay.
+        $angle = ProductCoverage::moveLine($scene->angle);
+        $style = ProductCoverage::isClose($scene->angle) ? null : $style;
+
+        return "Animate this photo into a 5-second vertical 9:16 video. {$product} "
+            .($style ? "The same person {$style->moves()}. " : '')
+            .($angle !== '' ? $angle.' ' : '')
             ."Scene context: {$scene->visual}. "
+            .self::NATURAL_CUT.' '
             .self::CONTINUITY.' '
             .'Keep the face, hair and outfit exactly the same. '
             .($scene->phase === ScenePhase::Before ? '' : ProductFidelity::VIDEO.' ')

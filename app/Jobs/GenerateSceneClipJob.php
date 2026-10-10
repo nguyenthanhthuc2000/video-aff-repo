@@ -2,8 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Enums\MotionStyle;
 use App\Enums\SceneClipStatus;
+use App\Enums\VoiceMode;
 use App\Models\Scene;
+use App\Services\Audio\MusicAnalyzer;
 use App\Services\Image\ImageGeneratorException;
 use App\Services\Image\MuseTask;
 use App\Services\Video\ClipGenerator;
@@ -13,6 +16,7 @@ use App\Support\Credits;
 use App\Support\Media;
 use App\Support\MotionCopy;
 use App\Support\OneTake;
+use App\Support\Voice;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -36,7 +40,7 @@ class GenerateSceneClipJob implements ShouldQueue
         return now()->addMinutes(90);
     }
 
-    public function handle(ClipGenerator $generator, ReferenceClip $references): void
+    public function handle(ClipGenerator $generator, ReferenceClip $references, ?MusicAnalyzer $music = null): void
     {
         $scene = $this->scene;
         if ($scene->clip_status !== SceneClipStatus::Pending) {
@@ -48,7 +52,8 @@ class GenerateSceneClipJob implements ShouldQueue
         // Ưu tiên sao chép chuyển động từ video mẫu (của cảnh hoặc của dự án), không có thì dùng kiểu có sẵn.
         $sample = $scene->motionReference();
         $style = $project->motionStyleFor($scene);
-        if ($imagePath === null || ($sample === null && $style === null && ! $project->one_take)) {
+        $freeMotion = $project->one_take || $project->voice_mode !== VoiceMode::Music;
+        if ($imagePath === null || ($sample === null && $style === null && ! $freeMotion)) {
             $this->fail('Cần ảnh cảnh đã duyệt và kiểu chuyển động hoặc video mẫu.');
 
             return;
@@ -81,12 +86,26 @@ class GenerateSceneClipJob implements ShouldQueue
                         return;
                     }
                 }
+                // Hát nhép: gửi kèm đúng đoạn nhạc của cảnh.
+                $audioPath = null;
+                if ($project->voice_mode === VoiceMode::Sing) {
+                    try {
+                        $audioPath = Voice::prepareAudio($scene, $music ?? app(MusicAnalyzer::class));
+                    } catch (RuntimeException $e) {
+                        $this->fail($e->getMessage());
+
+                        return;
+                    }
+                }
                 $prompt = match (true) {
                     $sample !== null => MotionCopy::prompt($scene),
                     $project->one_take => OneTake::prompt($scene, $style),
-                    default => $style->prompt($scene),
-                };
-                $code = $sample ? $generator->start($imagePath, $prompt, $referencePath) : $generator->start($imagePath, $prompt);
+                    default => MotionStyle::animate($scene, $style),
+                }.' '.Voice::clipLine($scene);
+                $code = $generator->start($imagePath, $prompt, $sample ? $referencePath : null, $audioPath);
+                if ($audioPath !== null) {
+                    Media::delete($audioPath);
+                }
                 $scene->update([
                     'clip_request_id' => $code,
                     'clip_prompt' => $prompt,

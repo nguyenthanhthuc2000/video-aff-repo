@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { motionStyles, type MotionStyle } from '@/lib/motion-styles';
 import { cn } from '@/lib/utils';
+import { voiceModes } from '@/lib/voice-modes';
 import {
     type AudioTrack,
     type Background,
@@ -14,6 +15,7 @@ import {
     type OutfitProduct,
     type SampleVideo,
     type VideoType,
+    type VoiceMode,
 } from '@/types/models';
 import { Link, useForm, usePage } from '@inertiajs/react';
 import { FormEventHandler, useState } from 'react';
@@ -209,6 +211,7 @@ export default function CreateProjectForm({
         background_ids: number[];
         outfits: Outfit[];
         one_take: boolean;
+        voice_mode: VoiceMode;
         autopilot: boolean;
     }>({
         product_id: productId,
@@ -221,6 +224,7 @@ export default function CreateProjectForm({
         sample_video_id: defaultSampleVideoId ?? null,
         background_ids: defaultBackgroundIds.filter((id) => backgrounds.some((background) => background.id === id)),
         one_take: false,
+        voice_mode: 'music',
         outfits: defaultOutfits.filter((outfit) => outfitProducts.some((product) => product.id === outfit.product_id)),
         // Chế độ "Tự động tất cả các bước" (Cài đặt video) thì tick sẵn chạy ngầm.
         autopilot: autopilotAvailable && workflow !== 'manual',
@@ -501,6 +505,30 @@ export default function CreateProjectForm({
                     </Link>
                 </p>
                 <InputError message={errors.audio_track_id} />
+            </div>
+
+            <div className="space-y-1">
+                <Label>Tiếng trong video</Label>
+                <div className="grid gap-2 sm:grid-cols-3">
+                    {voiceModes.map((mode) => (
+                        <button
+                            key={mode.value}
+                            type="button"
+                            onClick={() => setData('voice_mode', mode.value)}
+                            className={cn(
+                                'rounded-md border px-3 py-1.5 text-left text-sm',
+                                data.voice_mode === mode.value ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+                            )}
+                        >
+                            <span className="font-medium">{mode.label}</span>
+                            <span className="text-muted-foreground block text-xs">{mode.hint}</span>
+                        </button>
+                    ))}
+                </div>
+                {data.voice_mode === 'sing' && !data.audio_track_id && !data.use_sample_audio && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">Hát nhép cần chọn nhạc nền ở trên.</p>
+                )}
+                <InputError message={(errors as Record<string, string>).voice_mode} />
             </div>
 
             <div className="space-y-1">

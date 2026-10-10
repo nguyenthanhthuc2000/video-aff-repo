@@ -8,12 +8,14 @@ use App\Enums\SceneClipStatus;
 use App\Enums\SceneImageStatus;
 use App\Enums\VideoProjectStatus;
 use App\Enums\VideoType;
+use App\Enums\VoiceMode;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Jobs\GenerateSceneImageJob;
 use App\Jobs\GenerateScriptJob;
 use App\Jobs\RenderVideoJob;
 use App\Support\CreditPricing;
+use App\Support\ProductCoverage;
 use App\Support\VideoPreset;
 use Database\Factories\VideoProjectFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -35,6 +37,7 @@ class VideoProject extends Model
         'fashion_model_id',
         'video_type',
         'one_take',
+        'voice_mode',
         'before_fashion_model_id',
         'motion_style',
         'motion_styles',
@@ -45,6 +48,7 @@ class VideoProject extends Model
         'render_text',
         'music',
         'audio_track_id',
+        'music_start_ms',
         'sample_video_id',
         'background_ids',
         'outfits',
@@ -54,6 +58,7 @@ class VideoProject extends Model
     protected $attributes = [
         'status' => 'draft',
         'video_type' => 'standard',
+        'voice_mode' => 'music',
     ];
 
     protected function casts(): array
@@ -66,6 +71,8 @@ class VideoProject extends Model
             'background_ids' => 'array',
             'outfits' => 'array',
             'one_take' => 'boolean',
+            'voice_mode' => VoiceMode::class,
+            'music_start_ms' => 'integer',
             'autopilot' => 'boolean',
             'script' => 'array',
             'selected_hook' => 'integer',
@@ -229,6 +236,8 @@ class VideoProject extends Model
             // Video mẫu nhiều shot: cảnh i dài đúng đoạn thứ i và mặc bộ đồ của shot đó.
             $pieces = $this->shotPieces();
             $outfits = $this->outfitList();
+            // Góc quay sản phẩm của từng cảnh, giống phần prompt đã gửi Claude.
+            $angles = ProductCoverage::plan($this, count($script['scenes']));
             $worn = 0;
             foreach ($script['scenes'] as $i => $scene) {
                 $phase = $transformation ? ($scene['phase'] ?? 'after') : null;
@@ -244,6 +253,7 @@ class VideoProject extends Model
                     ...($piece !== null ? ['duration_ms' => (int) round(($piece['end'] - $piece['start']) * 1000)] : []),
                     'position' => $i + 1,
                     'phase' => $phase,
+                    'angle' => $angles[$i] ?? null,
                     'background_id' => $backgrounds->isEmpty() ? null : $backgrounds[$i % $backgrounds->count()]->id,
                     'product_id' => $outfit['product_id'] ?? null,
                     'product_image_id' => $outfit['product_image_id'] ?? null,
@@ -477,10 +487,11 @@ class VideoProject extends Model
         return config('videoaff.image_driver') === 'browser';
     }
 
-    /** Có cách tạo chuyển động: kiểu có sẵn, hoặc video mẫu (của dự án hay của từng cảnh). */
+    /** Có cách tạo chuyển động: kiểu có sẵn, video mẫu (của dự án hay của từng cảnh), quay liền hoặc người mẫu nói / hát. */
     public function hasMotion(): bool
     {
         return $this->one_take
+            || $this->voice_mode !== VoiceMode::Music
             || $this->motionStyles() !== []
             || $this->sample_video_id !== null
             || $this->scenes()->whereNotNull('sample_video_id')->exists();

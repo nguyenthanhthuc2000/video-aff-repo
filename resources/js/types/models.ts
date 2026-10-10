@@ -81,6 +81,9 @@ export interface Scene {
     position: number;
     /** Video biến hình: cảnh trước / sau. Video thường: null. */
     phase: 'before' | 'after' | null;
+    /** Góc quay sản phẩm của cảnh (toàn thân, cận chất vải, mặt sau...). */
+    angle?: string | null;
+    angle_label?: string | null;
     duration_ms: number;
     visual: string;
     on_screen_text: string | null;
@@ -131,6 +134,9 @@ export interface VideoSettings {
 
 export type VideoType = 'standard' | 'transformation';
 
+/** Tiếng trong video: chỉ nhạc nền / người mẫu nói lời review / hát nhép theo nhạc nền. */
+export type VoiceMode = 'music' | 'speak' | 'sing';
+
 export interface VideoProject {
     id: number;
     /** Bối cảnh người dùng đã chọn (rỗng = AI tự đề xuất). */
@@ -175,6 +181,11 @@ export interface VideoProject {
     all_approved?: boolean;
     /** Một cảnh quay liền (one take): các nhịp nối nhau bằng khung cuối clip trước. */
     one_take?: boolean;
+    voice_mode?: VoiceMode;
+    /** Góc quay sản phẩm chọn được cho từng cảnh (rỗng = không chia góc, ví dụ video mẫu / biến hình). */
+    angle_options?: { value: string; label: string }[];
+    /** Hát nhép: đoạn nhạc bắt đầu từ (ms), AI chọn khi tạo clip đầu tiên. */
+    music_start_ms?: number | null;
     render_text?: boolean;
     /** Mọi sản phẩm trong video (video gộp: theo thứ tự bộ đồ). */
     video_products?: {

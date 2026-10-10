@@ -21,7 +21,18 @@ final class RenderSpec
         public readonly int $transitionMs = 0,
         /** Hạt nhiễu nhẹ như máy quay điện thoại, làm ảnh / clip AI bớt "mịn nhựa" và đồng màu giữa các cảnh. */
         public readonly bool $grain = true,
+        /** Giữ tiếng của clip (người mẫu nói); nhạc nền khi đó nhỏ lại. */
+        public readonly bool $clipAudio = false,
+        /** Âm lượng nhạc nền; null = mặc định (0,3, có tiếng clip thì 0,12). */
+        public readonly ?float $musicVolume = null,
+        /** Bắt đầu nhạc từ đoạn này (hát nhép theo đoạn đã chọn). */
+        public readonly int $musicStartMs = 0,
     ) {}
+
+    public function musicVolume(): float
+    {
+        return $this->musicVolume ?? ($this->clipAudio ? 0.12 : 0.3);
+    }
 
     /** Tổng thời lượng video, gồm cảnh kết. */
     public function durationMs(): int

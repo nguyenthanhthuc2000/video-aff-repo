@@ -23,6 +23,7 @@ class Scene extends Model
     protected $fillable = [
         'position',
         'phase',
+        'angle',
         'background_id',
         'product_id',
         'product_image_id',

@@ -1,7 +1,9 @@
+import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { voiceModes } from '@/lib/voice-modes';
 import { type SampleVideo, type Scene, type VideoProject } from '@/types/models';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import { Check, Copy, Download, LoaderCircle, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 
@@ -11,6 +13,7 @@ export default function MotionClips({ project, sampleVideos = [] }: { project: V
     const withClip = scenes.filter((scene) => scene.clip_url).length;
     const pending = scenes.filter((scene) => scene.clip_status === 'pending').length;
     const [starting, setStarting] = useState(false);
+    const { errors } = usePage<{ errors: Record<string, string> }>().props;
 
     const generateAll = () =>
         router.post(
@@ -61,6 +64,34 @@ export default function MotionClips({ project, sampleVideos = [] }: { project: V
                 </div>
             )}
             {project.clips_available && (
+                <div className="space-y-1 rounded-lg border p-3">
+                    <label htmlFor="voice-mode" className="text-sm font-medium">
+                        Tiếng trong video
+                    </label>
+                    <select
+                        id="voice-mode"
+                        className="border-input bg-background h-9 w-full max-w-sm rounded-md border px-3 text-sm"
+                        value={project.voice_mode ?? 'music'}
+                        onChange={(e) => router.put(route('projects.voice', project.id), { voice_mode: e.target.value }, { preserveScroll: true })}
+                        disabled={project.is_busy}
+                    >
+                        {voiceModes.map((mode) => (
+                            <option key={mode.value} value={mode.value}>
+                                {mode.label}
+                            </option>
+                        ))}
+                    </select>
+                    <p className="text-muted-foreground text-xs">
+                        {voiceModes.find((mode) => mode.value === (project.voice_mode ?? 'music'))?.hint}
+                        {project.voice_mode === 'speak' && ' Đổi sang chế độ này thì viết lại kịch bản để lời nói nối liền, rồi tạo lại clip.'}
+                        {project.voice_mode === 'sing' &&
+                            project.music_start_ms != null &&
+                            ` Nhạc bắt đầu từ giây ${Math.round(project.music_start_ms / 1000)}.`}
+                    </p>
+                    <InputError message={errors.voice_mode} />
+                </div>
+            )}
+            {project.clips_available && (
                 <div className="flex flex-wrap items-center gap-3">
                     <Button onClick={generateAll} disabled={starting || pending > 0 || (project.is_busy && pending === 0)}>
                         {pending > 0 ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
@@ -85,8 +116,11 @@ export default function MotionClips({ project, sampleVideos = [] }: { project: V
                 <li>Tải clip về (MP4, tối đa 100MB) và bấm "Tải clip lên". Cảnh không có clip sẽ dùng ảnh tĩnh.</li>
             </ol>
             <p className="text-muted-foreground text-xs">
-                Kiểu: {project.motion_style_label}. Đã có clip {withClip}/{scenes.length} cảnh. Tiếng trong clip bị bỏ, video dùng nhạc nền đã chọn;
-                nhạc trend TikTok thường có bản quyền, nên thêm nhạc khi đăng trên Shopee Video.
+                Kiểu: {project.motion_style_label}. Đã có clip {withClip}/{scenes.length} cảnh.{' '}
+                {project.voice_mode === 'speak'
+                    ? 'Video giữ giọng nói trong clip, nhạc nền nhỏ lại.'
+                    : 'Tiếng trong clip bị bỏ, video dùng nhạc nền đã chọn.'}{' '}
+                Nhạc trend TikTok thường có bản quyền, nên thêm nhạc khi đăng trên Shopee Video.
             </p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {scenes.map((scene) => (
@@ -167,6 +201,11 @@ function ClipCard({ scene, canGenerate, sampleVideos }: { scene: Scene; canGener
                 <div className="text-sm font-medium">
                     Cảnh {scene.position}: {scene.on_screen_text}
                 </div>
+                {scene.angle_label && (
+                    <Badge variant="outline" className="text-xs">
+                        Góc quay: {scene.angle_label}
+                    </Badge>
+                )}
                 {scene.motion_reference ? (
                     <p className="text-muted-foreground text-xs">Sao chép chuyển động: {scene.motion_reference.name}</p>
                 ) : (

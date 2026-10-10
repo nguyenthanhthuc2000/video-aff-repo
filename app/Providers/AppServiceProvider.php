@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Anthropic\Client;
+use App\Services\Audio\MusicAnalyzer;
 use App\Services\Claude\ClaudeCli;
 use App\Services\Image\FakeImageGenerator;
 use App\Services\Image\FalMuseImageGenerator;
@@ -103,6 +104,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ReferenceClip::class, fn () => ReferenceClip::fromConfig());
         $this->app->bind(ShotDetector::class, fn () => ShotDetector::fromConfig());
         $this->app->bind(SampleAudio::class, fn () => SampleAudio::fromConfig());
+        $this->app->bind(MusicAnalyzer::class, fn () => MusicAnalyzer::fromConfig());
 
         // Phân tích chuyển động video mẫu: cùng nguồn Claude với viết kịch bản.
         $this->app->bind(MotionAnalyzer::class, fn () => match (ScriptDriver::current()) {

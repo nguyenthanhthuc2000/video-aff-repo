@@ -4,10 +4,12 @@ namespace App\Jobs;
 
 use App\Enums\RenderStatus;
 use App\Enums\VideoProjectStatus;
+use App\Enums\VoiceMode;
 use App\Models\Render;
 use App\Models\Scene;
 use App\Services\Video\RenderScene;
 use App\Services\Video\RenderSpec;
+use App\Services\Video\VideoProbe;
 use App\Services\Video\VideoRenderer;
 use App\Support\CreditPricing;
 use App\Support\Credits;
@@ -26,6 +28,9 @@ class RenderVideoJob implements ShouldQueue
     public int $tries = 1;
 
     public int $timeout = 900;
+
+    /** Đoạn đứng hình đầu clip AI bỏ đi khi ghép (chỉ khi clip dài hơn cảnh). */
+    public const CLIP_LEAD_IN_MS = 400;
 
     public function __construct(public Render $render) {}
 
@@ -47,13 +52,24 @@ class RenderVideoJob implements ShouldQueue
                 throw new RuntimeException('Mọi cảnh phải có ảnh đã duyệt trước khi xuất video.');
             }
 
-            $renderScenes = $scenes->map(fn (Scene $scene) => new RenderScene(
-                imagePath: $this->copyLocal($scene->approvedImage->path, $workDir, "scene-{$scene->position}"),
-                durationMs: $scene->duration_ms,
-                title: (string) $scene->on_screen_text,
-                subtitle: (string) $scene->voiceover,
-                clipPath: $scene->clip_path ? $this->copyLocal($scene->clip_path, $workDir, "clip-{$scene->position}") : null,
-            ))->all();
+            // Người mẫu nói: giữ tiếng clip, phụ đề là lời nói; hát nhép: nhạc to từ đoạn đã chọn, không phụ đề lời đọc.
+            $voice = $project->voice_mode;
+            // Chỉ nhạc nền và không quay liền: bỏ đoạn đứng hình đầu clip (nói / hát nhép cần giữ đúng từ đầu clip).
+            $trimStart = $voice === VoiceMode::Music && ! $project->one_take;
+            $renderScenes = $scenes->map(function (Scene $scene) use ($workDir, $voice, $trimStart) {
+                $clip = $scene->clip_path ? $this->copyLocal($scene->clip_path, $workDir, "clip-{$scene->position}") : null;
+                $clipMs = $clip && $trimStart ? (app(VideoProbe::class)->probe($clip)['duration_ms'] ?? 0) : 0;
+
+                return new RenderScene(
+                    imagePath: $this->copyLocal($scene->approvedImage->path, $workDir, "scene-{$scene->position}"),
+                    durationMs: $scene->duration_ms,
+                    title: (string) $scene->on_screen_text,
+                    subtitle: $voice === VoiceMode::Sing ? '' : (string) $scene->voiceover,
+                    clipPath: $clip,
+                    clipHasAudio: $clip !== null && $voice === VoiceMode::Speak && app(VideoProbe::class)->hasAudio($clip) === true,
+                    clipOffsetMs: max(0, min(self::CLIP_LEAD_IN_MS, $clipMs - $scene->duration_ms)),
+                );
+            })->all();
 
             $sizes = $project->product->details['sizes'] ?? null;
             $spec = new RenderSpec(
@@ -65,6 +81,9 @@ class RenderVideoJob implements ShouldQueue
                 // Nhạc từ thư viện Âm thanh, không có thì file tải lên riêng cho dự án (bản cũ).
                 withText: $render->with_text,
                 musicPath: ($music = $project->audioTrack?->path ?? $project->music) ? $this->copyLocal($music, $workDir, 'music') : null,
+                clipAudio: $voice === VoiceMode::Speak,
+                musicVolume: $voice === VoiceMode::Sing ? 1.0 : null,
+                musicStartMs: $voice === VoiceMode::Sing ? (int) $project->music_start_ms : 0,
             );
 
             // Ghi tiến độ tối đa mỗi 5% để không ghi DB quá nhiều.
