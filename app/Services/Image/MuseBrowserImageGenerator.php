@@ -15,7 +15,10 @@ class MuseBrowserImageGenerator implements AsyncImageGenerator, ImageGenerator
     private const EXTENSIONS = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
 
     /** Đầu thông báo lỗi khi Muse từ chối (nút Tạo lại dựa vào đây để tự viết lại prompt). */
-    public const REJECTED = 'muse.ai từ chối tạo yêu cầu này.';
+    public const REJECTED = 'AI từ chối tạo yêu cầu này.';
+
+    /** Đầu thông báo cũ (dữ liệu trước khi đổi chữ) vẫn được nhận là bị từ chối. */
+    public const REJECTED_LEGACY = 'muse.ai từ chối tạo yêu cầu này.';
 
     public function __construct(private readonly MuseBrowserClient $client) {}
 
@@ -107,7 +110,10 @@ class MuseBrowserImageGenerator implements AsyncImageGenerator, ImageGenerator
             'done' => $task['result'] ?? throw new ImageGeneratorException('muse.ai không trả kết quả.'),
             'failed' => throw ImageGeneratorException::retryable('muse.ai: '.($task['error'] ?? 'tạo thất bại.')),
             // Muse từ chối nội dung: gửi lại y như cũ cũng bị từ chối, không thử lại; giữ lời giải thích của Muse.
-            'rejected' => throw new ImageGeneratorException(self::REJECTED.' Bấm Tạo lại để tự viết lại prompt cho phù hợp, hoặc tải ảnh/clip lên. Muse trả lời: '.($task['error'] ?? '')),
+            'rejected' => throw ImageGeneratorException::rejected(
+                self::REJECTED.' Bấm Tạo lại để tự viết lại prompt cho phù hợp, hoặc tải ảnh/clip lên. AI trả lời: '.($task['error'] ?? ''),
+                (string) ($task['error'] ?? ''),
+            ),
             default => null,
         };
     }
@@ -127,6 +133,9 @@ class MuseBrowserImageGenerator implements AsyncImageGenerator, ImageGenerator
         } catch (ConnectionException $e) {
             throw ImageGeneratorException::retryable('Không kết nối được dịch vụ trình duyệt (docker compose up -d browser).', $e);
         } catch (MuseBrowserException $e) {
+            if ($e->busy()) {
+                throw ImageGeneratorException::busy('muse.ai: '.$e->getMessage(), $e);
+            }
             // Chưa đăng nhập: thử lại cũng không được, cần người dùng xác thực.
             throw $e->needsLogin() ? new ImageGeneratorException($e->getMessage(), 0, $e) : ImageGeneratorException::retryable('muse.ai: '.$e->getMessage(), $e);
         }
@@ -136,7 +145,7 @@ class MuseBrowserImageGenerator implements AsyncImageGenerator, ImageGenerator
     public static function message(string $code, string $prompt): string
     {
         return MuseTask::header($code, 'image')."\n"
-            .'Create one photorealistic image (vertical 9:16). The first attached photo is the model, the other attached photos are the product.'
+            .'Create one photorealistic image (vertical 9:16). The first attached photo is the person; the roles of the other attached photos are described below.'
             ."\n\n{$prompt}";
     }
 }

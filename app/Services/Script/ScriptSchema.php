@@ -2,6 +2,8 @@
 
 namespace App\Services\Script;
 
+use App\Support\PromoText;
+
 /** JSON schema cho đầu ra kịch bản (structured outputs). */
 class ScriptSchema
 {
@@ -24,8 +26,10 @@ class ScriptSchema
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['visual', 'on_screen_text', 'voiceover', 'image_prompt', 'duration_ms'],
+                        'required' => ['phase', 'visual', 'on_screen_text', 'voiceover', 'image_prompt', 'duration_ms'],
                         'properties' => [
+                            // Video biến hình: before = cảnh dùng ảnh "trước"; video thường luôn là after.
+                            'phase' => ['type' => 'string', 'enum' => ['before', 'after']],
                             'visual' => $string,
                             'on_screen_text' => $string,
                             'voiceover' => $string,
@@ -58,15 +62,16 @@ class ScriptSchema
             }
 
             $scenes[] = [
+                'phase' => ($scene['phase'] ?? 'after') === 'before' ? 'before' : 'after',
                 'visual' => (string) $scene['visual'],
-                'on_screen_text' => mb_substr((string) ($scene['on_screen_text'] ?? ''), 0, 200),
-                'voiceover' => (string) ($scene['voiceover'] ?? ''),
+                'on_screen_text' => mb_substr(PromoText::strip((string) ($scene['on_screen_text'] ?? '')), 0, 200),
+                'voiceover' => PromoText::strip((string) ($scene['voiceover'] ?? '')),
                 'image_prompt' => (string) $scene['image_prompt'],
                 'duration_ms' => max(1000, min(10000, (int) ($scene['duration_ms'] ?? 3000))),
             ];
         }
 
-        $hooks = array_values(array_slice(array_map('strval', $data['hooks']), 0, self::MAX_HOOKS));
+        $hooks = array_values(array_slice(array_map(fn ($hook) => PromoText::strip((string) $hook), $data['hooks']), 0, self::MAX_HOOKS));
         $themes = array_values(array_map('strval', (array) ($data['hook_themes'] ?? [])));
         $recommended = (int) ($data['recommended_hook'] ?? 0);
 
@@ -76,8 +81,9 @@ class ScriptSchema
             'hook_themes' => array_map(fn (int $i) => mb_substr($themes[$i] ?? '', 0, 60), array_keys($hooks)),
             'recommended_hook' => $recommended >= 0 && $recommended < count($hooks) ? $recommended : 0,
             'scenes' => $scenes,
-            'caption' => (string) ($data['caption'] ?? ''),
-            'hashtags' => array_values(array_map('strval', $data['hashtags'] ?? [])),
+            // Không nhắc ưu đãi / khuyến mãi (lọc cả khi Claude vẫn viết).
+            'caption' => PromoText::strip((string) ($data['caption'] ?? '')),
+            'hashtags' => PromoText::stripHashtags(array_values(array_map('strval', $data['hashtags'] ?? []))),
         ];
     }
 }

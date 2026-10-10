@@ -21,10 +21,17 @@ use App\Services\Script\ClaudeCliScriptWriter;
 use App\Services\Script\ClaudeScriptWriter;
 use App\Services\Script\FakeScriptWriter;
 use App\Services\Script\ScriptWriter;
+use App\Services\Video\Analysis\ClaudeApiMotionAnalyzer;
+use App\Services\Video\Analysis\ClaudeCliMotionAnalyzer;
+use App\Services\Video\Analysis\FakeMotionAnalyzer;
+use App\Services\Video\Analysis\MotionAnalyzer;
 use App\Services\Video\ClipGenerator;
 use App\Services\Video\FakeClipGenerator;
 use App\Services\Video\FfmpegVideoRenderer;
 use App\Services\Video\MuseBrowserClipGenerator;
+use App\Services\Video\ReferenceClip;
+use App\Services\Video\SampleAudio;
+use App\Services\Video\VideoProbe;
 use App\Services\Video\VideoRenderer;
 use App\Support\ScriptDriver;
 use Illuminate\Support\ServiceProvider;
@@ -89,6 +96,17 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ClipGenerator::class, fn () => match (config('videoaff.image_driver')) {
             'browser' => new MuseBrowserClipGenerator($this->app->make(MuseBrowserClient::class)),
             default => new FakeClipGenerator,
+        });
+
+        $this->app->bind(VideoProbe::class, fn () => VideoProbe::fromConfig());
+        $this->app->bind(ReferenceClip::class, fn () => ReferenceClip::fromConfig());
+        $this->app->bind(SampleAudio::class, fn () => SampleAudio::fromConfig());
+
+        // Phân tích chuyển động video mẫu: cùng nguồn Claude với viết kịch bản.
+        $this->app->bind(MotionAnalyzer::class, fn () => match (ScriptDriver::current()) {
+            'claude' => new ClaudeApiMotionAnalyzer(new Client(apiKey: config('videoaff.claude.api_key')), config('videoaff.claude.model')),
+            'claude_cli' => new ClaudeCliMotionAnalyzer($this->app->make(ClaudeCli::class)),
+            default => new FakeMotionAnalyzer,
         });
 
         $this->app->bind(VideoRenderer::class, fn () => new FfmpegVideoRenderer(

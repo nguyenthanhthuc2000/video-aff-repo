@@ -15,6 +15,7 @@ class FashionModelResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'kind' => $this->kind->value,
             'photo_url' => Media::url($this->photo_path),
             'has_consent' => $this->hasConsent(),
             'consent_at' => $this->consent_at,

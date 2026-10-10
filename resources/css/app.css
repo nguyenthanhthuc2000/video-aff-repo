@@ -3,6 +3,8 @@
 @plugin 'tailwindcss-animate';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+/* Quét rõ toàn bộ code React: thư mục mới tạo khi Vite đang chạy cũng được nhận class. */
+@source '../js';
 
 @custom-variant dark (&:is(.dark *));
 

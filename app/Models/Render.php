@@ -20,6 +20,7 @@ class Render extends Model
         'path',
         'duration_ms',
         'error',
+        'completed_at',
     ];
 
     protected $attributes = [
@@ -29,6 +30,7 @@ class Render extends Model
     protected function casts(): array
     {
         return [
+            'completed_at' => 'datetime',
             'status' => RenderStatus::class,
             'hook' => 'integer',
             'duration_ms' => 'integer',

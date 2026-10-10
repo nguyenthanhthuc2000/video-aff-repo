@@ -3,6 +3,7 @@
 namespace App\Services\Script;
 
 use App\Models\Product;
+use App\Models\ProductCategory;
 use App\Models\VideoProject;
 use App\Support\SceneSettings;
 
@@ -20,24 +21,30 @@ class ScriptPrompt
     - hook_themes: tên chủ đề của từng hook, cùng thứ tự với hooks.
     - recommended_hook: vị trí (0–4) của hook hợp nhất với sản phẩm và người xem, dùng để mở video.
     - scenes: đúng số cảnh và tổng thời lượng như phần "Yêu cầu video". Mỗi cảnh có:
+      - phase: "after" (video thường luôn là after); video biến hình xem phần "Video biến hình".
       - visual: mô tả khung hình bằng tiếng Việt.
       - on_screen_text: chữ trên màn hình, tối đa 8 từ.
       - voiceover: lời đọc cho cảnh, khớp thời lượng (khoảng 3 từ mỗi giây).
-      - image_prompt: prompt tiếng Anh để AI chỉnh ảnh người mẫu mặc đúng sản phẩm trong ảnh tham chiếu. Mở đầu bằng bối cảnh cụ thể (địa điểm, đồ vật xung quanh, thời điểm trong ngày), rồi đến tư thế, hành động, góc máy, ánh sáng. Giữ nguyên màu, hoạ tiết, kiểu dáng sản phẩm; khung dọc 9:16.
+      - image_prompt: prompt tiếng Anh để AI chỉnh ảnh người mẫu mặc đúng sản phẩm trong ảnh tham chiếu. Mở đầu bằng bối cảnh cụ thể (địa điểm, đồ vật xung quanh, thời điểm trong ngày), rồi đến tư thế, hành động, góc máy, ánh sáng; khung dọc 9:16.
+        image_prompt không tả lại thiết kế sản phẩm (màu, hoạ tiết, chất liệu, độ dài, cổ áo, tay áo...) và không yêu cầu sửa sản phẩm: chỉ gọi là "the exact product from the product photos" kèm cách mặc / cầm theo mục "Cách dùng sản phẩm". Muốn ảnh kín đáo thì đổi tư thế, góc máy, khoảng cách, bối cảnh; KHÔNG viết thêm áo khoác, khăn, lớp lót hay đổi kiểu sản phẩm.
       - duration_ms: thời lượng cảnh; tổng các cảnh bằng tổng thời lượng yêu cầu.
     - Mỗi cảnh một bối cảnh khác hẳn nhau, không lặp địa điểm, như một ngày mặc sản phẩm.
       Ưu tiên các bối cảnh trong mục "Bối cảnh hợp với sản phẩm" (chọn theo tên và kiểu sản phẩm, nơi người mua thật sự sẽ mặc).
     - Đổi cả tư thế và góc máy giữa các cảnh (toàn thân đang bước đi, ngồi, xoay người, nửa người, cận chi tiết); không lặp cùng một kiểu đứng tạo dáng.
+    - Chỉ có đúng MỘT sản phẩm đang bán trong mỗi cảnh. image_prompt không được nhắc túi, ví, mũ, kính, trang sức, điện thoại
+      hay phụ kiện nào khác (trừ khi đó chính là sản phẩm). Sản phẩm luôn được mặc / đeo / cầm trên người mẫu ngay trong khung hình
+      theo đúng mục "Cách dùng sản phẩm", không đặt rời, không lơ lửng, không "xuất hiện" giữa chừng.
     - Phong cách trang nhã, lịch sự như ảnh thời trang thương mại: KHÔNG gợi cảm, không sexy, không khiêu khích.
       Không mô tả hay nhấn vào cơ thể (ngực, eo, đùi, khe xẻ, phần hở, độ mỏng xuyên thấu), không góc máy thấp nhìn lên hay cận cơ thể.
       Với đồ ren, đồ mỏng, đồ ôm, đồ ngủ: tư thế kín đáo tự nhiên, góc máy ngang tầm mắt, cận chi tiết thì chụp vải trên móc/manơcanh hoặc trải phẳng.
     - Ánh sáng và thời điểm cũng nên khác nhau (nắng sáng, chiều vàng, đèn quán ấm, đèn văn phòng, đèn tối).
-    - Cảnh cuối là kêu gọi mua: "xem màu, size, ưu đãi trong giỏ hàng".
+    - Cảnh cuối là kêu gọi mua: "xem màu, size trong giỏ hàng" (sản phẩm không có size: "xem chi tiết trong giỏ hàng").
     - caption: 1–2 câu cho bài đăng.
     - hashtags: 3–6 hashtag, có dấu #.
 
     Quy tắc:
     - Chỉ nói những gì có trong thông tin sản phẩm, ảnh và đánh giá. Không bịa chất liệu ("lụa cao cấp"), công dụng ("không lộ", "che bụng"), số liệu bán hàng hay giá cố định, giảm giá.
+    - KHÔNG nhắc ưu đãi, khuyến mãi, giảm giá, voucher, sale, deal ở bất kỳ đâu (hook, chữ trên màn hình, lời đọc, caption, hashtag).
     - Không so sánh hạ thấp thương hiệu khác. Không dùng từ tuyệt đối ("nhất", "100%").
     - Nếu đánh giá có điểm chê (ví dụ form nhỏ), có thể khéo léo khuyên chọn size phù hợp, không giấu.
     PROMPT;
@@ -70,10 +77,46 @@ class ScriptPrompt
         $settings = $project->videoSettings();
         $perScene = round($settings['seconds'] / max(1, $settings['scenes']), 1);
 
+        $category = ProductCategory::detect($project->product);
+
         return self::productInfo($project->product)."\n\n"
-            .'Bối cảnh hợp với sản phẩm: '.implode('; ', SceneSettings::suggestFor($project->product)).".\n\n"
-            ."Yêu cầu video: đúng {$settings['scenes']} cảnh, tổng khoảng {$settings['seconds']} giây (mỗi cảnh khoảng {$perScene} giây; cảnh cuối là kêu gọi mua).";
+            .($category ? "Loại sản phẩm: {$category->name}. Cách dùng sản phẩm trong ảnh: {$category->usage()}.\n\n" : '')
+            .self::settingsText($project)
+            ."Yêu cầu video: đúng {$settings['scenes']} cảnh, tổng khoảng {$settings['seconds']} giây (mỗi cảnh khoảng {$perScene} giây; cảnh cuối là kêu gọi mua)."
+            .($project->isTransformation() ? "\n\n".self::TRANSFORMATION : '');
     }
+
+    /** Bối cảnh: do người dùng cung cấp (cố định cho từng cảnh) hoặc gợi ý theo sản phẩm. */
+    private static function settingsText(VideoProject $project): string
+    {
+        $backgrounds = $project->chosenBackgrounds();
+        if ($backgrounds->isEmpty()) {
+            return 'Bối cảnh hợp với sản phẩm: '.implode('; ', SceneSettings::suggestFor($project->product)).".\n\n";
+        }
+
+        $settings = $project->videoSettings();
+        $lines = [];
+        for ($i = 0; $i < $settings['scenes']; $i++) {
+            $lines[] = 'Cảnh '.($i + 1).': '.$backgrounds[$i % $backgrounds->count()]->label();
+        }
+
+        return "Bối cảnh do người dùng cung cấp (có ảnh nền thật, gửi kèm khi tạo ảnh). Dùng ĐÚNG bối cảnh này cho từng cảnh, thay cho quy tắc mỗi cảnh một địa điểm khác:\n"
+            .implode("\n", $lines)."\n"
+            .'Với các cảnh này, image_prompt mở đầu bằng "In the exact location shown in the background photo (<tên bối cảnh bằng tiếng Anh>)", '
+            .'không tả thêm địa điểm, đồ đạc hay người khác; tạo khác biệt giữa các cảnh bằng tư thế, hành động, góc máy và ánh sáng.'."\n\n";
+    }
+
+    /** Hướng dẫn thêm cho video biến hình (glow-up), kiểu video hay chạy trên Shopee Video / TikTok. */
+    public const TRANSFORMATION = <<<'PROMPT'
+    Video biến hình (glow-up): người xem thấy cô gái "trước" rồi bất ngờ "sau" khi mặc sản phẩm.
+    - 1–2 cảnh đầu phase "before": dùng ảnh "trước" (đồ cũ, mặt mộc, tóc rối). Bối cảnh ở nhà / phòng ngủ, biểu cảm chán, uể oải.
+      Trang phục, tóc, mặt của cảnh before phải GIỮ NGUYÊN y như ảnh "trước": image_prompt và visual KHÔNG được tả hay đổi quần áo,
+      kiểu tóc, màu tóc, phụ kiện, makeup (không viết "áo thun cũ", "đồ ngủ"...). Chỉ tả bối cảnh, tư thế, biểu cảm, góc máy, ánh sáng.
+      KHÔNG mặc sản phẩm. Không chế giễu ngoại hình.
+    - Cảnh tiếp theo là khoảnh khắc chuyển (búng tay, che camera, xoay người, vuốt tóc) và từ đây phase "after":
+      makeup nhẹ, tóc gọn, mặc đúng sản phẩm, tự tin; các cảnh after sau đó theo bối cảnh hợp với sản phẩm như bình thường.
+    - Ít nhất một nửa số cảnh là after. Hook hướng về sự biến hình (ví dụ "Từ ở nhà lôi thôi đến đi tiệc chỉ với 1 chiếc váy").
+    PROMPT;
 
     /** Prompt đầy đủ để dán vào claude.ai (không có structured outputs nên yêu cầu JSON theo mẫu). */
     public static function forWeb(VideoProject $project): string
@@ -83,6 +126,7 @@ class ScriptPrompt
             'hook_themes' => ['Tò mò', '...', '...', '...', '...'],
             'recommended_hook' => 0,
             'scenes' => [[
+                'phase' => 'after',
                 'visual' => '...',
                 'on_screen_text' => '...',
                 'voiceover' => '...',

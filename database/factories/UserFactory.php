@@ -30,7 +30,15 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            // Đủ Credits cho các test thao tác tính phí; test hết Credits dùng ->broke().
+            'credit_balance' => 10_000_000,
         ];
+    }
+
+    /** Hết Credits. */
+    public function broke(): static
+    {
+        return $this->state(['credit_balance' => 0]);
     }
 
     /**
@@ -41,5 +49,11 @@ class UserFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
         ]);
+    }
+
+    /** Tài khoản quản trị (/admin). */
+    public function admin(): static
+    {
+        return $this->state(['is_admin' => true]);
     }
 }

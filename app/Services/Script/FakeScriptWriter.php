@@ -3,6 +3,7 @@
 namespace App\Services\Script;
 
 use App\Models\VideoProject;
+use App\Support\PromoText;
 use App\Support\SceneSettings;
 
 /** Kịch bản mẫu, dùng khi chưa có khoá Claude và trong test. Theo đúng số cảnh / thời lượng đã cài. */
@@ -20,9 +21,10 @@ class FakeScriptWriter implements ScriptWriter
             $last = $i === $settings['scenes'] - 1;
             $place = $places[$i % count($places)];
             $scenes[] = [
+                'phase' => $project->isTransformation() && $i === 0 ? 'before' : 'after',
                 'visual' => $last ? 'Người mẫu mỉm cười, chỉ xuống giỏ hàng' : "Người mẫu mặc sản phẩm, {$place}",
-                'on_screen_text' => $last ? 'Xem màu, size, ưu đãi trong giỏ hàng' : ucfirst($place),
-                'voiceover' => $last ? 'Xem màu, size và ưu đãi trong giỏ hàng nha.' : "Mặc đi {$place} là hợp.",
+                'on_screen_text' => $last ? PromoText::callToAction($project->product) : ucfirst($place),
+                'voiceover' => $last ? PromoText::callToAction($project->product).' nha.' : "Mặc đi {$place} là hợp.",
                 'image_prompt' => "model wearing the product, {$place}, natural light, 9:16",
                 'duration_ms' => $duration,
             ];
@@ -39,7 +41,7 @@ class FakeScriptWriter implements ScriptWriter
             'hook_themes' => ['Tò mò', 'Người mua nói gì', 'Xu hướng', 'Cách phối đồ', 'Chi tiết đáng tiền'],
             'recommended_hook' => 0,
             'scenes' => $scenes,
-            'caption' => "{$name}: xem màu, size, ưu đãi trong giỏ hàng.",
+            'caption' => "{$name}: ".mb_strtolower(PromoText::callToAction($project->product)).'.',
             'hashtags' => ['#shopee', '#thoitrang', '#review'],
         ]);
     }

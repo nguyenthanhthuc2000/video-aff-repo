@@ -53,8 +53,8 @@ export default function ImportStatus({ product }: { product: Product }) {
     return (
         <div className="space-y-3 rounded-lg border p-4 text-sm">
             <p>
-                Đã tải ảnh. Chưa cấu hình Claude chạy ngầm (<code>CLAUDE_CODE_OAUTH_TOKEN</code> hoặc <code>ANTHROPIC_API_KEY</code>) nên Claude chưa
-                tự phân tích được: copy prompt sang claude.ai và dán câu trả lời về để điền size, chất liệu, màu, đánh giá.
+                Đã tải ảnh. Hệ thống chưa tự phân tích được sản phẩm: copy prompt sang công cụ AI và dán câu trả lời về để điền size, chất liệu, màu,
+                đánh giá.
             </p>
             <pre className="bg-muted max-h-40 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap">{product.import_prompt}</pre>
             <div className="flex flex-wrap gap-2">
@@ -68,7 +68,7 @@ export default function ImportStatus({ product }: { product: Product }) {
                 </Button>
             </div>
             <form onSubmit={submit} className="space-y-2">
-                <Label htmlFor="import-reply">Câu trả lời của Claude</Label>
+                <Label htmlFor="import-reply">Câu trả lời của AI</Label>
                 <Textarea
                     id="import-reply"
                     rows={5}

@@ -43,6 +43,9 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'is_admin' => 'boolean',
+            'credit_balance' => 'integer',
+            'blocked_at' => 'datetime',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
@@ -58,8 +61,43 @@ class User extends Authenticatable
         return $this->hasMany(FashionModel::class);
     }
 
+    public function sampleVideos(): HasMany
+    {
+        return $this->hasMany(SampleVideo::class);
+    }
+
+    public function audioTracks(): HasMany
+    {
+        return $this->hasMany(AudioTrack::class);
+    }
+
+    public function backgrounds(): HasMany
+    {
+        return $this->hasMany(Background::class);
+    }
+
+    public function creditTransactions(): HasMany
+    {
+        return $this->hasMany(CreditTransaction::class);
+    }
+
+    public function aiUsageLogs(): HasMany
+    {
+        return $this->hasMany(AiUsageLog::class);
+    }
+
     public function videoProjects(): HasMany
     {
         return $this->hasMany(VideoProject::class);
+    }
+
+    public function isAdmin(): bool
+    {
+        return (bool) $this->is_admin;
+    }
+
+    public function isBlocked(): bool
+    {
+        return $this->blocked_at !== null;
     }
 }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\SceneClipStatus;
 use App\Enums\SceneImageStatus;
+use App\Enums\ScenePhase;
 use App\Jobs\GenerateSceneClipJob;
 use Database\Factories\SceneFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +20,8 @@ class Scene extends Model
 
     protected $fillable = [
         'position',
+        'phase',
+        'background_id',
         'duration_ms',
         'visual',
         'on_screen_text',
@@ -28,6 +31,10 @@ class Scene extends Model
         'clip_status',
         'clip_error',
         'clip_request_id',
+        'clip_prompt',
+        'clip_started_at',
+        'clip_completed_at',
+        'sample_video_id',
     ];
 
     protected function casts(): array
@@ -36,7 +43,16 @@ class Scene extends Model
             'position' => 'integer',
             'duration_ms' => 'integer',
             'clip_status' => SceneClipStatus::class,
+            'clip_started_at' => 'datetime',
+            'clip_completed_at' => 'datetime',
+            'phase' => ScenePhase::class,
         ];
+    }
+
+    /** Bối cảnh người dùng cung cấp cho cảnh (null = AI tự nghĩ bối cảnh theo prompt). */
+    public function background(): BelongsTo
+    {
+        return $this->belongsTo(Background::class);
     }
 
     public function videoProject(): BelongsTo
@@ -68,5 +84,17 @@ class Scene extends Model
     {
         $this->update(['clip_status' => SceneClipStatus::Pending, 'clip_error' => null, 'clip_request_id' => null]);
         GenerateSceneClipJob::dispatch($this);
+    }
+
+    /** Video mẫu riêng của cảnh (null = theo dự án). */
+    public function sampleVideo(): BelongsTo
+    {
+        return $this->belongsTo(SampleVideo::class);
+    }
+
+    /** Video mẫu dùng để sao chép chuyển động cho cảnh: của cảnh, không có thì của dự án. */
+    public function motionReference(): ?SampleVideo
+    {
+        return $this->sampleVideo ?? $this->videoProject->sampleVideo;
     }
 }

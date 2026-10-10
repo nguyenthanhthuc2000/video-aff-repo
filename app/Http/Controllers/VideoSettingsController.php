@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Support\VideoPreset;
+use App\Support\Workflow;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -15,7 +16,7 @@ class VideoSettingsController extends Controller
     public function show(): Response
     {
         return Inertia::render('video-settings/index', [
-            'settings' => VideoPreset::settings(),
+            'settings' => [...VideoPreset::settings(), 'workflow' => Workflow::mode()],
             'presets' => array_values(array_map(
                 fn (string $key, array $preset) => ['key' => $key, ...$preset, 'recommended' => false],
                 array_keys(VideoPreset::PRESETS),
@@ -30,6 +31,7 @@ class VideoSettingsController extends Controller
 
         $validated = $request->validate([
             'mode' => ['required', Rule::in(['auto', 'fixed'])],
+            'workflow' => ['sometimes', Rule::in(['auto', 'manual'])],
             'scene_count' => ['required', 'integer', 'min:'.VideoPreset::MIN_SCENES, 'max:'.VideoPreset::MAX_SCENES],
             'target_seconds' => [
                 'required', 'integer', 'min:'.VideoPreset::MIN_SECONDS, 'max:'.VideoPreset::MAX_SECONDS,
@@ -42,6 +44,9 @@ class VideoSettingsController extends Controller
         ], [], ['scene_count' => 'số cảnh', 'target_seconds' => 'thời lượng']);
 
         VideoPreset::saveSettings($validated);
+        if (isset($validated['workflow'])) {
+            Workflow::save($validated['workflow']);
+        }
 
         return back()->with('status', 'Đã lưu cài đặt video. Áp dụng khi viết (hoặc viết lại) kịch bản.');
     }

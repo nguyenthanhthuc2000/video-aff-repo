@@ -14,6 +14,8 @@ const TOKEN = process.env.BROWSER_TOKEN ?? '';
 const BASE_URL = process.env.MUSE_URL ?? 'https://muse.ai/';
 const PROFILE_DIR = process.env.PROFILE_DIR ?? '/data/profile';
 const GENERATE_TIMEOUT_MS = Number(process.env.GENERATE_TIMEOUT_MS ?? 480000);
+// Số yêu cầu chạy song song (mỗi yêu cầu một tab, một cuộc trò chuyện mới). Hết chỗ thì trả 429, Laravel gửi lại sau.
+const MAX_TABS = Number(process.env.MUSE_MAX_TABS ?? 4);
 
 const SELECTORS = {
     username: 'input[autocomplete="username"], input[aria-label="Mobile number or email"]',
@@ -267,6 +269,8 @@ async function download(p, src) {
 
 // ---- Yêu cầu tạo ảnh / video (chạy song song, mỗi yêu cầu một mã riêng) ----
 // Muse là agent: nhận nhiều tin nhắn liên tiếp có thể trả gộp nhiều ảnh trong một câu trả lời.
+// Mỗi yêu cầu gửi trong một tab riêng với cuộc trò chuyện mới: lời từ chối của yêu cầu trước không ảnh hưởng yêu cầu sau
+// (chung một cuộc trò chuyện thì Muse hay từ chối luôn các yêu cầu sau: "the same limitation applies...").
 // Mỗi tin nhắn mang một mã (VA-XXXXXX) và yêu cầu Muse đặt mã đó làm tiêu đề ảnh/video ("Mở hình ảnh đã tạo VA-…"),
 // nên kết quả được nhận theo mã. Muse không đặt tiêu đề theo mã thì lấy lần lượt theo thứ tự gửi.
 
@@ -302,10 +306,10 @@ async function sendTask({ code, kind, prompt, images, timeoutMs, adopt = false }
     }
     if (tasks.has(code)) return publicTask(tasks.get(code), false);
 
-    const p = await getPage();
-    await ensureReady(p);
-
     if (adopt) {
+        // Dịch vụ khởi động lại thì tab cũ đã mất: chỉ tìm được nếu kết quả nằm ở trang chính.
+        const p = await getPage();
+        await ensureReady(p);
         const task = { code, kind, sentAt: Date.now(), deadline: Date.now() + timeoutMs, state: 'pending', candidate: null };
         tasks.set(code, task);
         console.log(`[task ${code}] theo dõi lại (${kind})`);
@@ -313,6 +317,14 @@ async function sendTask({ code, kind, prompt, images, timeoutMs, adopt = false }
         return publicTask(task, false);
     }
 
+    const busy = [...tasks.values()].filter((task) => task.state === 'pending' && task.page).length;
+    if (busy >= MAX_TABS) {
+        const error = new Error(`muse.ai đang xử lý ${busy} yêu cầu, chờ lượt.`);
+        error.status = 429;
+        throw error;
+    }
+
+    const p = await newTaskPage();
     const dir = await mkdtemp(join(tmpdir(), 'muse-'));
     try {
         const paths = [];
@@ -329,11 +341,14 @@ async function sendTask({ code, kind, prompt, images, timeoutMs, adopt = false }
         await composer.click();
         await composer.fill(prompt).catch(async () => p.keyboard.type(prompt));
         await p.keyboard.press('Enter');
+    } catch (error) {
+        await p.close().catch(() => {});
+        throw error;
     } finally {
         await rm(dir, { recursive: true, force: true });
     }
 
-    const task = { code, kind, sentAt: Date.now(), deadline: Date.now() + timeoutMs, state: 'pending', candidate: null };
+    const task = { code, kind, sentAt: Date.now(), deadline: Date.now() + timeoutMs, state: 'pending', candidate: null, page: p };
     tasks.set(code, task);
     console.log(`[task ${code}] đã gửi (${kind})`);
     schedulePoll();
@@ -372,7 +387,9 @@ async function scan(p) {
             };
             const idOf = (el) => (el.dataset.vaId ||= Math.random().toString(36).slice(2, 10));
 
-            const images = [...document.querySelectorAll(imageSelector)].map((img) => {
+            // Ảnh / video đính kèm trong tin nhắn của mình (ảnh tham chiếu, video mẫu) không phải kết quả.
+            const fromMuse = (el) => !el.closest('[data-message-role="user"]');
+            const images = [...document.querySelectorAll(imageSelector)].filter(fromMuse).map((img) => {
                 const label = img.closest('button')?.getAttribute('aria-label') ?? '';
                 const src = img.currentSrc || img.src;
                 return {
@@ -384,7 +401,7 @@ async function scan(p) {
                     byTitle: new RegExp(codeSource).test(label),
                 };
             });
-            const videos = [...document.querySelectorAll(videoSelector)].map((block) => {
+            const videos = [...document.querySelectorAll(videoSelector)].filter(fromMuse).map((block) => {
                 // Nút "Tải video xuống" nằm cùng bong bóng tin nhắn với khối video.
                 let box = block;
                 let button = null;
@@ -436,10 +453,80 @@ function schedulePoll() {
     }, 4000);
 }
 
+/**
+ * Trang chủ muse.ai mở lại đoạn chat chính (có cả các lời từ chối cũ): tạo "Đoạn chat phụ mới" để yêu cầu bắt đầu sạch.
+ * Không tạo được (giao diện đổi) thì gửi vào đoạn chat chính như trước.
+ */
+async function openSideChat(p) {
+    try {
+        const newChat = p
+            .locator('button[aria-label="Đoạn chat phụ mới"], button[aria-label="New side chat"], button:has-text("Đoạn chat phụ mới"), button:has-text("New side chat")')
+            .first();
+        // Bảng đoạn chat có thể đang mở sẵn (bấm nút mở lần nữa sẽ đóng lại): bấm tối đa 2 lần.
+        for (let i = 0; i < 2 && !(await visible(newChat, 4000)); i++) {
+            await p.locator('[data-testid="hatch-chat-switcher-trigger"]').first().click({ timeout: 10000 });
+        }
+        await newChat.click({ timeout: 10000 });
+        // Đợi đoạn chat mới hiện ra (không còn tin nhắn cũ).
+        for (let i = 0; i < 20 && (await p.locator('[data-message-role]').count()) > 0; i++) await p.waitForTimeout(500);
+        await p.locator(SELECTORS.composer).first().waitFor({ timeout: 10000 });
+    } catch (error) {
+        console.log(`[tab] không tạo được đoạn chat phụ mới, dùng đoạn chat chính: ${error.message.split('\n')[0]}`);
+    }
+}
+
+/** Tab mới mở cuộc trò chuyện mới trên muse.ai (cùng phiên đăng nhập). */
+async function newTaskPage() {
+    await getPage();
+    const p = await context.newPage();
+    try {
+        await p.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await ensureReady(p);
+        await openSideChat(p);
+        // Đoạn chat mới thì chưa có tin nhắn nào.
+        const messages = await p.locator('[data-message-role]').count();
+        console.log(`[tab] mở đoạn chat phụ mới ${p.url()} (${messages} tin nhắn có sẵn)`);
+    } catch (error) {
+        await p.close().catch(() => {});
+        throw error;
+    }
+    return p;
+}
+
+/** Đóng tab của yêu cầu đã xong (đã lấy kết quả, lỗi hoặc bị từ chối). */
+function closeTaskPage(task) {
+    if (task.page && task.state !== 'pending') {
+        task.page.close().catch(() => {});
+        task.page = null;
+    }
+}
+
 async function pollTasks() {
+    // Dọn yêu cầu đã trả cho Laravel sau 15 phút, hoặc đã xong mà không ai lấy sau 1 giờ.
+    for (const task of tasks.values()) {
+        if (task.state === 'pending') continue;
+        if ((task.fetchedAt && Date.now() - task.fetchedAt > 900000) || Date.now() - task.sentAt > 3600000) tasks.delete(task.code);
+    }
     const pending = [...tasks.values()].filter((task) => task.state === 'pending').sort((a, b) => a.sentAt - b.sentAt);
     if (pending.length === 0) return;
-    const p = await getPage();
+    // Quét từng tab (yêu cầu cũ / theo dõi lại thì ở trang chính).
+    const groups = new Map();
+    for (const task of pending) {
+        const p = task.page && !task.page.isClosed() ? task.page : await getPage();
+        if (!groups.has(p)) groups.set(p, []);
+        groups.get(p).push(task);
+    }
+    for (const [p, group] of groups) {
+        try {
+            await pollPage(p, group);
+        } catch (error) {
+            console.error('[poll]', error.message);
+        }
+        group.forEach(closeTaskPage);
+    }
+}
+
+async function pollPage(p, pending) {
     const { anchors, media, refusals } = await scan(p);
 
     for (const task of pending) {
@@ -482,8 +569,6 @@ async function pollTasks() {
             task.candidate = chosen;
         }
     }
-    // Dọn yêu cầu đã xong mà không ai lấy sau 1 giờ.
-    for (const task of tasks.values()) if (task.state !== 'pending' && Date.now() - task.sentAt > 3600000) tasks.delete(task.code);
 }
 
 function fail(task, message) {
@@ -494,9 +579,10 @@ function fail(task, message) {
 
 function publicTask(task, consume) {
     const body = { code: task.code, kind: task.kind, state: task.state, error: task.error ?? null };
+    closeTaskPage(task);
     if (task.state === 'done') body.result = task.result;
-    // Đã trả kết quả hoặc lỗi cho Laravel: xoá khỏi bộ nhớ.
-    if (consume && task.state !== 'pending') tasks.delete(task.code);
+    // Đã trả kết quả hoặc lỗi cho Laravel: giữ thêm 15 phút để hỏi lại được (Laravel lỗi giữa chừng khi lưu thì không mất kết quả).
+    if (consume && task.state !== 'pending') task.fetchedAt ??= Date.now();
     return body;
 }
 
@@ -671,6 +757,43 @@ function send(res, code, body, type = 'application/json') {
 }
 
 /** Chẩn đoán: cấu trúc ảnh và nút trên trang hiện tại (không chứa nội dung tin nhắn) để chỉnh bộ chọn khi muse.ai đổi giao diện. */
+/** Chẩn đoán: mở menu "Đoạn chat" trong tab riêng, liệt kê lựa chọn (tìm nút tạo cuộc trò chuyện mới). */
+async function inspectChats() {
+    await getPage();
+    const p = await context.newPage();
+    try {
+        await p.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await ensureReady(p);
+        await p.locator('[data-testid="hatch-chat-switcher-trigger"]').first().click();
+        await p.waitForTimeout(4000);
+        const list = () =>
+            p.evaluate(() =>
+                [...document.querySelectorAll('button, a, [role="menuitem"], [role="option"], [role="button"]')]
+                    .filter((el) => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().left < 320)
+                    .map((el) =>
+                        [el.tagName.toLowerCase(), el.getAttribute('role'), el.getAttribute('data-testid'), el.getAttribute('aria-label'), el.getAttribute('href'), (el.textContent ?? '').trim().slice(0, 40)]
+                            .filter(Boolean)
+                            .join('|'),
+                    )
+                    .slice(0, 60),
+            );
+        const items = await list();
+        // Menu "···" của danh sách đoạn chat.
+        await p.locator('[data-testid="hatch-side-chats-options"]').first().click();
+        await p.waitForTimeout(1500);
+        items.push('--- sau khi bấm ···', ...(await p.evaluate(() =>
+            [...document.querySelectorAll('[role="menu"] *, [role="menuitem"], [data-radix-popper-content-wrapper] *')]
+                .filter((el) => el.matches('button, a, [role="menuitem"], [role="option"], [role="button"], div'))
+                .map((el) => [el.getAttribute('role'), el.getAttribute('data-testid'), el.getAttribute('aria-label'), (el.textContent ?? '').trim().slice(0, 40)].filter(Boolean).join('|'))
+                .filter(Boolean)
+                .slice(0, 40),
+        )));
+        return { url: p.url(), items, screenshot: (await p.screenshot()).toString('base64') };
+    } finally {
+        await p.close().catch(() => {});
+    }
+}
+
 async function inspect() {
     const p = await getPage();
     const info = await p.evaluate(() => {
@@ -702,6 +825,7 @@ async function inspect() {
                 duration: video.duration,
                 chain: chain(video),
             })),
+            fileInputs: [...document.querySelectorAll('input[type="file"]')].map((input) => ({ accept: input.accept, multiple: input.multiple })),
             busy: [...document.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].map(describe),
             downloads: [...document.querySelectorAll('button[aria-label="Tải video xuống"], button[aria-label*="video" i]')].map((button) => {
                 let box = button;
@@ -727,6 +851,10 @@ async function inspect() {
     info.scan = {
         anchors: scanned.anchors.length,
         media: scanned.media.filter((m) => m.code).map((m) => `${m.kind}:${m.code}:${m.byTitle ? 'title' : 'near'}:${m.ready}`),
+        userAttachments: await p.evaluate(
+            (selectors) => [...document.querySelectorAll(selectors)].filter((el) => el.closest('[data-message-role="user"]')).length,
+            `${GENERATED_IMAGES}, ${GENERATED_VIDEOS}`,
+        ),
         refusals: scanned.refusals.map((r) => ({ codes: r.codes, text: r.text.slice(0, 300) })),
         replies: [...(await p.locator('[data-hatch-assistant-message-body]').allInnerTexts())].slice(-6).map((t) => t.slice(0, 200)),
     };
@@ -749,6 +877,7 @@ async function generatedImages() {
 
 const routes = {
     'GET /inspect': () => serial(inspect),
+    'GET /inspect/chats': () => serial(inspectChats),
     'GET /generated': () => serial(generatedImages),
     'GET /status': () => serial(() => refreshStatus(false)),
     'POST /status/refresh': () => serial(() => refreshStatus(true)),
@@ -787,10 +916,12 @@ createServer(async (req, res) => {
         const handler = routes[`${req.method} ${req.url}`];
         if (!handler) return send(res, 404, { message: 'Không có route.' });
         const result = await handler(await readJson(req));
-        const raw = ['/tasks', '/inspect', '/generated'].includes(req.url) || req.url.startsWith('/claude/');
+        const raw = ['/tasks', '/inspect', '/inspect/chats', '/generated'].includes(req.url) || req.url.startsWith('/claude/');
         return send(res, 200, raw ? result : { ...status });
     } catch (error) {
-        console.error(error);
+        // Hết chỗ (429) là bình thường: Laravel gửi lại sau.
+        if (error.status === 429) console.log(`[busy] ${error.message}`);
+        else console.error(error);
         return send(res, error.status ?? 500, { message: error.message, status });
     }
 }).listen(PORT, () => {

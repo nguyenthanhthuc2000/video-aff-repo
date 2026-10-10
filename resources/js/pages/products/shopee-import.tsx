@@ -117,7 +117,7 @@ export default function ShopeeImport() {
         <div className="space-y-4 rounded-lg border p-4">
             <p className="text-muted-foreground text-sm">
                 Shopee chặn máy chủ đọc trang, nên app đọc trang ngay trong trình duyệt của bạn bằng một bookmark. Bấm bookmark là sản phẩm được thêm
-                ngay; ảnh và thông tin (Claude phân tích) được lấy ngầm.
+                ngay; ảnh và thông tin (AI phân tích) được lấy ngầm.
             </p>
 
             <ol className="text-muted-foreground list-decimal space-y-2 pl-5 text-sm">

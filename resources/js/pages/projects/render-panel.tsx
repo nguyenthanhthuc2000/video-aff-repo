@@ -1,39 +1,39 @@
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { type VideoProject } from '@/types/models';
-import { useForm } from '@inertiajs/react';
+import { type AudioTrack, type VideoProject } from '@/types/models';
+import { Link, useForm } from '@inertiajs/react';
 import { Download, TriangleAlert } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
 type RenderFormData = {
     hook: number;
-    music: File | null;
-    remove_music: boolean;
+    /** "" = không nhạc, "legacy" = file tải riêng cho dự án (bản cũ), "sample" = nhạc như video mẫu, còn lại = id nhạc thư viện. */
+    music_choice: string;
 };
 
 const renderStatusLabels = { pending: 'Đang xuất', done: 'Xong', failed: 'Lỗi' } as const;
 
-export default function RenderPanel({ project }: { project: VideoProject }) {
+export default function RenderPanel({ project, audioTracks }: { project: VideoProject; audioTracks: AudioTrack[] }) {
     const hooks = project.script?.hooks ?? [];
-    const { data, setData, post, processing, errors, reset } = useForm<RenderFormData>({
+    const { data, setData, post, processing, errors, transform } = useForm<RenderFormData>({
         hook: project.selected_hook ?? 0,
-        music: null,
-        remove_music: false,
+        music_choice: project.audio_track ? String(project.audio_track.id) : project.has_music ? 'legacy' : '',
     });
 
     const canRender = project.all_approved && ['reviewing', 'done', 'failed'].includes(project.status);
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
-        post(route('projects.renders.store', project.id), {
-            forceFormData: true,
-            preserveScroll: true,
-            onSuccess: () => reset('music', 'remove_music'),
-        });
+        transform((form) => ({
+            hook: form.hook,
+            audio_track_id: ['', 'legacy', 'sample'].includes(form.music_choice) ? null : Number(form.music_choice),
+            use_sample_audio: form.music_choice === 'sample',
+            // "Không có nhạc" thì bỏ cả file nhạc tải riêng cho dự án (bản cũ).
+            remove_music: form.music_choice === '',
+        }));
+        post(route('projects.renders.store', project.id), { preserveScroll: true });
     };
 
     return (
@@ -43,7 +43,7 @@ export default function RenderPanel({ project }: { project: VideoProject }) {
             <form onSubmit={submit} className="space-y-4">
                 <fieldset disabled={!canRender} className="space-y-4">
                     <div className="space-y-2">
-                        <Label>Hook mở đầu ({hooks.length} chủ đề, đã chọn sẵn hook Claude đề xuất)</Label>
+                        <Label>Hook mở đầu ({hooks.length} chủ đề, đã chọn sẵn hook AI đề xuất)</Label>
                         {hooks.map((hook, i) => (
                             <label key={i} className="flex items-center gap-2 text-sm">
                                 <input type="radio" name="hook" checked={data.hook === i} onChange={() => setData('hook', i)} />
@@ -56,20 +56,30 @@ export default function RenderPanel({ project }: { project: VideoProject }) {
                     </div>
 
                     <div className="grid max-w-md gap-2">
-                        <Label htmlFor="music">Nhạc nền (mp3/m4a/wav, có bản quyền dùng thương mại)</Label>
-                        <Input
-                            id="music"
-                            type="file"
-                            accept=".mp3,.m4a,.aac,.wav,audio/*"
-                            onChange={(e) => setData('music', e.target.files?.[0] ?? null)}
-                        />
-                        {project.has_music && (
-                            <label className="flex items-center gap-2 text-sm">
-                                <Checkbox checked={data.remove_music} onCheckedChange={(checked) => setData('remove_music', checked === true)} />
-                                Bỏ nhạc nền đang dùng
-                            </label>
-                        )}
-                        <InputError message={errors.music} />
+                        <Label htmlFor="music_choice">Nhạc nền</Label>
+                        <select
+                            id="music_choice"
+                            className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                            value={data.music_choice}
+                            onChange={(e) => setData('music_choice', e.target.value)}
+                        >
+                            <option value="">Không có nhạc nền</option>
+                            {project.has_music && <option value="legacy">Nhạc đã tải lên riêng cho dự án này</option>}
+                            {project.sample_video && <option value="sample">Nhạc như video mẫu: {project.sample_video.name}</option>}
+                            {audioTracks.map((track) => (
+                                <option key={track.id} value={String(track.id)}>
+                                    {track.name}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-muted-foreground text-xs">
+                            Nhạc lấy từ thư viện{' '}
+                            <Link href={route('audio-tracks.index')} className="underline">
+                                Âm thanh
+                            </Link>
+                            . Dùng nhạc có bản quyền thương mại; nhạc trend TikTok nên thêm khi đăng trên Shopee Video.
+                        </p>
+                        <InputError message={(errors as Record<string, string>).audio_track_id} />
                     </div>
 
                     <Button type="submit" disabled={processing || !canRender}>

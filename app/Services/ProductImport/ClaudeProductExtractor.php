@@ -6,6 +6,8 @@ use Anthropic\Client;
 use Anthropic\Core\Exceptions\AnthropicException;
 use Anthropic\Core\Exceptions\APIConnectionException;
 use Anthropic\Core\Exceptions\APIStatusException;
+use App\Services\Claude\AiUsage;
+use App\Support\ClaudeModels;
 use Illuminate\Support\Facades\Log;
 
 class ClaudeProductExtractor implements ProductExtractor
@@ -17,10 +19,11 @@ class ClaudeProductExtractor implements ProductExtractor
 
     public function extract(PageSnapshot $page): array
     {
+        $model = ClaudeModels::for('product_import', $this->model);
         try {
-            $message = $this->client->messages->create(
+            $message = AiUsage::api('product_import', $model, fn () => $this->client->messages->create(
                 maxTokens: 4000,
-                model: $this->model,
+                model: $model,
                 system: [[
                     'type' => 'text',
                     'text' => ProductExtractPrompt::SYSTEM,
@@ -31,7 +34,7 @@ class ClaudeProductExtractor implements ProductExtractor
                     'effort' => 'low',
                     'format' => ['type' => 'json_schema', 'schema' => ProductExtractPrompt::schema()],
                 ],
-            );
+            ));
         } catch (APIConnectionException $e) {
             throw new ProductImportException('Không kết nối được Claude API.', 0, $e);
         } catch (APIStatusException $e) {
@@ -47,7 +50,7 @@ class ClaudeProductExtractor implements ProductExtractor
 
         Log::info('claude.product_import', [
             'url' => $page->url,
-            'model' => $this->model,
+            'model' => $model,
             'stop_reason' => $message->stopReason,
             'input_tokens' => $message->usage->inputTokens ?? null,
             'output_tokens' => $message->usage->outputTokens ?? null,

@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
+import { type MotionStyle } from '@/lib/motion-styles';
 import { projectStatusLabels } from '@/lib/project-status';
 import { type BreadcrumbItem } from '@/types';
-import { type FashionModel, type Product, type VideoProject } from '@/types/models';
+import { type AudioTrack, type Background, type FashionModel, type Product, type SampleVideo, type VideoProject } from '@/types/models';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Star, Trash2 } from 'lucide-react';
 import CreateProjectForm from './create-project-form';
@@ -21,12 +22,22 @@ export default function ProductsEdit({
     product,
     fashionModels,
     maxImages,
+    motionSuggestions,
+    productCategory,
+    audioTracks,
+    sampleVideos,
+    backgrounds,
     projects,
     autopilotAvailable,
 }: {
     product: Product;
     fashionModels: FashionModel[];
     maxImages: number;
+    motionSuggestions: MotionStyle[];
+    productCategory: string | null;
+    audioTracks: AudioTrack[];
+    sampleVideos: SampleVideo[];
+    backgrounds: Background[];
     projects: VideoProject[];
     autopilotAvailable: boolean;
 }) {
@@ -116,7 +127,16 @@ export default function ProductsEdit({
                             </Link>
                         </p>
                     ) : (
-                        <CreateProjectForm productId={product.id} fashionModels={fashionModels} autopilotAvailable={autopilotAvailable} />
+                        <CreateProjectForm
+                            productId={product.id}
+                            fashionModels={fashionModels}
+                            motionSuggestions={motionSuggestions}
+                            productCategory={productCategory}
+                            sampleVideos={sampleVideos}
+                            backgrounds={backgrounds}
+                            audioTracks={audioTracks}
+                            autopilotAvailable={autopilotAvailable}
+                        />
                     )}
 
                     {projects.length > 0 && (

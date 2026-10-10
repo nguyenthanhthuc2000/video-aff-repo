@@ -48,7 +48,7 @@ class ClaudeAuthTest extends TestCase
                 ->push(['state' => 'exchanging'])
                 ->push(['state' => 'done', 'token' => 'sk-ant-oat01-abcdefghijklmnopqrstuvwxyz']),
         ]);
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $this->actingAs($user)->post(route('claude.start'));
         $this->actingAs($user)->get(route('claude.auth'))
@@ -79,7 +79,7 @@ class ClaudeAuthTest extends TestCase
             self::URL.'/claude/login/code' => Http::response(['state' => 'exchanging']),
             self::URL.'/claude/login/status' => Http::response(['state' => 'error', 'message' => 'Claude báo lỗi: OAuth error: Request failed with status code 400']),
         ]);
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $this->actingAs($user)->post(route('claude.code'), ['code' => 'x']);
         $this->actingAs($user)->get(route('claude.auth'))
@@ -93,13 +93,13 @@ class ClaudeAuthTest extends TestCase
     {
         Http::fake([self::URL.'/claude/login/code' => Http::response(['message' => 'Phiên đăng nhập Claude đã hết.'], 409)]);
 
-        $this->actingAs(User::factory()->create())->post(route('claude.code'), ['code' => 'x'])
+        $this->actingAs(User::factory()->admin()->create())->post(route('claude.code'), ['code' => 'x'])
             ->assertSessionHasErrors(['code' => 'Phiên đăng nhập Claude đã hết.']);
     }
 
     public function test_paste_token_validates_and_delete_removes()
     {
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $this->actingAs($user)->post(route('claude.token'), ['token' => 'sk-ant-api03-nope'])->assertSessionHasErrors('token');
         $this->actingAs($user)->post(route('claude.token'), ['token' => ' sk-ant-oat01-ok '])->assertSessionHasNoErrors();

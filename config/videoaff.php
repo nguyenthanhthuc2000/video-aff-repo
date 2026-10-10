@@ -67,6 +67,14 @@ return [
     ],
 
     'ffmpeg' => env('FFMPEG_BINARY', 'ffmpeg'),
+    'ffprobe' => env('FFPROBE_BINARY', 'ffprobe'),
+
+    // Video mẫu (sao chép chuyển động): dung lượng tối đa (KB) và độ dài khuyên dùng (giây).
+    'sample_video_max_kb' => 102400,
+
+    // Nhạc nền (menu Âm thanh): dung lượng tối đa (KB).
+    'audio_max_kb' => 20480,
+    'sample_video_recommended_seconds' => 30,
 
     // Số ảnh sản phẩm tối đa gửi kèm ảnh người mẫu khi tạo ảnh cảnh.
     'image_product_refs' => 3,

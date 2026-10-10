@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\FashionModelKind;
 use Database\Factories\FashionModelFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,8 +18,13 @@ class FashionModel extends Model
     /** @use HasFactory<FashionModelFactory> */
     use HasFactory;
 
+    protected $attributes = [
+        'kind' => 'after',
+    ];
+
     protected $fillable = [
         'name',
+        'kind',
         'photo_path',
         'consent_at',
     ];
@@ -27,6 +33,7 @@ class FashionModel extends Model
     {
         return [
             'consent_at' => 'datetime',
+            'kind' => FashionModelKind::class,
         ];
     }
 

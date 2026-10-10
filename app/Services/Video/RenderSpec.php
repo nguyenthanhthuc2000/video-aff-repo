@@ -11,7 +11,7 @@ final class RenderSpec
         public readonly array $scenes,
         public readonly string $hook,
         public readonly string $outputPath,
-        public readonly string $endCardTitle = 'Xem màu, size, ưu đãi trong giỏ hàng',
+        public readonly string $endCardTitle = 'Xem màu, size trong giỏ hàng',
         public readonly string $endCardSubtitle = '',
         public readonly int $endCardMs = 2500,
         public readonly ?string $musicPath = null,

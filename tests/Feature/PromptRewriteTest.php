@@ -49,7 +49,7 @@ class PromptRewriteTest extends TestCase
 
         $this->actingAs($scene->videoProject->user)
             ->post(route('scenes.image.regenerate', $scene))
-            ->assertSessionHas('status', fn ($s) => str_contains($s, 'Muse đã từ chối prompt cũ'));
+            ->assertSessionHas('status', fn ($s) => str_contains($s, 'AI đã từ chối prompt cũ'));
 
         Queue::assertPushed(GenerateSceneImageJob::class, fn ($job) => str_contains((string) $job->rewriteReason, 'sidewalk shot'));
     }
@@ -123,5 +123,15 @@ class PromptRewriteTest extends TestCase
     {
         $this->assertStringContainsString('independent request', MuseBrowserImageGenerator::message('VA-ABC123', 'x'));
         $this->assertInstanceOf(ImageGenerator::class, app(ImageGenerator::class));
+    }
+
+    public function test_old_rejection_messages_are_still_recognised()
+    {
+        $image = SceneImage::factory()->make([
+            'status' => SceneImageStatus::Failed,
+            'error' => 'muse.ai từ chối tạo yêu cầu này. Sửa prompt... Muse trả lời: I can\'t make this one.',
+        ]);
+
+        $this->assertSame("I can't make this one.", $image->museRejection());
     }
 }

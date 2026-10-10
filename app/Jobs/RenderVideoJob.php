@@ -9,7 +9,10 @@ use App\Models\Scene;
 use App\Services\Video\RenderScene;
 use App\Services\Video\RenderSpec;
 use App\Services\Video\VideoRenderer;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use App\Support\Media;
+use App\Support\PromoText;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\File;
@@ -30,6 +33,11 @@ class RenderVideoJob implements ShouldQueue
     {
         $render = $this->render;
         $project = $render->videoProject;
+        if ($message = Credits::shortfall($project->user, self::price((int) $project->scenes()->sum('duration_ms')), 'xuất video')) {
+            $this->fail($message);
+
+            return;
+        }
         $workDir = storage_path("app/render-tmp/{$render->id}");
         File::ensureDirectoryExists($workDir);
 
@@ -52,8 +60,10 @@ class RenderVideoJob implements ShouldQueue
                 scenes: $renderScenes,
                 hook: (string) ($project->script['hooks'][$render->hook] ?? ''),
                 outputPath: "{$workDir}/out.mp4",
+                endCardTitle: PromoText::callToAction($project->product),
                 endCardSubtitle: $sizes ? "Size: {$sizes}" : '',
-                musicPath: $project->music ? $this->copyLocal($project->music, $workDir, 'music') : null,
+                // Nhạc từ thư viện Âm thanh, không có thì file tải lên riêng cho dự án (bản cũ).
+                musicPath: ($music = $project->audioTrack?->path ?? $project->music) ? $this->copyLocal($music, $workDir, 'music') : null,
             );
 
             // Ghi tiến độ tối đa mỗi 5% để không ghi DB quá nhiều.
@@ -76,18 +86,26 @@ class RenderVideoJob implements ShouldQueue
                 'path' => $path,
                 'duration_ms' => $spec->durationMs(),
                 'error' => null,
+                'completed_at' => now(),
             ]);
             $project->update(['status' => VideoProjectStatus::Done, 'error' => null, 'autopilot' => false]);
+            Credits::charge($project->user_id, self::price($spec->durationMs()), 'render', "render:{$render->id}", 'Xuất video', $project->id);
         } finally {
             File::deleteDirectory($workDir);
         }
+    }
+
+    /** Giá xuất video theo độ dài (trên 30 giây đắt hơn). */
+    public static function price(int $durationMs): int
+    {
+        return CreditPricing::settings()['steps'][$durationMs > 30000 ? 'render_long' : 'render'];
     }
 
     public function failed(?Throwable $e): void
     {
         $message = 'Xuất video thất bại: '.($e?->getMessage() ?? 'lỗi không rõ');
 
-        $this->render->update(['status' => RenderStatus::Failed, 'error' => $message]);
+        $this->render->update(['status' => RenderStatus::Failed, 'error' => $message, 'completed_at' => now()]);
         $this->render->videoProject->markFailed($message);
     }
 

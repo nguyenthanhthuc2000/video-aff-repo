@@ -3,16 +3,24 @@
 namespace App\Jobs;
 
 use App\Enums\SceneImageStatus;
+use App\Enums\ScenePhase;
 use App\Enums\VideoProjectStatus;
+use App\Models\ProductCategory;
+use App\Models\Scene;
 use App\Models\SceneImage;
+use App\Services\Claude\AiUsage;
 use App\Services\Image\AsyncImageGenerator;
 use App\Services\Image\GeneratedImage;
 use App\Services\Image\ImageGenerator;
 use App\Services\Image\ImageGeneratorException;
 use App\Services\Image\MuseTask;
+use App\Services\Image\Prompt\RewritePrompt;
 use App\Services\Image\Prompt\RuleScenePromptRewriter;
 use App\Services\Image\Prompt\ScenePromptRewriter;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use App\Support\Media;
+use App\Support\ProductFidelity;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -31,7 +39,15 @@ class GenerateSceneImageJob implements ShouldQueue
     public const MODEST_IMAGE = 'Keep it modest and tasteful, like an everyday commercial fashion catalog: not sexy, not provocative, '
         .'no emphasis on body parts, natural relaxed pose, eye-level camera. '
         .'If any part of this request is not appropriate to create, adjust it yourself (pose, framing, camera angle, setting, '
-        .'or show the garment on a mannequin or hanger for close-ups) and create that modest version instead of declining.';
+        .'or show the product on a mannequin, hanger or plain surface for close-ups) and create that modest version instead of declining; '
+        .'never alter the product itself to do so.';
+
+    /**
+     * Chỉ đúng một sản phẩm đang bán: Muse hay tự thêm túi, ví, phụ kiện cho "đủ bộ" (ví dụ sản phẩm là mũ mà ảnh có túi).
+     * Sản phẩm luôn đeo / cầm tự nhiên trên người mẫu, không đặt rời hay lơ lửng.
+     */
+    public const ONLY_PRODUCT = 'Show only this one product: do not add any other bags, wallets, hats, glasses, jewelry, phones or accessories that are not in the reference photos. '
+        .'The product is worn or held naturally by the person, never floating in the air or placed separately.';
 
     /** Hỏi lại kết quả muse.ai mỗi bấy nhiêu giây. */
     public const POLL_SECONDS = 10;
@@ -63,15 +79,23 @@ class GenerateSceneImageJob implements ShouldQueue
             return;
         }
 
+        // Chưa gửi yêu cầu: kiểm tra số dư trước (trừ khi ảnh tạo xong).
+        if (! MuseTask::isCode($this->image->provider_request_id)
+            && ($message = Credits::shortfall($this->image->scene->videoProject->user, CreditPricing::settings()['steps']['image'], 'tạo ảnh cảnh'))) {
+            $this->fail($message);
+
+            return;
+        }
+
         // Chỉ viết lại một lần cho mỗi ảnh (job được chạy lại nhiều lần khi hỏi kết quả).
         if ($this->rewriteReason !== null && Cache::add("prompt-rewritten:{$this->image->id}", true, now()->addDay())) {
-            $this->rewritePrompt($rewriter);
+            $this->rewritePrompt($rewriter, (string) $this->rewriteReason);
         }
 
         $references = $this->references();
 
         if ($generator instanceof AsyncImageGenerator) {
-            $result = $this->runAsync($generator, $references);
+            $result = $this->runAsync($generator, $references, $rewriter);
         } else {
             $result = $this->runSync($generator, $references);
         }
@@ -82,31 +106,47 @@ class GenerateSceneImageJob implements ShouldQueue
     }
 
     /** Claude viết prompt mới cho cảnh (trang nhã, khác prompt cũ); Claude lỗi thì lọc bỏ câu gợi cảm. */
-    private function rewritePrompt(ScenePromptRewriter $rewriter): void
+    private function rewritePrompt(ScenePromptRewriter $rewriter, string $reason): void
     {
         $scene = $this->image->scene;
         try {
-            $prompt = $rewriter->rewrite($scene, (string) $this->rewriteReason);
+            $prompt = AiUsage::withContext(
+                ['user_id' => $scene->videoProject?->user_id, 'video_project_id' => $scene->video_project_id, 'subject' => "scene:{$scene->id}"],
+                fn () => $rewriter->rewrite($scene, $reason),
+            );
         } catch (Throwable $e) {
             Log::warning('scene_prompt_rewrite.failed', ['scene_id' => $scene->id, 'error' => $e->getMessage()]);
-            $prompt = (new RuleScenePromptRewriter)->rewrite($scene, (string) $this->rewriteReason);
+            $prompt = (new RuleScenePromptRewriter)->rewrite($scene, $reason);
         }
 
         Log::info('scene_prompt_rewrite', ['scene_id' => $scene->id, 'old' => $scene->image_prompt, 'new' => $prompt]);
         $scene->update(['image_prompt' => $prompt]);
     }
 
-    /** @return list<string> Ảnh người mẫu đứng đầu, sau đó là ảnh sản phẩm (ảnh chính trước). */
+    /**
+     * @return list<string> Ảnh người mẫu đứng đầu, sau đó là ảnh sản phẩm (ảnh chính trước).
+     *                      Cảnh "trước" của video biến hình: chỉ ảnh "trước", không có sản phẩm.
+     */
     private function references(): array
     {
-        $project = $this->image->scene->videoProject;
+        $scene = $this->image->scene;
+        $project = $scene->videoProject;
+
+        // Bối cảnh người dùng cung cấp: ảnh nền đứng thứ hai (sau ảnh người mẫu).
+        $background = $scene->background?->photo_path;
+
+        if ($scene->phase === ScenePhase::Before && $project->beforeFashionModel) {
+            return array_values(array_filter([$project->beforeFashionModel->photo_path, $background]));
+        }
 
         return [
             $project->fashionModel->photo_path,
+            ...array_filter([$background]),
             ...$project->product->images()
                 ->orderByDesc('is_primary')
                 ->orderBy('id')
-                ->limit(config('videoaff.image_product_refs'))
+                // Muse nhận tối đa 4 ảnh: có ảnh nền thì bớt một ảnh sản phẩm.
+                ->limit(min(config('videoaff.image_product_refs'), $background ? 2 : 3))
                 ->pluck('path')
                 ->all(),
         ];
@@ -116,7 +156,10 @@ class GenerateSceneImageJob implements ShouldQueue
     private function runSync(ImageGenerator $generator, array $references): ?GeneratedImage
     {
         try {
-            return $generator->generate($references, self::prompt($this->image->scene->image_prompt));
+            $prompt = self::scenePrompt($this->image->scene);
+            $this->image->update(['prompt' => $prompt]);
+
+            return $generator->generate($references, $prompt);
         } catch (ImageGeneratorException $e) {
             if ($e->retryable && $this->attempts() < $this->tries) {
                 $this->release($this->backoff[$this->attempts() - 1] ?? 120);
@@ -134,13 +177,14 @@ class GenerateSceneImageJob implements ShouldQueue
      *
      * @param  list<string>  $references
      */
-    private function runAsync(AsyncImageGenerator $generator, array $references): ?GeneratedImage
+    private function runAsync(AsyncImageGenerator $generator, array $references, ScenePromptRewriter $rewriter): ?GeneratedImage
     {
         $image = $this->image;
 
         try {
             if (! MuseTask::isCode($image->provider_request_id)) {
-                $image->update(['provider_request_id' => $generator->start($references, self::prompt($image->scene->image_prompt))]);
+                $prompt = self::scenePrompt($image->scene);
+                $image->update(['provider_request_id' => $generator->start($references, $prompt), 'prompt' => $prompt]);
                 $this->release(15);
 
                 return null;
@@ -153,6 +197,21 @@ class GenerateSceneImageJob implements ShouldQueue
 
             return $result;
         } catch (ImageGeneratorException $e) {
+            // Muse từ chối: tự viết lại prompt theo lời từ chối và gửi lại một lần (cuộc trò chuyện mới) trước khi báo người dùng.
+            if ($e->rejected && Cache::add("muse-auto-rewrite:image:{$image->id}", true, now()->addDay())) {
+                Log::info('scene_image.auto_rewrite', ['image_id' => $image->id, 'code' => $image->provider_request_id]);
+                $this->rewritePrompt($rewriter, $e->refusal ?: RewritePrompt::VARIATION);
+                $image->update(['provider_request_id' => null]);
+                $this->release(5);
+
+                return null;
+            }
+            // Đang đủ yêu cầu song song: chờ lượt rồi gửi (job giới hạn theo thời gian, retryUntil).
+            if ($e->busy) {
+                $this->release(20);
+
+                return null;
+            }
             // Lỗi tạm thời: gửi lại yêu cầu mới (mã mới), tối đa 2 lần.
             if ($e->retryable && Cache::increment("muse-retries:image:{$image->id}") <= 2) {
                 $image->update(['provider_request_id' => null]);
@@ -181,7 +240,10 @@ class GenerateSceneImageJob implements ShouldQueue
             'provider_request_id' => $result->requestId,
             'cost_usd' => $result->costUsd,
             'error' => null,
+            'completed_at' => now(),
         ]);
+
+        Credits::charge($project->user_id, CreditPricing::settings()['steps']['image'], 'image', "image:{$image->id}", "Ảnh cảnh {$scene->position}", $project->id);
 
         $project->syncImagingStatus();
         $project->advanceAutopilot();
@@ -192,6 +254,7 @@ class GenerateSceneImageJob implements ShouldQueue
         $this->image->update([
             'status' => SceneImageStatus::Failed,
             'error' => $e?->getMessage() ?? 'Tạo ảnh thất bại.',
+            'completed_at' => now(),
         ]);
 
         $project = $this->image->scene->videoProject;
@@ -203,11 +266,39 @@ class GenerateSceneImageJob implements ShouldQueue
     }
 
     /** Prompt gửi Muse: prompt của cảnh + yêu cầu giữ đúng người mẫu và sản phẩm. */
-    public static function prompt(string $scenePrompt): string
+    /** Prompt đầy đủ của cảnh (theo pha, loại sản phẩm, có ảnh nền bối cảnh hay không). */
+    public static function scenePrompt(Scene $scene): string
     {
+        return self::prompt($scene->image_prompt, $scene->phase, ProductCategory::productLine($scene->videoProject->product), $scene->background_id !== null);
+    }
+
+    /** Ảnh nền bối cảnh của người dùng: đặt người vào đúng nơi đó, không lấy người / đồ trong ảnh nền. */
+    public const BACKGROUND = 'Place the person inside exactly the location shown in the background photo: keep its layout, furniture, wall and floor colors and lighting, '
+        .'as if photographed there; if the description above mentions a different place, ignore it and use the background photo. '
+        .'Do not copy any people, clothing, bags or products that may appear in the background photo.';
+
+    public static function prompt(string $scenePrompt, ?ScenePhase $phase = null, ?string $productLine = null, bool $background = false): string
+    {
+        // Cảnh "trước" của video biến hình: giữ nguyên vẻ ngoài cũ trong ảnh "trước", không mặc sản phẩm.
+        if ($phase === ScenePhase::Before) {
+            return trim($scenePrompt)."\n\n"
+                .($background ? 'The first attached image is the person; the second attached image is the background location. '.self::BACKGROUND.' ' : '')
+                .'Keep the person in the attached image exactly as they look there: same face, same hairstyle and natural bare skin, no makeup. '
+                .'The clothes must stay EXACTLY the same as in the attached photo (same garments, colors, patterns, fit and condition); '
+                .'do not change, replace, add or remove any clothing or accessory, and ignore any clothing described above. '
+                .'Photorealistic vertical 9:16 candid photo, no text, no watermark. '
+                .self::MODEST_IMAGE.' '
+                .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';
+        }
+
         return trim($scenePrompt)."\n\n"
-            .'The person in the first attached image wears the exact garment shown in the other attached images. '
-            .'Keep the person\'s face and body the same. Keep the garment\'s color, pattern, fabric and cut identical. '
+            .($productLine ?? 'The person is wearing or holding the exact product shown in the other attached images.').' '
+            .($background
+                ? 'The first attached image is the person; the second attached image is the background location; the other attached images show only the product. '.self::BACKGROUND.' '
+                : 'The first attached image is the person; the other attached images show only the product. ')
+            .'Keep the person\'s face and body the same. '
+            .ProductFidelity::IMAGE.' '
+            .self::ONLY_PRODUCT.' '
             .'Photorealistic vertical 9:16 photo, no text, no watermark. '
             .self::MODEST_IMAGE.' '
             // Chữ của video nằm ở phần dưới khung hình: giữ mặt ở phần trên để không bị che.

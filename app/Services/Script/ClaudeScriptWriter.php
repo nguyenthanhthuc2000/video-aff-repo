@@ -7,6 +7,8 @@ use Anthropic\Core\Exceptions\AnthropicException;
 use Anthropic\Core\Exceptions\APIConnectionException;
 use Anthropic\Core\Exceptions\APIStatusException;
 use App\Models\VideoProject;
+use App\Services\Claude\AiUsage;
+use App\Support\ClaudeModels;
 use App\Support\Media;
 use Illuminate\Support\Facades\Log;
 
@@ -20,10 +22,11 @@ class ClaudeScriptWriter implements ScriptWriter
 
     public function write(VideoProject $project): array
     {
+        $model = ClaudeModels::for('script', $this->model);
         try {
-            $message = $this->client->messages->create(
+            $message = AiUsage::api('script', $model, fn () => $this->client->messages->create(
                 maxTokens: $this->maxTokens,
-                model: $this->model,
+                model: $model,
                 system: [[
                     'type' => 'text',
                     'text' => ScriptPrompt::SYSTEM,
@@ -34,7 +37,7 @@ class ClaudeScriptWriter implements ScriptWriter
                     'effort' => 'medium',
                     'format' => ['type' => 'json_schema', 'schema' => ScriptSchema::schema()],
                 ],
-            );
+            ));
         } catch (APIConnectionException $e) {
             throw ScriptWriterException::retryable('Không kết nối được Claude API.', $e);
         } catch (APIStatusException $e) {
@@ -53,7 +56,7 @@ class ClaudeScriptWriter implements ScriptWriter
 
         Log::info('claude.script', [
             'project_id' => $project->id,
-            'model' => $this->model,
+            'model' => $model,
             'stop_reason' => $message->stopReason,
             'input_tokens' => $message->usage->inputTokens ?? null,
             'output_tokens' => $message->usage->outputTokens ?? null,

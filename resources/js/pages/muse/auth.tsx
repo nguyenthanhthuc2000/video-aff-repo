@@ -6,8 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { usePoll } from '@/hooks/use-poll';
-import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
+import AdminLayout from '@/layouts/admin-layout';
 import { Head, router, useForm } from '@inertiajs/react';
 import { LoaderCircle, LogOut, RefreshCw } from 'lucide-react';
 import { FormEventHandler, useEffect, useState } from 'react';
@@ -15,8 +14,6 @@ import { FormEventHandler, useEffect, useState } from 'react';
 type MuseState = 'starting' | 'logged_out' | 'submitting' | 'awaiting_code' | 'awaiting_password' | 'logged_in' | 'unknown' | 'error';
 
 type MuseStatus = { state: MuseState; message: string; email: string | null; updatedAt?: string };
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Xác thực Muse', href: '/muse' }];
 
 const stateLabels: Record<MuseState, string> = {
     starting: 'Đang khởi động',
@@ -37,7 +34,7 @@ export default function MuseAuth({ enabled, status }: { enabled: boolean; status
     useEffect(() => setShot(Date.now()), [status.state, status.updatedAt]);
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        <AdminLayout title="Xác thực Muse">
             <Head title="Xác thực Muse" />
             <div className="grid gap-8 p-4 lg:grid-cols-[minmax(0,420px)_1fr]">
                 <div className="space-y-6">
@@ -103,7 +100,7 @@ export default function MuseAuth({ enabled, status }: { enabled: boolean; status
                     />
                 </div>
             </div>
-        </AppLayout>
+        </AdminLayout>
     );
 }
 

@@ -16,10 +16,12 @@ use App\Services\Image\ImageGeneratorException;
 use App\Services\Image\MuseBrowserImageGenerator;
 use App\Services\Image\Prompt\ScenePromptRewriter;
 use App\Services\Video\ClipGenerator;
+use App\Services\Video\ReferenceClip;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -51,7 +53,7 @@ class MuseBrowserTest extends TestCase
     {
         Http::fake([self::URL.'/status' => Http::response($this->museStatus('logged_out', 'Chưa đăng nhập.'))]);
 
-        $this->actingAs(User::factory()->create())->get(route('muse.auth'))
+        $this->actingAs(User::factory()->admin()->create())->get(route('muse.auth'))
             ->assertInertia(fn (Assert $page) => $page
                 ->component('muse/auth')
                 ->where('enabled', true)
@@ -64,7 +66,7 @@ class MuseBrowserTest extends TestCase
     {
         Http::fake(fn () => throw new ConnectionException('down'));
 
-        $this->actingAs(User::factory()->create())->get(route('muse.auth'))
+        $this->actingAs(User::factory()->admin()->create())->get(route('muse.auth'))
             ->assertInertia(fn (Assert $page) => $page->where('status.state', 'error'));
     }
 
@@ -74,7 +76,7 @@ class MuseBrowserTest extends TestCase
             self::URL.'/login' => Http::response($this->museStatus('awaiting_code', 'Nhập mã OTP.')),
             self::URL.'/login/code' => Http::response($this->museStatus('logged_in', 'Đã đăng nhập muse.ai.')),
         ]);
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $this->actingAs($user)->post(route('muse.login'), ['email' => 'me@example.com'])->assertSessionHas('status', 'Nhập mã OTP.');
         $this->actingAs($user)->post(route('muse.code'), ['code' => '123 456'])->assertSessionHas('status', 'Đã đăng nhập muse.ai.');
@@ -87,7 +89,7 @@ class MuseBrowserTest extends TestCase
     {
         Http::fake([self::URL.'/login/code' => Http::response(['message' => 'Sai mã'], 500)]);
 
-        $this->actingAs(User::factory()->create())->post(route('muse.code'), ['code' => '1'])->assertSessionHasErrors(['code' => 'Sai mã']);
+        $this->actingAs(User::factory()->admin()->create())->post(route('muse.code'), ['code' => '1'])->assertSessionHasErrors(['code' => 'Sai mã']);
     }
 
     public function test_generator_starts_task_with_unique_code_and_polls_result()
@@ -147,18 +149,42 @@ class MuseBrowserTest extends TestCase
         }
     }
 
-    public function test_rejected_task_fails_without_retry_and_keeps_muse_reason()
+    public function test_rejected_task_rewrites_prompt_once_then_fails_with_muse_reason()
     {
         $image = SceneImage::factory()->create(['status' => SceneImageStatus::Pending, 'provider_request_id' => 'VA-EI1NHZ']);
+        $image->scene->update(['image_prompt' => 'Sexy woman in a low-cut dress posing seductively on the street.']);
         Storage::disk('public')->put($image->scene->videoProject->fashionModel->photo_path, 'model-bytes');
         Http::fake([self::URL.'/tasks/*' => Http::response(['state' => 'rejected', 'error' => "I couldn't produce VA-EI1NHZ for this dress."])]);
 
+        // Lần từ chối đầu: tự viết lại prompt, xoá mã cũ để gửi lại trong cuộc trò chuyện mới.
         $job = (new GenerateSceneImageJob($image))->withFakeQueueInteractions();
         $job->handle(app(ImageGenerator::class), app(ScenePromptRewriter::class));
+        $job->assertReleased(5);
+        $this->assertNull($image->fresh()->provider_request_id);
+        $this->assertStringNotContainsStringIgnoringCase('sexy', $image->scene->fresh()->image_prompt);
 
+        // Bị từ chối lần nữa: báo lỗi, giữ lời của Muse, không gửi lại.
+        $image->update(['provider_request_id' => 'VA-EI1NHZ']);
+        $job = (new GenerateSceneImageJob($image->fresh()))->withFakeQueueInteractions();
+        $job->handle(app(ImageGenerator::class), app(ScenePromptRewriter::class));
         $job->assertNotReleased();
         $job->assertFailed();
         Http::assertNotSent(fn (Request $request) => $request->url() === self::URL.'/tasks');
+    }
+
+    public function test_busy_browser_service_waits_without_using_retries()
+    {
+        $image = SceneImage::factory()->create(['status' => SceneImageStatus::Pending]);
+        Storage::disk('public')->put($image->scene->videoProject->fashionModel->photo_path, 'model-bytes');
+        Http::fake([self::URL.'/tasks' => Http::response(['message' => 'muse.ai đang xử lý 4 yêu cầu, chờ lượt.'], 429)]);
+
+        foreach (range(1, 4) as $_) {
+            $job = (new GenerateSceneImageJob($image->fresh()))->withFakeQueueInteractions();
+            $job->handle(app(ImageGenerator::class), app(ScenePromptRewriter::class));
+            $job->assertReleased(20);
+        }
+        $this->assertNull($image->fresh()->provider_request_id);
+        $this->assertNull(Cache::get("muse-retries:image:{$image->id}"));
     }
 
     public function test_scene_image_job_releases_queue_while_waiting()
@@ -209,7 +235,7 @@ class MuseBrowserTest extends TestCase
         ]);
 
         $job = (new GenerateSceneClipJob($scene))->withFakeQueueInteractions();
-        $job->handle(app(ClipGenerator::class));
+        $job->handle(app(ClipGenerator::class), app(ReferenceClip::class));
         $job->assertReleased(30);
         $code = $scene->fresh()->clip_request_id;
         Http::assertSent(fn (Request $request) => $request->url() === self::URL.'/tasks'
@@ -219,7 +245,7 @@ class MuseBrowserTest extends TestCase
             && $request['images'][0]['base64'] === base64_encode('scene-bytes'));
 
         $job = (new GenerateSceneClipJob($scene->fresh()))->withFakeQueueInteractions();
-        $job->handle(app(ClipGenerator::class));
+        $job->handle(app(ClipGenerator::class), app(ReferenceClip::class));
         $scene->refresh();
         $this->assertSame(SceneClipStatus::Ready, $scene->clip_status);
         $this->assertStringEndsWith('.mp4', $scene->clip_path);

@@ -22,6 +22,8 @@ class SceneImage extends Model
         'provider_request_id',
         'cost_usd',
         'error',
+        'prompt',
+        'completed_at',
     ];
 
     protected $attributes = [
@@ -32,6 +34,7 @@ class SceneImage extends Model
     {
         return [
             'status' => SceneImageStatus::class,
+            'completed_at' => 'datetime',
             'cost_usd' => 'decimal:4',
         ];
     }
@@ -44,10 +47,12 @@ class SceneImage extends Model
     /** Lời giải thích của muse.ai nếu ảnh này bị Muse từ chối (MuseBrowserImageGenerator::REJECTED), null nếu không. */
     public function museRejection(): ?string
     {
-        if ($this->status !== SceneImageStatus::Failed || ! str_starts_with((string) $this->error, MuseBrowserImageGenerator::REJECTED)) {
+        $error = (string) $this->error;
+        $rejected = str_starts_with($error, MuseBrowserImageGenerator::REJECTED) || str_starts_with($error, MuseBrowserImageGenerator::REJECTED_LEGACY);
+        if ($this->status !== SceneImageStatus::Failed || ! $rejected) {
             return null;
         }
 
-        return trim(Str::after((string) $this->error, 'Muse trả lời:'));
+        return trim(str_contains($error, 'AI trả lời:') ? Str::after($error, 'AI trả lời:') : Str::after($error, 'Muse trả lời:'));
     }
 }

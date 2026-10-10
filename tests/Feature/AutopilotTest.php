@@ -78,7 +78,7 @@ class AutopilotTest extends TestCase
         config(['videoaff.script_driver' => 'web', 'videoaff.image_driver' => 'web']);
         $project = VideoProject::factory()->create();
 
-        $this->assertSame('Cần đặt CLAUDE_CODE_OAUTH_TOKEN hoặc ANTHROPIC_API_KEY (viết kịch bản) và FAL_KEY (tạo ảnh Muse) trong .env để chạy ngầm.', $project->autopilotBlocker());
+        $this->assertSame('Chạy ngầm chưa sẵn sàng (hệ thống chưa tự viết kịch bản và tạo ảnh được). Liên hệ quản trị viên.', $project->autopilotBlocker());
 
         $this->actingAs($project->user)->post(route('projects.autopilot', $project));
         $this->assertFalse($project->fresh()->autopilot);

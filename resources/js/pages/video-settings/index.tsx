@@ -2,17 +2,27 @@ import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
-import AppLayout from '@/layouts/app-layout';
+import AdminLayout from '@/layouts/admin-layout';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
 import { type VideoPresetOption } from '@/types/models';
 import { Head, useForm } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
 import VideoLengthPicker from '../projects/video-length-picker';
 
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Cài đặt video', href: '/video-settings' }];
+type Settings = { mode: 'auto' | 'fixed'; scene_count: number; target_seconds: number; workflow: 'auto' | 'manual' };
 
-type Settings = { mode: 'auto' | 'fixed'; scene_count: number; target_seconds: number };
+const workflows = [
+    {
+        value: 'auto' as const,
+        title: 'Tự động tất cả các bước',
+        hint: 'Tạo video là chạy ngầm luôn: Claude viết kịch bản → Muse tạo ảnh (tự duyệt) → clip chuyển động → xuất video với nhạc đã chọn.',
+    },
+    {
+        value: 'manual' as const,
+        title: 'Duyệt thủ công từng bước',
+        hint: 'Dừng ở mỗi bước để bạn xem: duyệt kịch bản, duyệt ảnh, chọn hook và nhạc rồi mới xuất video.',
+    },
+];
 
 /** Cài đặt chung cho mọi video: độ dài (số cảnh, số giây) Claude dùng khi viết kịch bản. */
 export default function VideoSettings({ settings, presets }: { settings: Settings; presets: VideoPresetOption[] }) {
@@ -33,7 +43,7 @@ export default function VideoSettings({ settings, presets }: { settings: Setting
     ];
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        <AdminLayout title="Cài đặt video">
             <Head title="Cài đặt video" />
             <form onSubmit={submit} className="max-w-3xl space-y-6 p-4">
                 <Heading
@@ -41,6 +51,35 @@ export default function VideoSettings({ settings, presets }: { settings: Setting
                     description="Áp dụng cho toàn hệ thống: mọi dự án dùng khi Claude viết (hoặc viết lại) kịch bản. Kịch bản đã viết không tự đổi."
                 />
                 <FlashStatus />
+
+                <section className="space-y-3">
+                    <h2 className="font-medium">Chế độ xử lý</h2>
+                    <div className="grid gap-2">
+                        {workflows.map((workflow) => (
+                            <label
+                                key={workflow.value}
+                                className={cn(
+                                    'flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm',
+                                    data.workflow === workflow.value ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+                                )}
+                            >
+                                <input
+                                    type="radio"
+                                    name="workflow"
+                                    className="mt-1"
+                                    checked={data.workflow === workflow.value}
+                                    onChange={() => setData('workflow', workflow.value)}
+                                />
+                                <span>
+                                    <span className="font-medium">{workflow.title}</span>
+                                    <span className="text-muted-foreground block text-xs">{workflow.hint}</span>
+                                </span>
+                            </label>
+                        ))}
+                    </div>
+                    <p className="text-muted-foreground text-xs">Khi tạo từng video vẫn bật / tắt chạy ngầm riêng được.</p>
+                    <InputError message={errors.workflow} />
+                </section>
 
                 <section className="space-y-3">
                     <h2 className="font-medium">Độ dài video</h2>
@@ -80,6 +119,6 @@ export default function VideoSettings({ settings, presets }: { settings: Setting
 
                 <Button disabled={processing || !isDirty}>Lưu cài đặt</Button>
             </form>
-        </AppLayout>
+        </AdminLayout>
     );
 }

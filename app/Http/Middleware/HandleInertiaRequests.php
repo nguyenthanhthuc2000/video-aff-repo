@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Workflow;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -41,6 +42,8 @@ class HandleInertiaRequests extends Middleware
         return array_merge(parent::share($request), [
             ...parent::share($request),
             'name' => config('app.name'),
+            // Chế độ xử lý (menu Cài đặt video): form tạo video tick sẵn "chạy ngầm" khi là auto.
+            'workflow' => fn () => $request->user() ? Workflow::mode() : null,
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
                 'user' => $request->user(),

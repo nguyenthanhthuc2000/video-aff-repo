@@ -22,6 +22,7 @@ class AdminUserSeeder extends Seeder
         $user = User::firstOrNew(['email' => $config['email']]);
         $user->name = $config['name'];
         $user->email_verified_at ??= now();
+        $user->is_admin = true;
 
         $generated = null;
 

@@ -1,15 +1,16 @@
 import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import ProgressBar from '@/components/progress-bar';
+import ProjectCredits, { type ProjectCreditsData } from '@/components/project-credits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { projectStatusLabels } from '@/lib/project-status';
-import { type BreadcrumbItem } from '@/types';
-import { type FashionModel, type VideoProject } from '@/types/models';
-import { Head, Link, router } from '@inertiajs/react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { type AudioTrack, type Background, type FashionModel, type SampleVideo, type VideoProject } from '@/types/models';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { LoaderCircle, Play, Plus } from 'lucide-react';
 import CreateProjectForm from '../products/create-project-form';
 import ClaudeWebScript from './claude-web-script';
@@ -17,17 +18,27 @@ import MotionClips from './motion-clips';
 import MuseWebImages from './muse-web-images';
 import RenderPanel from './render-panel';
 import SceneImages from './scene-images';
+import SceneOrder from './scene-order';
 import ScriptEditor from './script-editor';
 
 export default function ProjectsShow({
     project,
     fashionModels,
+    audioTracks,
+    sampleVideos,
+    backgrounds,
+    credits,
     autopilotAvailable,
 }: {
     project: VideoProject;
     fashionModels: FashionModel[];
+    audioTracks: AudioTrack[];
+    sampleVideos: SampleVideo[];
+    backgrounds: Background[];
+    credits: ProjectCreditsData;
     autopilotAvailable: boolean;
 }) {
+    const isAdmin = usePage<SharedData>().props.auth.user?.is_admin === true;
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Dự án video', href: '/projects' },
         { title: project.product?.name ?? `#${project.id}`, href: route('projects.show', project.id) },
@@ -62,10 +73,11 @@ export default function ProjectsShow({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <Heading
                         title={project.product?.name ?? 'Dự án video'}
-                        description={`Người mẫu: ${project.fashion_model?.name ?? ''}${project.motion_style_label ? ` · Chuyển động: ${project.motion_style_label}` : ''}`}
+                        description={`${project.video_type_label} · Người mẫu: ${project.before_fashion_model ? `${project.before_fashion_model.name} → ` : ''}${project.fashion_model?.name ?? ''}${project.motion_style_label ? ` · Chuyển động: ${project.motion_style_label}` : ''}`}
                     />
                     <div className="flex items-center gap-2">
                         {project.is_busy && <LoaderCircle className="size-4 animate-spin" />}
+                        <ProjectCredits credits={credits} />
                         <Badge variant={project.status === 'failed' ? 'destructive' : 'secondary'}>{projectStatusLabels[project.status]}</Badge>
                         {project.product && (
                             <Dialog>
@@ -74,7 +86,7 @@ export default function ProjectsShow({
                                         <Plus /> Tạo thêm video
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent>
+                                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
                                     <DialogHeader>
                                         <DialogTitle>Tạo thêm video</DialogTitle>
                                         <DialogDescription>
@@ -95,6 +107,16 @@ export default function ProjectsShow({
                                             fashionModels={fashionModels}
                                             defaultModelId={project.fashion_model?.id}
                                             defaultMotionStyles={project.motion_styles}
+                                            defaultVideoType={project.video_type}
+                                            motionSuggestions={project.motion_suggestions}
+                                            productCategory={project.product_category}
+                                            defaultBeforeModelId={project.before_fashion_model?.id ?? null}
+                                            sampleVideos={sampleVideos}
+                                            defaultSampleVideoId={project.sample_video?.id ?? null}
+                                            audioTracks={audioTracks}
+                                            defaultAudioTrackId={project.audio_track?.id ?? null}
+                                            backgrounds={backgrounds}
+                                            defaultBackgroundIds={project.background_ids}
                                             autopilotAvailable={autopilotAvailable}
                                         />
                                     )}
@@ -114,7 +136,7 @@ export default function ProjectsShow({
                     {canAutopilot && (
                         <div className="flex flex-wrap items-center gap-3">
                             <Button onClick={runAutopilot} disabled={!!project.autopilot_blocker}>
-                                <Play /> Chạy ngầm bằng Claude + Muse
+                                <Play /> Chạy ngầm tất cả các bước
                             </Button>
                             <span className="text-muted-foreground text-xs">
                                 {project.autopilot_blocker ??
@@ -134,8 +156,17 @@ export default function ProjectsShow({
                     {project.product?.primary_image_url && (
                         <img src={project.product.primary_image_url} alt="Sản phẩm" className="h-40 rounded-lg border object-cover" />
                     )}
+                    {project.before_fashion_model?.photo_url && (
+                        <figure className="space-y-1">
+                            <img src={project.before_fashion_model.photo_url} alt="Ảnh trước" className="h-40 rounded-lg border object-cover" />
+                            <figcaption className="text-muted-foreground text-center text-xs">Trước</figcaption>
+                        </figure>
+                    )}
                     {project.fashion_model?.photo_url && (
-                        <img src={project.fashion_model.photo_url} alt="Người mẫu" className="h-40 rounded-lg border object-cover" />
+                        <figure className="space-y-1">
+                            <img src={project.fashion_model.photo_url} alt="Người mẫu" className="h-40 rounded-lg border object-cover" />
+                            {project.before_fashion_model && <figcaption className="text-muted-foreground text-center text-xs">Sau</figcaption>}
+                        </figure>
                     )}
                 </div>
 
@@ -152,15 +183,17 @@ export default function ProjectsShow({
                         <p className="text-muted-foreground text-sm">
                             Độ dài khi viết kịch bản: {project.video_settings.scenes} cảnh · {project.video_settings.seconds} giây.{' '}
                             {project.video_settings.reason}{' '}
-                            <Link href={route('video-settings.show')} className="underline">
-                                Đổi ở Cài đặt video
-                            </Link>
+                            {isAdmin && (
+                                <Link href={route('video-settings.show')} className="underline">
+                                    Đổi ở Cài đặt video
+                                </Link>
+                            )}
                         </p>
                     )}
-                    {project.status === 'scripting' && <p className="text-muted-foreground text-sm">Claude đang viết kịch bản...</p>}
+                    {project.status === 'scripting' && <p className="text-muted-foreground text-sm">AI đang viết kịch bản...</p>}
                     {!project.script && project.status === 'draft' && project.script_mode === 'api' && (
                         <p className="text-muted-foreground text-sm">
-                            Claude sẽ viết 5 hook theo 5 chủ đề (tự chọn hook hợp nhất), {project.video_settings?.scenes ?? 6} cảnh trong khoảng{' '}
+                            AI sẽ viết 5 hook theo 5 chủ đề (tự chọn hook hợp nhất), {project.video_settings?.scenes ?? 6} cảnh trong khoảng{' '}
                             {project.video_settings?.seconds ?? 25} giây, caption và hashtag từ ảnh và thông tin sản phẩm.
                         </p>
                     )}
@@ -192,21 +225,29 @@ export default function ProjectsShow({
                                 ))}
                             </div>
                         )}
-                        {project.image_mode === 'web' ? <MuseWebImages project={project} /> : <SceneImages project={project} />}
+                        {project.image_mode === 'web' ? (
+                            <MuseWebImages project={project} />
+                        ) : (
+                            <SceneImages project={project} backgrounds={backgrounds} />
+                        )}
                     </section>
                 )}
 
-                {project.motion_styles.length > 0 && (project.scenes?.length ?? 0) > 0 && (
+                {(project.has_motion || sampleVideos.length > 0) && (project.scenes?.length ?? 0) > 0 && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold">3. Clip chuyển động</h2>
-                        <MotionClips project={project} />
+                        <SceneOrder key={`order-${project.scenes?.map((scene) => scene.id).join('-')}-${project.updated_at}`} project={project} />
+                        <MotionClips project={project} sampleVideos={sampleVideos} />
                     </section>
                 )}
 
                 {project.script && (project.scenes?.length ?? 0) > 0 && (
                     <section className="space-y-4">
-                        <h2 className="text-lg font-semibold">{project.motion_styles.length > 0 ? '4' : '3'}. Xuất video</h2>
-                        <RenderPanel key={`${project.selected_hook}-${project.updated_at}`} project={project} />
+                        <h2 className="text-lg font-semibold">{project.has_motion || sampleVideos.length > 0 ? '4' : '3'}. Xuất video</h2>
+                        {!(project.has_motion || sampleVideos.length > 0) && (
+                            <SceneOrder key={`order-${project.scenes?.map((scene) => scene.id).join('-')}-${project.updated_at}`} project={project} />
+                        )}
+                        <RenderPanel key={`${project.selected_hook}-${project.updated_at}`} project={project} audioTracks={audioTracks} />
                     </section>
                 )}
 

@@ -12,6 +12,18 @@ class AppSetting extends Model
     /** Cài đặt độ dài video (menu Cài đặt video), JSON: {mode: auto|fixed, scene_count, target_seconds}. */
     public const VIDEO_LENGTH = 'video_length';
 
+    /** Chế độ xử lý: auto (tự động mọi bước) hoặc manual (duyệt thủ công). */
+    public const WORKFLOW = 'workflow';
+
+    /** Bảng giá Claude và tỉ giá cho màn hình Chi phí AI, JSON: {usd_vnd, prices: {opus|sonnet|haiku: {input, output}}}. */
+    public const AI_PRICING = 'ai_pricing';
+
+    /** Model Claude theo thao tác, JSON: {default, actions: {script|product_import|...: model id}}. */
+    public const CLAUDE_MODELS = 'claude_models';
+
+    /** Giá bán Credits: % lãi theo dòng model, tối thiểu mỗi lần gọi AI, giá cố định các bước ảnh / clip / xuất video. */
+    public const CREDIT_PRICING = 'credit_pricing';
+
     protected $primaryKey = 'key';
 
     protected $keyType = 'string';

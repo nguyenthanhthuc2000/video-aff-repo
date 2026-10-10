@@ -9,6 +9,8 @@ use App\Models\Scene;
 use App\Models\SceneImage;
 use App\Models\VideoProject;
 use App\Services\Image\Prompt\RewritePrompt;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,11 +31,16 @@ class SceneImageController extends Controller
         $this->authorize('update', $project);
 
         if (self::webMode()) {
-            return back()->with('status', 'Đang ở chế độ Muse bản web: tạo ảnh trên meta.ai rồi tải lên từng cảnh.');
+            return back()->with('status', 'Hệ thống chưa tự tạo ảnh được: tạo ảnh ở công cụ AI rồi tải lên từng cảnh.');
         }
 
         if (! in_array($project->status, self::IMAGING_ALLOWED, true) || $project->scenes()->doesntExist()) {
             return back()->with('status', 'Cần có kịch bản trước khi tạo ảnh.');
+        }
+
+        $missing = $project->scenesMissingImages()->count();
+        if ($message = Credits::shortfall($project->user, $missing * CreditPricing::settings()['steps']['image'], "tạo {$missing} ảnh cảnh")) {
+            return back()->with('status', $message);
         }
 
         $count = $project->queueMissingImages();
@@ -55,7 +62,7 @@ class SceneImageController extends Controller
         ]);
 
         if (self::webMode()) {
-            return back()->with('status', 'Đang ở chế độ Muse bản web: tạo ảnh trên meta.ai rồi tải lên.');
+            return back()->with('status', 'Hệ thống chưa tự tạo ảnh được: tạo ảnh ở công cụ AI rồi tải lên.');
         }
 
         if (! in_array($project->status, self::IMAGING_ALLOWED, true)) {
@@ -76,6 +83,11 @@ class SceneImageController extends Controller
             $rewriteReason = $latest?->museRejection() ?? RewritePrompt::VARIATION;
         }
 
+        $needed = CreditPricing::settings()['steps']['image'] + ($rewriteReason !== null ? CreditPricing::aiEstimates()['scene_prompt_rewrite'] : 0);
+        if ($message = Credits::shortfall($project->user, $needed, 'tạo lại ảnh cảnh')) {
+            return back()->with('status', $message);
+        }
+
         $scene->images()
             ->whereIn('status', [SceneImageStatus::Ready, SceneImageStatus::Approved])
             ->update(['status' => SceneImageStatus::Rejected]);
@@ -87,7 +99,7 @@ class SceneImageController extends Controller
         return back()->with('status', match ($rewriteReason) {
             null => "Đang tạo lại ảnh cảnh {$scene->position}...",
             RewritePrompt::VARIATION => "Đang viết prompt mới rồi tạo lại ảnh cảnh {$scene->position}...",
-            default => "Muse đã từ chối prompt cũ: đang viết prompt mới phù hợp hơn rồi tạo lại ảnh cảnh {$scene->position}...",
+            default => "AI đã từ chối prompt cũ: đang viết prompt mới phù hợp hơn rồi tạo lại ảnh cảnh {$scene->position}...",
         });
     }
 

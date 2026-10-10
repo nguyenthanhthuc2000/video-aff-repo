@@ -8,6 +8,8 @@ use App\Models\Product;
 use App\Services\ProductImport\ProductExtractPrompt;
 use App\Services\ProductImport\ProductImportException;
 use App\Services\ProductImport\RemoteImages;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -63,7 +65,7 @@ class ProductImportController extends Controller
 
         $validated = $request->validate([
             'reply' => ['required', 'string', 'max:20000'],
-        ], [], ['reply' => 'câu trả lời của Claude']);
+        ], [], ['reply' => 'câu trả lời của AI']);
 
         try {
             $product->applyImportedFields(ProductExtractPrompt::parseWebReply($validated['reply']));
@@ -83,6 +85,10 @@ class ProductImportController extends Controller
 
         if ($product->import_status !== ProductImportStatus::Failed || $product->import_snapshot === null) {
             return back();
+        }
+
+        if (! ScriptController::webMode() && ($message = Credits::shortfall($product->user, CreditPricing::aiEstimates()['product_import'], 'đọc thông tin sản phẩm'))) {
+            return back()->with('status', $message);
         }
 
         $product->update(['import_status' => ProductImportStatus::Importing, 'import_error' => null]);

@@ -70,7 +70,7 @@ class VideoSettingsTest extends TestCase
 
     public function test_settings_menu_saves_system_wide_length()
     {
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
         $project = VideoProject::factory()->create();
 
         $this->actingAs($user)->get(route('video-settings.show'))->assertInertia(fn (Assert $page) => $page

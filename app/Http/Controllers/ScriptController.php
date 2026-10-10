@@ -8,6 +8,8 @@ use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
 use App\Services\Script\ScriptSchema;
 use App\Services\Script\ScriptWriterException;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use App\Support\ScriptDriver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,11 +26,15 @@ class ScriptController extends Controller
         $this->authorize('update', $project);
 
         if (self::webMode()) {
-            return back()->with('status', 'Đang ở chế độ Claude bản web: copy prompt sang claude.ai rồi dán câu trả lời về.');
+            return back()->with('status', 'Hệ thống chưa tự viết kịch bản được: copy prompt sang công cụ AI rồi dán câu trả lời về.');
         }
 
         if (! in_array($project->status, self::WRITE_ALLOWED, true)) {
             return back()->with('status', 'Không thể viết lại kịch bản ở bước này.');
+        }
+
+        if ($message = Credits::shortfall($project->user, CreditPricing::aiEstimates()['script'], 'viết kịch bản')) {
+            return back()->with('status', $message);
         }
 
         $project->update(['status' => VideoProjectStatus::Scripting, 'error' => null]);
@@ -45,7 +51,7 @@ class ScriptController extends Controller
 
         $validated = $request->validate([
             'reply' => ['required', 'string', 'max:50000'],
-        ], [], ['reply' => 'câu trả lời của Claude']);
+        ], [], ['reply' => 'câu trả lời của AI']);
 
         if (! in_array($project->status, self::WRITE_ALLOWED, true)) {
             return back()->with('status', 'Không thể thay kịch bản ở bước này.');
@@ -90,7 +96,8 @@ class ScriptController extends Controller
             'scenes.*.visual' => ['required', 'string', 'max:1000'],
             'scenes.*.on_screen_text' => ['nullable', 'string', 'max:200'],
             'scenes.*.voiceover' => ['nullable', 'string', 'max:1000'],
-            'scenes.*.image_prompt' => ['required', 'string', 'max:2000'],
+            // Chỉ admin thấy và sửa prompt ảnh; người dùng không gửi thì giữ prompt cũ.
+            'scenes.*.image_prompt' => [$request->user()->isAdmin() ? 'required' : 'exclude', 'string', 'max:2000'],
             'scenes.*.duration_ms' => ['required', 'integer', 'min:1000', 'max:10000'],
         ], [], [
             'hooks.*' => 'hook',
@@ -114,7 +121,7 @@ class ScriptController extends Controller
                 'visual' => $data['visual'],
                 'on_screen_text' => $data['on_screen_text'] ?? '',
                 'voiceover' => $data['voiceover'] ?? '',
-                'image_prompt' => $data['image_prompt'],
+                ...(isset($data['image_prompt']) ? ['image_prompt' => $data['image_prompt']] : []),
                 'duration_ms' => $data['duration_ms'],
             ]);
         }

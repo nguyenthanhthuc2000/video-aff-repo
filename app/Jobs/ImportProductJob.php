@@ -5,10 +5,13 @@ namespace App\Jobs;
 use App\Enums\ProductImportStatus;
 use App\Http\Controllers\ScriptController;
 use App\Models\Product;
+use App\Services\Claude\AiUsage;
 use App\Services\ProductImport\PageSnapshot;
 use App\Services\ProductImport\ProductExtractor;
 use App\Services\ProductImport\ProductImportException;
 use App\Services\ProductImport\RemoteImages;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -45,7 +48,15 @@ class ImportProductJob implements ShouldQueue
                 return;
             }
 
-            $product->applyImportedFields($extractor->extract($page));
+            if ($message = Credits::shortfall($product->user, CreditPricing::aiEstimates()['product_import'], 'đọc thông tin sản phẩm')) {
+                throw new ProductImportException($message);
+            }
+
+            $fields = AiUsage::withContext(
+                ['user_id' => $product->user_id, 'subject' => "product:{$product->id}"],
+                fn () => $extractor->extract($page),
+            );
+            $product->applyImportedFields($fields);
         } catch (ProductImportException $e) {
             $this->fail($e);
 

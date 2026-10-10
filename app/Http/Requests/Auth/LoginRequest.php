@@ -50,6 +50,13 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        // Tài khoản bị quản trị viên khoá.
+        if (Auth::user()?->isBlocked()) {
+            Auth::guard('web')->logout();
+
+            throw ValidationException::withMessages(['email' => 'Tài khoản đã bị khoá. Liên hệ quản trị viên.']);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

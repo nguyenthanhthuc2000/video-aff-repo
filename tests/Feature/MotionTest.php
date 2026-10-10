@@ -143,7 +143,7 @@ class MotionTest extends TestCase
         $failed->update(['clip_status' => SceneClipStatus::Failed]);
         $withClip->update(['clip_path' => 'clips/x.mp4']);
 
-        $this->actingAs($project->user)->post(route('projects.clips.store', $project))->assertSessionHas('status', 'Muse đang tạo 2 clip chuyển động...');
+        $this->actingAs($project->user)->post(route('projects.clips.store', $project))->assertSessionHas('status', 'AI đang tạo 2 clip chuyển động...');
 
         Queue::assertPushed(GenerateSceneClipJob::class, 2);
         $this->assertSame(SceneClipStatus::Pending, $approved->fresh()->clip_status);
@@ -162,11 +162,11 @@ class MotionTest extends TestCase
         SceneImage::factory()->for($scene)->create(['status' => SceneImageStatus::Approved]);
 
         config(['videoaff.image_driver' => 'fal']);
-        $this->actingAs($project->user)->post(route('scenes.clip.generate', $scene))->assertSessionHas('status', fn ($s) => str_contains($s, 'MUSE_DRIVER=browser'));
+        $this->actingAs($project->user)->post(route('scenes.clip.generate', $scene))->assertSessionHas('status', fn ($s) => str_contains($s, 'chưa sẵn sàng'));
 
         config(['videoaff.image_driver' => 'browser']);
         $this->actingAs(User::factory()->create())->post(route('scenes.clip.generate', $scene))->assertForbidden();
-        $this->actingAs($project->user)->post(route('scenes.clip.generate', $scene))->assertSessionHas('status', 'Muse đang tạo clip cảnh 1...');
+        $this->actingAs($project->user)->post(route('scenes.clip.generate', $scene))->assertSessionHas('status', 'AI đang tạo clip cảnh 1...');
 
         Queue::assertPushed(GenerateSceneClipJob::class, 1);
     }

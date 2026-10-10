@@ -6,13 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { usePoll } from '@/hooks/use-poll';
-import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
+import AdminLayout from '@/layouts/admin-layout';
 import { Head, router, useForm } from '@inertiajs/react';
 import { Check, Copy, ExternalLink, LoaderCircle, LogIn, Trash2, Zap } from 'lucide-react';
 import { FormEventHandler, useState } from 'react';
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Xác thực Claude', href: '/claude' }];
 
 const driverLabels: Record<string, string> = {
     claude_cli: 'Gói Claude (Claude Code)',
@@ -68,7 +65,7 @@ export default function ClaudeAuth({
         router.post(route('claude.test'), {}, { preserveScroll: true, onStart: () => setTesting(true), onFinish: () => setTesting(false) });
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        <AdminLayout title="Xác thực Claude">
             <Head title="Xác thực Claude" />
             <div className="max-w-2xl space-y-6 p-4">
                 <Heading
@@ -158,7 +155,7 @@ export default function ClaudeAuth({
                     <TokenForm />
                 </details>
             </div>
-        </AppLayout>
+        </AdminLayout>
     );
 }
 

@@ -59,7 +59,7 @@ export default function ScriptEditor({ project, disabled }: { project: VideoProj
         <form onSubmit={submit} className="space-y-6">
             <fieldset disabled={disabled} className="space-y-6">
                 <div className="space-y-2">
-                    <Label>Hook (chọn 1 câu mở đầu; Claude đã chọn sẵn hook đề xuất)</Label>
+                    <Label>Hook (chọn 1 câu mở đầu; AI đã chọn sẵn hook đề xuất)</Label>
                     {data.hooks.map((hook, i) => (
                         <div key={i} className="flex items-center gap-2">
                             <input
@@ -119,10 +119,12 @@ export default function ScriptEditor({ project, disabled }: { project: VideoProj
                                     <Label className="text-sm font-normal">Lời đọc / phụ đề</Label>
                                     <Textarea rows={2} value={scene.voiceover ?? ''} onChange={(e) => setScene(i, 'voiceover', e.target.value)} />
                                 </div>
-                                <div className="grid gap-1">
-                                    <Label className="text-sm font-normal">Prompt ảnh (tiếng Anh)</Label>
-                                    <Textarea rows={2} value={scene.image_prompt} onChange={(e) => setScene(i, 'image_prompt', e.target.value)} />
-                                </div>
+                                {scene.image_prompt !== undefined && (
+                                    <div className="grid gap-1">
+                                        <Label className="text-sm font-normal">Prompt ảnh (tiếng Anh, chỉ admin thấy)</Label>
+                                        <Textarea rows={2} value={scene.image_prompt} onChange={(e) => setScene(i, 'image_prompt', e.target.value)} />
+                                    </div>
+                                )}
                             </div>
                             <InputError message={Object.entries(fieldErrors).find(([k]) => k.startsWith(`scenes.${i}.`))?.[1]} />
                         </div>

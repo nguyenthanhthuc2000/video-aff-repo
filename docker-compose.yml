@@ -35,7 +35,8 @@ services:
     container_name: video-aff-queue
     restart: unless-stopped
     pull_policy: never
-    command: php artisan queue:work --timeout=900
+    # Kết quả clip từ muse.ai về dạng base64 (vài MB, giải mã ra vài chục MB): 128M mặc định không đủ, worker bị tràn bộ nhớ.
+    command: php -d memory_limit=1G artisan queue:work --timeout=900 --memory=512
 
   nginx:
     container_name: video-aff-nginx

@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MotionStyle;
 use App\Http\Requests\ProductRequest;
 use App\Http\Resources\FashionModelResource;
 use App\Http\Resources\ProductResource;
 use App\Http\Resources\VideoProjectResource;
 use App\Models\Product;
+use App\Models\ProductCategory;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,10 +21,13 @@ class ProductController extends Controller
 {
     public function index(Request $request): Response
     {
-        $products = $request->user()->products()->with('primaryImage')->latest()->get();
+        $products = $request->user()->products()->with('primaryImage')->withCount(['images', 'videoProjects'])->latest()->get();
 
         return Inertia::render('products/index', [
-            'products' => ProductResource::collection($products)->resolve(),
+            'products' => collect(ProductResource::collection($products)->resolve())
+                // Loại sản phẩm (master data) hiện trên card.
+                ->map(fn (array $item, int $i) => [...$item, 'category' => ProductCategory::detect($products[$i])?->name])
+                ->all(),
         ]);
     }
 
@@ -52,10 +57,20 @@ class ProductController extends Controller
 
         return Inertia::render('products/edit', [
             'product' => ProductResource::make($product)->resolve(),
+            // Video mẫu để sao chép chuyển động.
+            'sampleVideos' => $request->user()->sampleVideos()->latest()->get()
+                ->map(fn ($video) => SampleVideoController::present($video)),
+            // Nhạc trong thư viện (chỉ bài có file) để chọn khi tạo video.
+            'audioTracks' => $request->user()->audioTracks()->whereNotNull('path')->latest()->get()
+                ->map(fn ($track) => AudioTrackController::present($track)),
             'fashionModels' => FashionModelResource::collection(
                 $request->user()->fashionModels()->whereNotNull('consent_at')->latest()->get()
             )->resolve(),
+            'backgrounds' => $request->user()->backgrounds()->latest()->get()->map->present(),
             'maxImages' => config('videoaff.product_images_max'),
+            // Gợi ý kiểu chuyển động theo loại sản phẩm (master data product_categories).
+            'motionSuggestions' => array_map(fn (MotionStyle $style) => $style->value, MotionStyle::suggestFor($product)),
+            'productCategory' => ProductCategory::detect($product)?->name,
             'autopilotAvailable' => VideoProjectController::autopilotAvailable(),
             'projects' => VideoProjectResource::collection(
                 $product->videoProjects()->with('fashionModel')->latest()->get()

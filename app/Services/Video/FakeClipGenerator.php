@@ -5,7 +5,7 @@ namespace App\Services\Video;
 /** Dùng trong test: xong ngay, trả nội dung giả. */
 class FakeClipGenerator implements ClipGenerator
 {
-    public function start(string $imagePath, string $prompt): string
+    public function start(string $imagePath, string $prompt, ?string $referenceVideoPath = null): string
     {
         return 'VA-FAKE00';
     }

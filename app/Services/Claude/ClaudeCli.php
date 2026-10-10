@@ -2,6 +2,7 @@
 
 namespace App\Services\Claude;
 
+use App\Support\ClaudeModels;
 use App\Support\ScriptDriver;
 use Illuminate\Process\Exceptions\ProcessTimedOutException;
 use Illuminate\Support\Facades\Log;
@@ -38,6 +39,28 @@ class ClaudeCli
      */
     public function json(string $system, array $content, array $schema, string $logContext): array
     {
+        // Thao tác cho màn hình Chi phí AI: "script:12" thành "script".
+        $action = strtok($logContext, ':') ?: $logContext;
+        $started = hrtime(true);
+        $final = null;
+        $model = ClaudeModels::for($action, $this->model);
+
+        try {
+            $output = $this->run($system, $content, $schema, $model, $logContext, $final);
+        } catch (ClaudeCliException $e) {
+            AiUsage::cli($action, $final, $model, (int) ((hrtime(true) - $started) / 1_000_000), $e->getMessage());
+
+            throw $e;
+        }
+
+        AiUsage::cli($action, $final, $model, (int) ((hrtime(true) - $started) / 1_000_000), null);
+
+        return $output;
+    }
+
+    /** @param  array|null  $final  Nhận sự kiện "result" của CLI (để ghi chi phí cả khi lỗi). */
+    private function run(string $system, array $content, array $schema, ?string $model, string $logContext, ?array &$final): array
+    {
         $command = [
             $this->binary, '-p',
             '--system-prompt', $system,
@@ -50,8 +73,8 @@ class ClaudeCli
             '--verbose',
             '--json-schema', json_encode($schema, JSON_UNESCAPED_UNICODE),
         ];
-        if ($this->model) {
-            $command = [...$command, '--model', $this->model];
+        if ($model) {
+            $command = [...$command, '--model', $model];
         }
 
         $input = json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => $content]], JSON_UNESCAPED_UNICODE)."\n";
@@ -67,7 +90,6 @@ class ClaudeCli
             throw new ClaudeCliException('Claude Code chạy quá thời gian cho phép.', retryable: true, previous: $e);
         }
 
-        $final = null;
         // Tách theo "\n" thật: preg_split('/\R/') không có cờ u coi byte 0x85 là xuống dòng, cắt đôi chữ "ễ" (E1 BB 85).
         foreach (explode("\n", $result->output()) as $line) {
             $event = json_decode(trim($line), true, flags: JSON_INVALID_UTF8_SUBSTITUTE);

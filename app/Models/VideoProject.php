@@ -7,11 +7,13 @@ use App\Enums\RenderStatus;
 use App\Enums\SceneClipStatus;
 use App\Enums\SceneImageStatus;
 use App\Enums\VideoProjectStatus;
+use App\Enums\VideoType;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Jobs\GenerateSceneImageJob;
 use App\Jobs\GenerateScriptJob;
 use App\Jobs\RenderVideoJob;
+use App\Support\CreditPricing;
 use App\Support\VideoPreset;
 use Database\Factories\VideoProjectFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +21,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class VideoProject extends Model
@@ -29,6 +33,8 @@ class VideoProject extends Model
     protected $fillable = [
         'product_id',
         'fashion_model_id',
+        'video_type',
+        'before_fashion_model_id',
         'motion_style',
         'motion_styles',
         'autopilot',
@@ -36,11 +42,15 @@ class VideoProject extends Model
         'script',
         'selected_hook',
         'music',
+        'audio_track_id',
+        'sample_video_id',
+        'background_ids',
         'error',
     ];
 
     protected $attributes = [
         'status' => 'draft',
+        'video_type' => 'standard',
     ];
 
     protected function casts(): array
@@ -48,7 +58,9 @@ class VideoProject extends Model
         return [
             'status' => VideoProjectStatus::class,
             'motion_style' => MotionStyle::class,
+            'video_type' => VideoType::class,
             'motion_styles' => 'array',
+            'background_ids' => 'array',
             'autopilot' => 'boolean',
             'script' => 'array',
             'selected_hook' => 'integer',
@@ -70,6 +82,29 @@ class VideoProject extends Model
         return $this->belongsTo(FashionModel::class);
     }
 
+    /** Video mẫu mặc định để sao chép chuyển động cho các cảnh. */
+    public function sampleVideo(): BelongsTo
+    {
+        return $this->belongsTo(SampleVideo::class);
+    }
+
+    /** Nhạc nền chọn từ thư viện Âm thanh. */
+    public function audioTrack(): BelongsTo
+    {
+        return $this->belongsTo(AudioTrack::class);
+    }
+
+    /** Ảnh "trước" của video biến hình (đồ cũ, mặt mộc, tóc rối). */
+    public function beforeFashionModel(): BelongsTo
+    {
+        return $this->belongsTo(FashionModel::class, 'before_fashion_model_id');
+    }
+
+    public function isTransformation(): bool
+    {
+        return $this->video_type === VideoType::Transformation && $this->before_fashion_model_id !== null;
+    }
+
     public function scenes(): HasMany
     {
         return $this->hasMany(Scene::class)->orderBy('position');
@@ -80,9 +115,42 @@ class VideoProject extends Model
         return $this->hasManyThrough(SceneImage::class, Scene::class);
     }
 
+    /** Dùng bối cảnh của người dùng (thay cho bối cảnh AI đề xuất). */
+    public function usesCustomBackgrounds(): bool
+    {
+        return ! empty($this->background_ids);
+    }
+
+    /**
+     * Bối cảnh người dùng đã chọn, đúng thứ tự chọn (bỏ bối cảnh đã xoá).
+     *
+     * @return Collection<int, Background>
+     */
+    public function chosenBackgrounds(): Collection
+    {
+        if (! $this->usesCustomBackgrounds()) {
+            return collect();
+        }
+        $found = Background::where('user_id', $this->user_id)->whereIn('id', $this->background_ids)->get()->keyBy('id');
+
+        return collect($this->background_ids)->map(fn ($id) => $found[$id] ?? null)->filter()->values();
+    }
+
+    /** Các lần gọi Claude cho dự án (chi phí, chỉ admin xem). */
+    public function aiUsageLogs(): HasMany
+    {
+        return $this->hasMany(AiUsageLog::class);
+    }
+
     public function renders(): HasMany
     {
         return $this->hasMany(Render::class)->latest('id');
+    }
+
+    /** Video xuất xong gần nhất (xem nhanh ở danh sách dự án). */
+    public function latestDoneRender(): HasOne
+    {
+        return $this->hasOne(Render::class)->ofMany(['id' => 'max'], fn ($query) => $query->where('status', RenderStatus::Done)->whereNotNull('path'));
     }
 
     /** Chuyển sang bước duyệt khi không còn ảnh cảnh nào đang tạo. */
@@ -120,8 +188,17 @@ class VideoProject extends Model
         DB::transaction(function () use ($script) {
             $this->scenes()->delete();
 
+            // Pha trước/sau chỉ có nghĩa với video biến hình.
+            $transformation = $this->isTransformation();
+            // Bối cảnh của người dùng: cảnh i dùng bối cảnh thứ i (vòng lại khi nhiều cảnh hơn), giống phần prompt đã gửi Claude.
+            $backgrounds = $this->chosenBackgrounds();
             foreach ($script['scenes'] as $i => $scene) {
-                $this->scenes()->create([...$scene, 'position' => $i + 1]);
+                $this->scenes()->create([
+                    ...$scene,
+                    'position' => $i + 1,
+                    'phase' => $transformation ? ($scene['phase'] ?? 'after') : null,
+                    'background_id' => $backgrounds->isEmpty() ? null : $backgrounds[$i % $backgrounds->count()]->id,
+                ]);
             }
 
             $this->update([
@@ -146,20 +223,21 @@ class VideoProject extends Model
     }
 
     /**
-     * Lý do không chạy ngầm được (thiếu khoá API cho bước còn lại), null nếu chạy được.
-     * Bước nào đã xong (có kịch bản, mọi cảnh đã có ảnh duyệt) thì không cần khoá của bước đó.
+     * Lý do không chạy ngầm được (hệ thống chưa kết nối AI cho bước còn lại), null nếu chạy được.
+     * Bước nào đã xong (có kịch bản, mọi cảnh đã có ảnh duyệt) thì không cần bước đó.
      */
     public function autopilotBlocker(): ?string
     {
         $missing = [];
         if ($this->script === null && ScriptController::webMode()) {
-            $missing[] = 'CLAUDE_CODE_OAUTH_TOKEN hoặc ANTHROPIC_API_KEY (viết kịch bản)';
+            $missing[] = 'viết kịch bản';
         }
         if (! $this->allScenesApproved() && SceneImageController::webMode()) {
-            $missing[] = 'FAL_KEY (tạo ảnh Muse)';
+            $missing[] = 'tạo ảnh';
         }
 
-        return $missing === [] ? null : 'Cần đặt '.implode(' và ', $missing).' trong .env để chạy ngầm.';
+        // Người dùng không cấu hình được: chỉ báo bước nào chưa sẵn sàng (admin bật ở /admin/settings).
+        return $missing === [] ? null : 'Chạy ngầm chưa sẵn sàng (hệ thống chưa tự '.implode(' và ', $missing).' được). Liên hệ quản trị viên.';
     }
 
     /** Bật chạy ngầm và đưa bước tiếp theo vào hàng đợi. */
@@ -218,13 +296,18 @@ class VideoProject extends Model
         RenderVideoJob::dispatch($this->renders()->create(['hook' => $this->selected_hook, 'status' => RenderStatus::Pending]));
     }
 
+    /** @return Collection<int, Scene> Cảnh chưa có ảnh, hoặc ảnh gần nhất bị lỗi / đã bỏ. */
+    public function scenesMissingImages(): Collection
+    {
+        return $this->scenes()->with('latestImage')->get()
+            ->filter(fn (Scene $scene) => in_array($scene->latestImage?->status, [null, SceneImageStatus::Failed, SceneImageStatus::Rejected], true))
+            ->values();
+    }
+
     /** Tạo ảnh cho cảnh chưa có ảnh, hoặc ảnh gần nhất bị lỗi / đã bỏ. Trả về số ảnh đưa vào hàng đợi. */
     public function queueMissingImages(): int
     {
-        $scenes = $this->scenes()
-            ->with('latestImage')
-            ->get()
-            ->filter(fn (Scene $scene) => in_array($scene->latestImage?->status, [null, SceneImageStatus::Failed, SceneImageStatus::Rejected], true));
+        $scenes = $this->scenesMissingImages();
 
         if ($scenes->isEmpty()) {
             return 0;
@@ -277,14 +360,41 @@ class VideoProject extends Model
         return config('videoaff.image_driver') === 'browser';
     }
 
+    /** Có cách tạo chuyển động: kiểu có sẵn, hoặc video mẫu (của dự án hay của từng cảnh). */
+    public function hasMotion(): bool
+    {
+        return $this->motionStyles() !== []
+            || $this->sample_video_id !== null
+            || $this->scenes()->whereNotNull('sample_video_id')->exists();
+    }
+
     public function wantsClips(): bool
     {
-        return $this->motionStyles() !== [] && self::clipsAvailable();
+        return self::clipsAvailable() && $this->hasMotion();
     }
 
     public function clipsPending(): bool
     {
         return $this->scenes()->where('clip_status', SceneClipStatus::Pending)->exists();
+    }
+
+    /** @return \Illuminate\Database\Eloquent\Collection<int, Scene> Cảnh có ảnh duyệt mà chưa có clip. */
+    public function scenesMissingClips(bool $retryFailed = false): \Illuminate\Database\Eloquent\Collection
+    {
+        return $this->scenes()
+            ->whereHas('approvedImage')
+            ->whereNull('clip_path')
+            ->where(fn ($query) => $query->whereNull('clip_status')
+                ->when($retryFailed, fn ($query) => $query->orWhere('clip_status', SceneClipStatus::Failed)))
+            ->get();
+    }
+
+    /**
+     * Credits cần cho một clip của cảnh (sao chép video mẫu đắt hơn kiểu có sẵn).
+     */
+    public function clipPrice(Scene $scene): int
+    {
+        return CreditPricing::settings()['steps'][$scene->motionReference() ? 'clip_copy' : 'clip_style'];
     }
 
     /**
@@ -293,12 +403,7 @@ class VideoProject extends Model
      */
     public function queueMissingClips(bool $retryFailed = false): int
     {
-        $scenes = $this->scenes()
-            ->whereHas('approvedImage')
-            ->whereNull('clip_path')
-            ->where(fn ($query) => $query->whereNull('clip_status')
-                ->when($retryFailed, fn ($query) => $query->orWhere('clip_status', SceneClipStatus::Failed)))
-            ->get();
+        $scenes = $this->scenesMissingClips($retryFailed);
 
         $scenes->each(fn (Scene $scene) => $scene->queueClip());
 
@@ -319,7 +424,7 @@ class VideoProject extends Model
 
         return match ($this->status) {
             VideoProjectStatus::Draft => ['percent' => 0, 'label' => 'Chưa bắt đầu'],
-            VideoProjectStatus::Scripting => ['percent' => 10, 'label' => 'Claude đang viết kịch bản'],
+            VideoProjectStatus::Scripting => ['percent' => 10, 'label' => 'AI đang viết kịch bản'],
             VideoProjectStatus::ScriptReady => ['percent' => 20, 'label' => 'Có kịch bản, chờ tạo ảnh'],
             VideoProjectStatus::Imaging => ['percent' => 20 + (int) round(50 * $withImage / $total), 'label' => "Đang tạo ảnh {$withImage}/{$scenes->count()}"],
             VideoProjectStatus::Reviewing => $this->clipsPending()
@@ -339,7 +444,7 @@ class VideoProject extends Model
 
         return [
             'percent' => 60 + (int) round(10 * $done / max(1, $scenes->count())),
-            'label' => "Muse đang tạo clip chuyển động {$done}/{$scenes->count()}",
+            'label' => "AI đang tạo clip chuyển động {$done}/{$scenes->count()}",
         ];
     }
 }

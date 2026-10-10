@@ -15,11 +15,20 @@ class MuseBrowserClipGenerator implements ClipGenerator
 
     public function __construct(private readonly MuseBrowserClient $client) {}
 
-    public function start(string $imagePath, string $prompt): string
+    public function start(string $imagePath, string $prompt, ?string $referenceVideoPath = null): string
     {
         $contents = Media::disk()->get($imagePath);
         if ($contents === null) {
             throw new ImageGeneratorException('Không đọc được ảnh cảnh.');
+        }
+
+        $attachments = [['name' => basename($imagePath), 'base64' => base64_encode($contents)]];
+        if ($referenceVideoPath !== null) {
+            $video = Media::disk()->get($referenceVideoPath);
+            if ($video === null) {
+                throw new ImageGeneratorException('Không đọc được video mẫu.');
+            }
+            $attachments[] = ['name' => 'reference-motion.mp4', 'base64' => base64_encode($video)];
         }
 
         $code = MuseTask::code();
@@ -27,7 +36,7 @@ class MuseBrowserClipGenerator implements ClipGenerator
             $code,
             'video',
             self::message($code, $prompt),
-            [['name' => basename($imagePath), 'base64' => base64_encode($contents)]],
+            $attachments,
             (int) config('videoaff.muse_browser.clip_timeout') * 1000,
         ));
 

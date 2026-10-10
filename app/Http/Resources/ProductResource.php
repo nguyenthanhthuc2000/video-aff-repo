@@ -41,6 +41,8 @@ class ProductResource extends JsonResource
                 'url' => Media::url($image->path),
                 'is_primary' => $image->is_primary,
             ])),
+            'images_count' => $this->whenCounted('images'),
+            'video_projects_count' => $this->whenCounted('videoProjects'),
             'created_at' => $this->created_at,
         ];
     }

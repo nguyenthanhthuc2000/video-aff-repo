@@ -57,7 +57,7 @@ function SceneCard({ scene }: { scene: Scene }) {
     const image = scene.image?.status === 'approved' ? scene.image : null;
 
     const copy = async () => {
-        await navigator.clipboard.writeText(scene.full_prompt);
+        await navigator.clipboard.writeText(scene.full_prompt ?? '');
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
     };
