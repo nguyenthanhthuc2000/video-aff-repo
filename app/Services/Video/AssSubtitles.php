@@ -33,6 +33,10 @@ class AssSubtitles
             'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
         ];
 
+        if (! $spec->withText) {
+            return implode("\n", $lines)."\n";
+        }
+
         $start = 0;
         foreach ($spec->scenes as $i => $scene) {
             $end = $start + $scene->durationMs;
@@ -49,10 +53,12 @@ class AssSubtitles
             $start = $end;
         }
 
-        $end = $start + $spec->endCardMs;
-        $lines[] = self::dialogue($start, $end, 'End', $spec->endCardTitle, '{\fad(200,0)}');
-        if ($spec->endCardSubtitle !== '') {
-            $lines[] = self::dialogue($start, $end, 'EndSub', $spec->endCardSubtitle, '{\fad(200,0)}');
+        if ($spec->hasEndCard()) {
+            $end = $start + $spec->endCardMs;
+            $lines[] = self::dialogue($start, $end, 'End', $spec->endCardTitle, '{\fad(200,0)}');
+            if ($spec->endCardSubtitle !== '') {
+                $lines[] = self::dialogue($start, $end, 'EndSub', $spec->endCardSubtitle, '{\fad(200,0)}');
+            }
         }
 
         return implode("\n", $lines)."\n";

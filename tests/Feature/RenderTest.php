@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\RenderStatus;
+use App\Enums\SceneImageStatus;
 use App\Enums\VideoProjectStatus;
 use App\Jobs\RenderVideoJob;
 use App\Models\Scene;
@@ -168,6 +169,33 @@ class RenderTest extends TestCase
         $this->assertStringContainsString('0:00:03.00,0:00:05.50,Title', $ass);
         $this->assertStringContainsString('0:00:05.50,0:00:08.00,End', $ass);
         $this->assertSame('1:01:01.25', AssSubtitles::time(3661250));
+    }
+
+    public function test_render_without_text_has_no_overlays_and_no_end_card()
+    {
+        $spec = new RenderSpec([new RenderScene('a.jpg', 3000, 'Chữ 1', 'Lời 1'), new RenderScene('b.jpg', 2500, 'Chữ 2')], 'Hook', '/tmp/out.mp4', withText: false);
+        $renderer = new FfmpegVideoRenderer('ffmpeg', resource_path('fonts'));
+
+        $this->assertSame(5500, $spec->durationMs());
+        $this->assertStringNotContainsString('Dialogue:', AssSubtitles::build($spec));
+        $graph = $renderer->filterGraph($spec, '/tmp/subs.ass');
+        $this->assertStringNotContainsString('ass=', $graph);
+        $this->assertStringNotContainsString('boxblur', $graph);
+        // 2 ảnh cảnh + âm thanh im lặng, không có ảnh cảnh kết.
+        $this->assertSame(2, collect($renderer->command($spec, '/tmp/f.txt'))->filter(fn ($arg) => $arg === '-i')->count() - 1);
+    }
+
+    public function test_render_request_remembers_text_choice()
+    {
+        Queue::fake();
+        $project = VideoProject::factory()->create(['status' => VideoProjectStatus::Reviewing, 'script' => ['hooks' => ['H']]]);
+        $scene = Scene::factory()->for($project)->create();
+        SceneImage::factory()->for($scene)->create(['status' => SceneImageStatus::Approved]);
+
+        $this->actingAs($project->user)->post(route('projects.renders.store', $project), ['hook' => 0, 'with_text' => false])->assertRedirect();
+
+        $this->assertFalse($project->fresh()->render_text);
+        $this->assertFalse($project->renders()->first()->with_text);
     }
 
     public function test_ffmpeg_failure_raises_render_exception()

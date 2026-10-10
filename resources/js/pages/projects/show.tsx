@@ -9,7 +9,7 @@ import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { projectStatusLabels } from '@/lib/project-status';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { type AudioTrack, type Background, type FashionModel, type SampleVideo, type VideoProject } from '@/types/models';
+import { type AudioTrack, type Background, type FashionModel, type OutfitProduct, type SampleVideo, type VideoProject } from '@/types/models';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { LoaderCircle, Play, Plus } from 'lucide-react';
 import CreateProjectForm from '../products/create-project-form';
@@ -20,6 +20,7 @@ import RenderPanel from './render-panel';
 import SceneImages from './scene-images';
 import SceneOrder from './scene-order';
 import ScriptEditor from './script-editor';
+import VideoInputs from './video-inputs';
 
 export default function ProjectsShow({
     project,
@@ -27,6 +28,7 @@ export default function ProjectsShow({
     audioTracks,
     sampleVideos,
     backgrounds,
+    outfitProducts,
     credits,
     autopilotAvailable,
 }: {
@@ -35,6 +37,7 @@ export default function ProjectsShow({
     audioTracks: AudioTrack[];
     sampleVideos: SampleVideo[];
     backgrounds: Background[];
+    outfitProducts: OutfitProduct[];
     credits: ProjectCreditsData;
     autopilotAvailable: boolean;
 }) {
@@ -73,7 +76,7 @@ export default function ProjectsShow({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <Heading
                         title={project.product?.name ?? 'Dự án video'}
-                        description={`${project.video_type_label} · Người mẫu: ${project.before_fashion_model ? `${project.before_fashion_model.name} → ` : ''}${project.fashion_model?.name ?? ''}${project.motion_style_label ? ` · Chuyển động: ${project.motion_style_label}` : ''}`}
+                        description={`${project.video_type_label} · Người mẫu: ${project.before_fashion_model ? `${project.before_fashion_model.name} → ` : ''}${project.fashion_model?.name ?? ''}${project.motion_style_label ? ` · Chuyển động: ${project.motion_style_label}` : ''}${project.one_take ? ' · Một cảnh quay liền' : ''}`}
                     />
                     <div className="flex items-center gap-2">
                         {project.is_busy && <LoaderCircle className="size-4 animate-spin" />}
@@ -117,6 +120,8 @@ export default function ProjectsShow({
                                             defaultAudioTrackId={project.audio_track?.id ?? null}
                                             backgrounds={backgrounds}
                                             defaultBackgroundIds={project.background_ids}
+                                            outfitProducts={outfitProducts}
+                                            defaultOutfits={project.outfits}
                                             autopilotAvailable={autopilotAvailable}
                                         />
                                     )}
@@ -152,23 +157,7 @@ export default function ProjectsShow({
                     </div>
                 )}
 
-                <div className="flex gap-4">
-                    {project.product?.primary_image_url && (
-                        <img src={project.product.primary_image_url} alt="Sản phẩm" className="h-40 rounded-lg border object-cover" />
-                    )}
-                    {project.before_fashion_model?.photo_url && (
-                        <figure className="space-y-1">
-                            <img src={project.before_fashion_model.photo_url} alt="Ảnh trước" className="h-40 rounded-lg border object-cover" />
-                            <figcaption className="text-muted-foreground text-center text-xs">Trước</figcaption>
-                        </figure>
-                    )}
-                    {project.fashion_model?.photo_url && (
-                        <figure className="space-y-1">
-                            <img src={project.fashion_model.photo_url} alt="Người mẫu" className="h-40 rounded-lg border object-cover" />
-                            {project.before_fashion_model && <figcaption className="text-muted-foreground text-center text-xs">Sau</figcaption>}
-                        </figure>
-                    )}
-                </div>
+                <VideoInputs project={project} backgrounds={backgrounds} />
 
                 <section className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
@@ -228,7 +217,7 @@ export default function ProjectsShow({
                         {project.image_mode === 'web' ? (
                             <MuseWebImages project={project} />
                         ) : (
-                            <SceneImages project={project} backgrounds={backgrounds} />
+                            <SceneImages project={project} backgrounds={backgrounds} outfitProducts={outfitProducts} />
                         )}
                     </section>
                 )}

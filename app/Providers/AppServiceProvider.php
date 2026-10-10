@@ -31,6 +31,7 @@ use App\Services\Video\FfmpegVideoRenderer;
 use App\Services\Video\MuseBrowserClipGenerator;
 use App\Services\Video\ReferenceClip;
 use App\Services\Video\SampleAudio;
+use App\Services\Video\ShotDetector;
 use App\Services\Video\VideoProbe;
 use App\Services\Video\VideoRenderer;
 use App\Support\ScriptDriver;
@@ -100,6 +101,7 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->bind(VideoProbe::class, fn () => VideoProbe::fromConfig());
         $this->app->bind(ReferenceClip::class, fn () => ReferenceClip::fromConfig());
+        $this->app->bind(ShotDetector::class, fn () => ShotDetector::fromConfig());
         $this->app->bind(SampleAudio::class, fn () => SampleAudio::fromConfig());
 
         // Phân tích chuyển động video mẫu: cùng nguồn Claude với viết kịch bản.

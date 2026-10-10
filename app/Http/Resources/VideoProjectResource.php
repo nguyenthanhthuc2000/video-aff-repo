@@ -23,7 +23,6 @@ class VideoProjectResource extends JsonResource
     public function toArray(Request $request): array
     {
         // Câu tả sản phẩm cho prompt đầy đủ của từng cảnh (tính một lần).
-        $productLine = $this->relationLoaded('scenes') ? ProductCategory::productLine($this->product) : null;
         // Prompt chỉ hiện cho admin, hoặc khi người dùng phải tự dán prompt (chế độ thủ công: tạo ảnh trên muse.ai, tự làm clip).
         $isAdmin = (bool) $request->user()?->isAdmin();
         $showImagePrompt = $isAdmin || SceneImageController::webMode();
@@ -41,6 +40,8 @@ class VideoProjectResource extends JsonResource
             'error' => $this->error,
             'script' => $this->script,
             'selected_hook' => $this->selected_hook,
+            'outfits' => array_map(fn (array $item) => array_diff_key($item, ['product' => 0]), $this->outfitList()),
+            'render_text' => $this->render_text ?? true,
             'has_music' => $this->music !== null,
             'audio_track' => $this->audioTrack ? ['id' => $this->audioTrack->id, 'name' => $this->audioTrack->name, 'url' => Media::url($this->audioTrack->path)] : null,
             'script_mode' => ScriptController::webMode() ? 'web' : 'api',
@@ -70,12 +71,15 @@ class VideoProjectResource extends JsonResource
                     ->map(fn ($image, $i) => ['label' => 'Ảnh '.($i + 2).': sản phẩm', 'url' => Media::url($image->path)])
                     ->all(),
             ]),
+            // Mọi sản phẩm trong video (video gộp: theo thứ tự bộ đồ) kèm toàn bộ ảnh, ảnh AI dùng và các cảnh mặc.
+            'video_products' => $this->whenLoaded('scenes', fn () => $this->videoProducts()),
             'product' => $this->whenLoaded('product', fn () => [
                 'id' => $this->product->id,
                 'name' => $this->product->name,
                 'primary_image_url' => Media::url($this->product->primaryImage?->path),
             ]),
             'video_type' => $this->video_type->value,
+            'one_take' => (bool) $this->one_take,
             'video_type_label' => $this->video_type->label(),
             'before_fashion_model' => $this->whenLoaded('beforeFashionModel', fn () => $this->beforeFashionModel ? [
                 'id' => $this->beforeFashionModel->id,
@@ -96,11 +100,12 @@ class VideoProjectResource extends JsonResource
                 'on_screen_text' => $scene->on_screen_text,
                 'voiceover' => $scene->voiceover,
                 ...($isAdmin ? ['image_prompt' => $scene->image_prompt] : []),
-                ...($showImagePrompt ? ['full_prompt' => GenerateSceneImageJob::prompt($scene->image_prompt, $scene->phase, $productLine, $scene->background_id !== null)] : []),
+                ...($showImagePrompt ? ['full_prompt' => GenerateSceneImageJob::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->background_id !== null)] : []),
                 // Có video mẫu (của cảnh hoặc dự án) thì sao chép chuyển động, không thì kiểu có sẵn.
                 ...($showMotionPrompt ? ['motion_prompt' => $scene->motionReference() ? MotionCopy::prompt($scene) : $this->motionStyleFor($scene)?->prompt($scene)] : []),
                 'sample_video_id' => $scene->sample_video_id,
                 'background' => $scene->background?->present(),
+                'outfit' => $scene->hasOutfit() || $this->outfits ? $scene->outfit() : null,
                 'motion_reference' => ($reference = $scene->motionReference()) ? self::sample($reference) : null,
                 'motion_style_label' => $this->motionStyleFor($scene)?->label(),
                 'clip_url' => Media::url($scene->clip_path),
@@ -126,6 +131,7 @@ class VideoProjectResource extends JsonResource
             'renders' => $this->whenLoaded('renders', fn () => $this->renders->map(fn ($render) => [
                 'id' => $render->id,
                 'hook' => $render->hook,
+                'with_text' => $render->with_text,
                 'status' => $render->status->value,
                 'progress' => $render->progress,
                 'url' => Media::url($render->path),
@@ -143,5 +149,39 @@ class VideoProjectResource extends JsonResource
     private static function sample(SampleVideo $video): array
     {
         return ['id' => $video->id, 'name' => $video->name, 'url' => Media::url($video->path), 'thumbnail_url' => Media::url($video->thumbnail_path)];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function videoProducts(): array
+    {
+        $outfits = $this->outfitList() ?: [['product_id' => $this->product_id, 'product_image_id' => null, 'color' => null, 'product' => $this->product]];
+        $limit = config('videoaff.image_product_refs');
+
+        return collect($outfits)->groupBy('product_id', true)->map(function ($items) use ($limit) {
+            $product = $items->first()['product'];
+            $images = $product->images()->orderByDesc('is_primary')->orderBy('id')->get();
+            $chosen = $items->pluck('product_image_id')->filter()->all();
+            // Không chọn ảnh riêng thì AI xem vài ảnh đầu (ảnh chính trước).
+            $usesAll = $items->contains(fn ($item) => $item['product_image_id'] === null);
+            $scenes = $this->scenes
+                ->filter(fn ($scene) => $scene->phase?->value !== 'before' && ($scene->product_id ?? $this->product_id) === $product->id)
+                ->pluck('position')->values()->all();
+
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'price' => $product->price,
+                'shopee_url' => $product->shopee_url,
+                'url' => route('products.edit', $product),
+                'outfit_numbers' => $items->keys()->map(fn ($key) => $key + 1)->values()->all(),
+                'colors' => $items->pluck('color')->filter()->unique()->values()->all(),
+                'scenes' => $scenes,
+                'images' => $images->values()->map(fn ($image, $i) => [
+                    'id' => $image->id,
+                    'url' => Media::url($image->path),
+                    'used' => in_array($image->id, $chosen, true) || ($usesAll && $i < $limit),
+                ])->all(),
+            ];
+        })->values()->all();
     }
 }

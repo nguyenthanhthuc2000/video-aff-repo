@@ -11,8 +11,6 @@ use Illuminate\Support\Facades\Process;
  */
 class FfmpegVideoRenderer implements VideoRenderer
 {
-    private const TRANSITION_MS = 300;
-
     public function __construct(
         private readonly string $ffmpeg,
         private readonly string $fontsDir,
@@ -68,8 +66,10 @@ class FfmpegVideoRenderer implements VideoRenderer
                 ? [...$cmd, '-stream_loop', '-1', '-i', $scene->clipPath]
                 : [...$cmd, '-i', $scene->imagePath];
         }
-        // Cảnh kết luôn dùng ảnh tĩnh của cảnh cuối.
-        $cmd = [...$cmd, '-i', $spec->scenes[array_key_last($spec->scenes)]->imagePath];
+        // Cảnh kết dùng ảnh tĩnh của cảnh cuối.
+        if ($spec->hasEndCard()) {
+            $cmd = [...$cmd, '-i', $spec->scenes[array_key_last($spec->scenes)]->imagePath];
+        }
 
         $seconds = $this->seconds($spec->durationMs());
         if ($spec->musicPath) {
@@ -97,22 +97,26 @@ class FfmpegVideoRenderer implements VideoRenderer
         // Phóng ảnh 1,5 lần trước khi zoompan để chuyển động mượt hơn.
         $bigW = (int) round($w * 1.5);
         $bigH = (int) round($h * 1.5);
-        $t = self::TRANSITION_MS;
+        $t = $spec->transitionMs;
 
-        $durations = [...array_map(fn (RenderScene $s) => $s->durationMs, $spec->scenes), $spec->endCardMs];
+        $durations = array_map(fn (RenderScene $s) => $s->durationMs, $spec->scenes);
+        if ($spec->hasEndCard()) {
+            $durations[] = $spec->endCardMs;
+        }
         $count = count($durations);
         $graph = [];
 
         foreach ($durations as $i => $ms) {
-            // Mỗi clip (trừ clip cuối) dài thêm một đoạn chuyển cảnh để xfade chồng lên.
-            $clipMs = $i < $count - 1 ? $ms + $t : $ms;
+            // Mỗi clip (trừ clip cuối) dài thêm một đoạn chuyển cảnh để xfade chồng lên (cắt thẳng thì không).
+            $clipMs = $t > 0 && $i < $count - 1 ? $ms + $t : $ms;
             $frames = max(1, (int) round($clipMs / 1000 * $this->fps));
-            $isEndCard = $i === $count - 1;
+            $isEndCard = $spec->hasEndCard() && $i === $count - 1;
 
             $zoom = match (true) {
                 $isEndCard => '1',
-                $i % 2 === 0 => "1+0.10*on/{$frames}",
-                default => "1.10-0.10*on/{$frames}",
+                // Zoom rất nhẹ: zoom mạnh kiểu Ken Burns trông như trình chiếu ảnh.
+                $i % 2 === 0 => "1+0.04*on/{$frames}",
+                default => "1.04-0.04*on/{$frames}",
             };
 
             $clip = $isEndCard ? null : $spec->scenes[$i]->clipPath;
@@ -130,15 +134,27 @@ class FfmpegVideoRenderer implements VideoRenderer
         }
 
         $prev = 'v0';
-        $offsetMs = 0;
-        for ($i = 1; $i < $count; $i++) {
-            $offsetMs += $durations[$i - 1];
-            $out = "x{$i}";
-            $graph[] = "[{$prev}][v{$i}]xfade=transition=fade:duration=".$this->seconds($t).':offset='.$this->seconds($offsetMs)."[{$out}]";
-            $prev = $out;
+        if ($t > 0) {
+            $offsetMs = 0;
+            for ($i = 1; $i < $count; $i++) {
+                $offsetMs += $durations[$i - 1];
+                $out = "x{$i}";
+                $graph[] = "[{$prev}][v{$i}]xfade=transition=fade:duration=".$this->seconds($t).':offset='.$this->seconds($offsetMs)."[{$out}]";
+                $prev = $out;
+            }
+        } elseif ($count > 1) {
+            // Cắt thẳng: nối các cảnh liền nhau.
+            $graph[] = implode('', array_map(fn (int $i) => "[v{$i}]", range(0, $count - 1)))."concat=n={$count}:v=1:a=0[vcat]";
+            $prev = 'vcat';
+        }
+        if ($spec->grain) {
+            $graph[] = "[{$prev}]noise=alls=5:allf=t,eq=saturation=0.96[vgrain]";
+            $prev = 'vgrain';
         }
 
-        $graph[] = "[{$prev}]ass=filename='".$this->escapeFilterPath($assPath)."':fontsdir='".$this->escapeFilterPath($this->fontsDir)."'[vout]";
+        $graph[] = $spec->withText
+            ? "[{$prev}]ass=filename='".$this->escapeFilterPath($assPath)."':fontsdir='".$this->escapeFilterPath($this->fontsDir)."'[vout]"
+            : "[{$prev}]null[vout]";
 
         $total = $this->seconds($spec->durationMs());
         $fadeStart = $this->seconds(max(0, $spec->durationMs() - 1500));

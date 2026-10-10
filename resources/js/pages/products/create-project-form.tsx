@@ -1,11 +1,20 @@
 import InputError from '@/components/input-error';
+import OutfitPicker from '@/components/outfit-picker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { motionStyles, type MotionStyle } from '@/lib/motion-styles';
 import { cn } from '@/lib/utils';
-import { type AudioTrack, type Background, type FashionModel, type SampleVideo, type VideoType } from '@/types/models';
+import {
+    type AudioTrack,
+    type Background,
+    type FashionModel,
+    type Outfit,
+    type OutfitProduct,
+    type SampleVideo,
+    type VideoType,
+} from '@/types/models';
 import { Link, useForm, usePage } from '@inertiajs/react';
 import { FormEventHandler, useState } from 'react';
 
@@ -160,6 +169,8 @@ export default function CreateProjectForm({
     defaultSampleVideoId,
     backgrounds = [],
     defaultBackgroundIds = [],
+    outfitProducts = [],
+    defaultOutfits = [],
     autopilotAvailable,
 }: {
     productId: number;
@@ -180,6 +191,9 @@ export default function CreateProjectForm({
     /** Bối cảnh của người dùng (menu Bối cảnh). */
     backgrounds?: Background[];
     defaultBackgroundIds?: number[];
+    /** Sản phẩm đã duyệt ảnh, để mỗi cảnh / shot mặc một bộ đồ. */
+    outfitProducts?: OutfitProduct[];
+    defaultOutfits?: Outfit[];
     autopilotAvailable: boolean;
 }) {
     const { workflow } = usePage<{ workflow: 'auto' | 'manual' | null }>().props;
@@ -193,6 +207,8 @@ export default function CreateProjectForm({
         use_sample_audio: boolean;
         sample_video_id: number | null;
         background_ids: number[];
+        outfits: Outfit[];
+        one_take: boolean;
         autopilot: boolean;
     }>({
         product_id: productId,
@@ -204,14 +220,26 @@ export default function CreateProjectForm({
         use_sample_audio: false,
         sample_video_id: defaultSampleVideoId ?? null,
         background_ids: defaultBackgroundIds.filter((id) => backgrounds.some((background) => background.id === id)),
+        one_take: false,
+        outfits: defaultOutfits.filter((outfit) => outfitProducts.some((product) => product.id === outfit.product_id)),
         // Chế độ "Tự động tất cả các bước" (Cài đặt video) thì tick sẵn chạy ngầm.
         autopilot: autopilotAvailable && workflow !== 'manual',
     });
 
     const [customBackgrounds, setCustomBackgrounds] = useState(data.background_ids.length > 0);
+    const [multiOutfit, setMultiOutfit] = useState(data.outfits.length > 0);
     const missingBackgrounds = customBackgrounds && data.background_ids.length === 0;
 
     const selectedSample = sampleVideos.find((video) => video.id === data.sample_video_id) ?? null;
+    const shotCount = selectedSample?.shots?.length ?? 0;
+
+    const toggleMultiOutfit = (on: boolean) => {
+        setMultiOutfit(on);
+        // Bật lần đầu: bộ 1 là sản phẩm hiện tại, bấm thêm sản phẩm khác ở lưới bên dưới.
+        if (on && data.outfits.length === 0 && outfitProducts.some((product) => product.id === productId)) {
+            setData('outfits', [{ product_id: productId, product_image_id: null, color: null }]);
+        }
+    };
 
     // Kiểu hợp với sản phẩm lên đầu (theo thứ tự đề xuất), các kiểu khác sau.
     const orderedStyles = [
@@ -229,20 +257,63 @@ export default function CreateProjectForm({
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
         // "AI tự đề xuất" thì không gửi bối cảnh đã chọn trước đó.
-        transform((form) => ({ ...form, background_ids: customBackgrounds ? form.background_ids : [] }));
+        transform((form) => ({
+            ...form,
+            background_ids: customBackgrounds ? form.background_ids : [],
+            // Một cảnh quay liền chỉ mặc một bộ.
+            outfits: multiOutfit ? (form.one_take ? form.outfits.slice(0, 1) : form.outfits) : [],
+        }));
         post(route('projects.store'));
     };
 
     return (
         <form onSubmit={submit} className="space-y-3">
+            <div className="space-y-1">
+                <Label>Kiểu dựng</Label>
+                <div className="grid grid-cols-2 gap-2">
+                    {[
+                        { oneTake: false, label: 'Nhiều cảnh', hint: 'Mỗi cảnh một bối cảnh / góc máy, cắt ghép lại.' },
+                        { oneTake: true, label: 'Một cảnh quay liền', hint: 'Một shot dài liền mạch, cùng địa điểm, không cắt cảnh.' },
+                    ].map((option) => (
+                        <button
+                            key={String(option.oneTake)}
+                            type="button"
+                            onClick={() =>
+                                setData((current) => ({
+                                    ...current,
+                                    one_take: option.oneTake,
+                                    video_type: option.oneTake ? 'standard' : current.video_type,
+                                }))
+                            }
+                            className={cn(
+                                'rounded-md border px-3 py-1.5 text-left text-sm',
+                                data.one_take === option.oneTake ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+                            )}
+                        >
+                            <span className="font-medium">{option.label}</span>
+                            <span className="text-muted-foreground block text-xs">{option.hint}</span>
+                        </button>
+                    ))}
+                </div>
+                {data.one_take && (
+                    <p className="text-muted-foreground text-xs">
+                        AI tạo ảnh cảnh 1, rồi làm từng clip khoảng 5 giây nối tiếp nhau: khung cuối clip trước là khung đầu clip sau, nên video chạy
+                        liền một mạch. Các clip tạo lần lượt nên lâu hơn. Chỉ một bộ đồ, một bối cảnh.
+                    </p>
+                )}
+                <InputError message={(errors as Record<string, string>).one_take} />
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
                 {videoTypes.map((type) => (
                     <button
                         key={type.value}
                         type="button"
+                        disabled={data.one_take && type.value === 'transformation'}
+                        title={data.one_take && type.value === 'transformation' ? 'Biến hình cần cắt cảnh, chọn "Nhiều cảnh"' : undefined}
                         onClick={() => setData('video_type', type.value)}
                         className={cn(
-                            'rounded-md border px-3 py-1.5 text-left text-sm',
+                            'rounded-md border px-3 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40',
                             data.video_type === type.value ? 'border-primary bg-primary/5' : 'hover:bg-muted',
                         )}
                     >
@@ -349,6 +420,7 @@ export default function CreateProjectForm({
                     {sampleVideos.map((video) => (
                         <option key={video.id} value={video.id}>
                             {video.name}
+                            {(video.shots?.length ?? 0) > 1 ? ` (${video.shots?.length} shot)` : ''}
                         </option>
                     ))}
                 </select>
@@ -359,8 +431,44 @@ export default function CreateProjectForm({
                         Quản lý Video mẫu
                     </Link>
                 </p>
+                {shotCount > 1 && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Video mẫu có {shotCount} shot: số cảnh và độ dài từng cảnh theo các shot. Bật "Gộp nhiều sản phẩm" để mỗi shot mặc một bộ.
+                    </p>
+                )}
                 <InputError message={errors.sample_video_id} />
             </div>
+
+            {outfitProducts.length > 0 && (
+                <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                        <Checkbox id="multi_outfit" checked={multiOutfit} onCheckedChange={(checked) => toggleMultiOutfit(checked === true)} />
+                        <Label htmlFor="multi_outfit">Gộp nhiều sản phẩm: mỗi cảnh một bộ đồ (đổi đồ, lookbook)</Label>
+                    </div>
+                    {multiOutfit && (
+                        <div className="pl-7">
+                            {data.one_take && (
+                                <p className="mb-2 text-xs text-amber-700 dark:text-amber-400">
+                                    Một cảnh quay liền chỉ mặc bộ 1 (không có lúc cắt cảnh để đổi đồ).
+                                </p>
+                            )}
+                            <OutfitPicker
+                                products={outfitProducts}
+                                value={data.outfits}
+                                onChange={(outfits) => setData('outfits', outfits)}
+                                shotCount={shotCount}
+                            />
+                            <InputError
+                                message={
+                                    multiOutfit && data.outfits.length === 0
+                                        ? 'Thêm ít nhất một bộ đồ, hoặc bỏ chọn.'
+                                        : (errors.outfits ?? Object.entries(errors).find(([key]) => key.startsWith('outfits.'))?.[1])
+                                }
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="space-y-1">
                 <Label htmlFor="audio_track_id">Nhạc nền</Label>
@@ -410,7 +518,7 @@ export default function CreateProjectForm({
                 )}
             </div>
 
-            <Button disabled={processing || missingBackgrounds} className="w-full">
+            <Button disabled={processing || missingBackgrounds || (multiOutfit && data.outfits.length === 0)} className="w-full">
                 Tạo dự án video
             </Button>
         </form>

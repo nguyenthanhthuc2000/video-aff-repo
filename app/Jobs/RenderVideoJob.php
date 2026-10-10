@@ -63,6 +63,7 @@ class RenderVideoJob implements ShouldQueue
                 endCardTitle: PromoText::callToAction($project->product),
                 endCardSubtitle: $sizes ? "Size: {$sizes}" : '',
                 // Nhạc từ thư viện Âm thanh, không có thì file tải lên riêng cho dự án (bản cũ).
+                withText: $render->with_text,
                 musicPath: ($music = $project->audioTrack?->path ?? $project->music) ? $this->copyLocal($music, $workDir, 'music') : null,
             );
 

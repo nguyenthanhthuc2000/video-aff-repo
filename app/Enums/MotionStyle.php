@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\Scene;
 use App\Support\ProductFidelity;
+use App\Support\Realism;
 
 /** Kiểu chuyển động của nhân vật khi biến ảnh cảnh thành clip (muse.ai tạo, hoặc tự tạo rồi tải lên). */
 enum MotionStyle: string
@@ -69,14 +70,14 @@ enum MotionStyle: string
         // Cảnh "trước" của video biến hình: chưa có sản phẩm.
         $product = $scene->phase === ScenePhase::Before
             ? 'The person is not wearing or holding the product yet; her clothes, hair and face stay exactly as in the photo.'
-            : ProductCategory::productLine($scene->videoProject->product);
+            : $scene->productLine();
 
         return "Animate this photo into a 5-second vertical 9:16 video. {$product} The same person {$this->moves()}. "
             ."Scene context: {$scene->visual}. "
             .self::CONTINUITY.' '
             .'Keep the face, hair and outfit exactly the same. '
             .($scene->phase === ScenePhase::Before ? '' : ProductFidelity::VIDEO.' ')
-            .'Smooth natural motion, static camera, no text, no extra people. '
+            .Realism::VIDEO.' No text, no extra people. '
             .'Keep it modest, friendly and family-friendly: not sexy, not provocative, no body-focused moves or camera angles. '
             .'If any part of this request is not appropriate to create, adjust the moves or framing yourself to a modest version and create that instead of declining; never alter the product to do so.';
     }

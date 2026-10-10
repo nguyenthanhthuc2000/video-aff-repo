@@ -159,6 +159,7 @@ class SampleVideoController extends Controller
             'notes' => $video->notes,
             'analysis_status' => $video->analysis_status,
             'analysis' => $video->motion_analysis,
+            'shots' => $video->shots ?? [],
             'analysis_error' => $video->analysis_error,
             'has_audio' => $video->has_audio,
             'audio_track_id' => $video->audio_track_id,

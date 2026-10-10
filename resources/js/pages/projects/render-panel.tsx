@@ -11,6 +11,8 @@ type RenderFormData = {
     hook: number;
     /** "" = không nhạc, "legacy" = file tải riêng cho dự án (bản cũ), "sample" = nhạc như video mẫu, còn lại = id nhạc thư viện. */
     music_choice: string;
+    /** false = video không có hook, chữ trên cảnh, phụ đề và cảnh kết. */
+    with_text: boolean;
 };
 
 const renderStatusLabels = { pending: 'Đang xuất', done: 'Xong', failed: 'Lỗi' } as const;
@@ -20,6 +22,7 @@ export default function RenderPanel({ project, audioTracks }: { project: VideoPr
     const { data, setData, post, processing, errors, transform } = useForm<RenderFormData>({
         hook: project.selected_hook ?? 0,
         music_choice: project.audio_track ? String(project.audio_track.id) : project.has_music ? 'legacy' : '',
+        with_text: project.render_text ?? true,
     });
 
     const canRender = project.all_approved && ['reviewing', 'done', 'failed'].includes(project.status);
@@ -32,6 +35,7 @@ export default function RenderPanel({ project, audioTracks }: { project: VideoPr
             use_sample_audio: form.music_choice === 'sample',
             // "Không có nhạc" thì bỏ cả file nhạc tải riêng cho dự án (bản cũ).
             remove_music: form.music_choice === '',
+            with_text: form.with_text,
         }));
         post(route('projects.renders.store', project.id), { preserveScroll: true });
     };
@@ -82,6 +86,18 @@ export default function RenderPanel({ project, audioTracks }: { project: VideoPr
                         <InputError message={(errors as Record<string, string>).audio_track_id} />
                     </div>
 
+                    <div className="space-y-1">
+                        <label className="flex items-center gap-2 text-sm font-medium">
+                            <input type="checkbox" checked={data.with_text} onChange={(e) => setData('with_text', e.target.checked)} />
+                            Chèn chữ lên video
+                        </label>
+                        <p className="text-muted-foreground text-xs">
+                            {data.with_text
+                                ? 'Có hook ở cảnh đầu, chữ trên từng cảnh, phụ đề lời đọc và cảnh kết kêu gọi mua.'
+                                : 'Video chỉ có hình và nhạc: không hook, không chữ trên cảnh, không phụ đề, không cảnh kết. Hợp khi muốn tự thêm chữ trên TikTok / Shopee Video.'}
+                        </p>
+                    </div>
+
                     <Button type="submit" disabled={processing || !canRender}>
                         Xuất video
                     </Button>
@@ -118,7 +134,9 @@ export default function RenderPanel({ project, audioTracks }: { project: VideoPr
                                         </Button>
                                     )}
                                 </div>
-                                <p className="text-muted-foreground line-clamp-2 text-xs">Hook: {hooks[render.hook]}</p>
+                                <p className="text-muted-foreground line-clamp-2 text-xs">
+                                    {render.with_text === false ? 'Không chèn chữ' : `Hook: ${hooks[render.hook]}`}
+                                </p>
                             </div>
                         ))}
                     </div>

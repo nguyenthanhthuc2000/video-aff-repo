@@ -28,6 +28,8 @@ class RenderController extends Controller
             // Nhạc từ thư viện Âm thanh; null = không dùng nhạc thư viện.
             'audio_track_id' => ['nullable', Rule::exists('audio_tracks', 'id')->where('user_id', $request->user()->id)->whereNotNull('path')],
             'use_sample_audio' => ['boolean'],
+            // Tắt thì video không có hook, chữ trên cảnh, phụ đề và cảnh kết.
+            'with_text' => ['boolean'],
         ], [], ['music' => 'nhạc nền', 'audio_track_id' => 'nhạc nền']);
 
         if (! in_array($project->status, [VideoProjectStatus::Reviewing, VideoProjectStatus::Done, VideoProjectStatus::Failed], true)
@@ -60,11 +62,12 @@ class RenderController extends Controller
 
         $project->fill([
             'selected_hook' => $validated['hook'],
+            'render_text' => $request->boolean('with_text', true),
             'status' => VideoProjectStatus::Rendering,
             'error' => null,
         ])->save();
 
-        $render = $project->renders()->create(['hook' => $validated['hook'], 'status' => RenderStatus::Pending]);
+        $render = $project->renders()->create(['hook' => $validated['hook'], 'with_text' => $project->render_text, 'status' => RenderStatus::Pending]);
 
         RenderVideoJob::dispatch($render);
 

@@ -15,6 +15,7 @@ class Render extends Model
 
     protected $fillable = [
         'hook',
+        'with_text',
         'status',
         'progress',
         'path',
@@ -25,6 +26,7 @@ class Render extends Model
 
     protected $attributes = [
         'status' => 'pending',
+        'with_text' => true,
     ];
 
     protected function casts(): array
@@ -33,6 +35,7 @@ class Render extends Model
             'completed_at' => 'datetime',
             'status' => RenderStatus::class,
             'hook' => 'integer',
+            'with_text' => 'boolean',
             'duration_ms' => 'integer',
             'progress' => 'integer',
         ];

@@ -12,6 +12,7 @@ use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
 use App\Support\MotionCopy;
+use App\Support\OneTake;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -47,7 +48,7 @@ class GenerateSceneClipJob implements ShouldQueue
         // Ưu tiên sao chép chuyển động từ video mẫu (của cảnh hoặc của dự án), không có thì dùng kiểu có sẵn.
         $sample = $scene->motionReference();
         $style = $project->motionStyleFor($scene);
-        if ($imagePath === null || ($sample === null && $style === null)) {
+        if ($imagePath === null || ($sample === null && $style === null && ! $project->one_take)) {
             $this->fail('Cần ảnh cảnh đã duyệt và kiểu chuyển động hoặc video mẫu.');
 
             return;
@@ -70,7 +71,9 @@ class GenerateSceneClipJob implements ShouldQueue
                 }
                 if ($sample) {
                     try {
-                        $referencePath = $references->prepare($sample);
+                        // Mỗi cảnh sao chép đoạn tiếp theo của video mẫu (xem Scene::motionSegment).
+                        $segment = $scene->motionSegment();
+                        $referencePath = $references->prepare($sample, $segment['start'], $segment['length']);
                     } catch (RuntimeException $e) {
                         // Lỗi xử lý video mẫu (ffmpeg): thử lại cũng vậy, báo ngay.
                         $this->fail($e->getMessage());
@@ -78,7 +81,11 @@ class GenerateSceneClipJob implements ShouldQueue
                         return;
                     }
                 }
-                $prompt = $sample ? MotionCopy::prompt($scene) : $style->prompt($scene);
+                $prompt = match (true) {
+                    $sample !== null => MotionCopy::prompt($scene),
+                    $project->one_take => OneTake::prompt($scene, $style),
+                    default => $style->prompt($scene),
+                };
                 $code = $sample ? $generator->start($imagePath, $prompt, $referencePath) : $generator->start($imagePath, $prompt);
                 $scene->update([
                     'clip_request_id' => $code,
@@ -129,6 +136,9 @@ class GenerateSceneClipJob implements ShouldQueue
         if ($old !== $path) {
             Media::delete($old);
         }
+
+        // Một cảnh quay liền: khung cuối thành ảnh mở đầu nhịp sau rồi tạo tiếp.
+        OneTake::continueAfter($scene->fresh());
 
         $project->advanceAutopilot();
     }

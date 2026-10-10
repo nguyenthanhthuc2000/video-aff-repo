@@ -34,6 +34,7 @@ class VideoProject extends Model
         'product_id',
         'fashion_model_id',
         'video_type',
+        'one_take',
         'before_fashion_model_id',
         'motion_style',
         'motion_styles',
@@ -41,10 +42,12 @@ class VideoProject extends Model
         'status',
         'script',
         'selected_hook',
+        'render_text',
         'music',
         'audio_track_id',
         'sample_video_id',
         'background_ids',
+        'outfits',
         'error',
     ];
 
@@ -61,9 +64,12 @@ class VideoProject extends Model
             'video_type' => VideoType::class,
             'motion_styles' => 'array',
             'background_ids' => 'array',
+            'outfits' => 'array',
+            'one_take' => 'boolean',
             'autopilot' => 'boolean',
             'script' => 'array',
             'selected_hook' => 'integer',
+            'render_text' => 'boolean',
         ];
     }
 
@@ -102,7 +108,33 @@ class VideoProject extends Model
 
     public function isTransformation(): bool
     {
-        return $this->video_type === VideoType::Transformation && $this->before_fashion_model_id !== null;
+        return ! $this->one_take && $this->video_type === VideoType::Transformation && $this->before_fashion_model_id !== null;
+    }
+
+    /** Số giây mỗi nhịp của video một cảnh quay liền (độ dài một clip Muse). */
+    public const ONE_TAKE_BEAT_SECONDS = 5;
+
+    /**
+     * Đoạn video mẫu ứng với từng cảnh khi video mẫu có nhiều shot.
+     * Một cảnh quay liền thì không cắt theo shot (các nhịp sao chép lần lượt theo thời gian).
+     *
+     * @return list<array{start: float, end: float, shot: int}>
+     */
+    public function shotPieces(): array
+    {
+        return $this->one_take ? [] : ($this->sampleVideo?->pieces() ?? []);
+    }
+
+    /** Cảnh đầu tiên (một cảnh quay liền chỉ cảnh này tạo ảnh, các cảnh sau lấy khung cuối clip trước). */
+    public function firstScene(): ?Scene
+    {
+        return $this->scenes()->orderBy('position')->first();
+    }
+
+    /** Đủ ảnh để sang bước clip: mọi cảnh có ảnh duyệt, hoặc (một cảnh quay liền) cảnh đầu có ảnh duyệt. */
+    public function imagesReady(): bool
+    {
+        return $this->one_take ? (bool) $this->firstScene()?->approvedImage()->exists() : $this->allScenesApproved();
     }
 
     public function scenes(): HasMany
@@ -132,8 +164,10 @@ class VideoProject extends Model
             return collect();
         }
         $found = Background::where('user_id', $this->user_id)->whereIn('id', $this->background_ids)->get()->keyBy('id');
+        $backgrounds = collect($this->background_ids)->map(fn ($id) => $found[$id] ?? null)->filter()->values();
 
-        return collect($this->background_ids)->map(fn ($id) => $found[$id] ?? null)->filter()->values();
+        // Một cảnh quay liền: chỉ một địa điểm.
+        return $this->one_take ? $backgrounds->take(1) : $backgrounds;
     }
 
     /** Các lần gọi Claude cho dự án (chi phí, chỉ admin xem). */
@@ -192,12 +226,28 @@ class VideoProject extends Model
             $transformation = $this->isTransformation();
             // Bối cảnh của người dùng: cảnh i dùng bối cảnh thứ i (vòng lại khi nhiều cảnh hơn), giống phần prompt đã gửi Claude.
             $backgrounds = $this->chosenBackgrounds();
+            // Video mẫu nhiều shot: cảnh i dài đúng đoạn thứ i và mặc bộ đồ của shot đó.
+            $pieces = $this->shotPieces();
+            $outfits = $this->outfitList();
+            $worn = 0;
             foreach ($script['scenes'] as $i => $scene) {
+                $phase = $transformation ? ($scene['phase'] ?? 'after') : null;
+                $piece = $pieces[$i] ?? null;
+                $outfit = null;
+                if ($outfits !== [] && $phase !== 'before') {
+                    // Cùng shot thì cùng bộ đồ; không có shot thì mỗi cảnh mặc sản phẩm một bộ kế tiếp.
+                    $outfit = $outfits[($piece !== null ? $piece['shot'] : $worn) % count($outfits)];
+                    $worn++;
+                }
                 $this->scenes()->create([
                     ...$scene,
+                    ...($piece !== null ? ['duration_ms' => (int) round(($piece['end'] - $piece['start']) * 1000)] : []),
                     'position' => $i + 1,
-                    'phase' => $transformation ? ($scene['phase'] ?? 'after') : null,
+                    'phase' => $phase,
                     'background_id' => $backgrounds->isEmpty() ? null : $backgrounds[$i % $backgrounds->count()]->id,
+                    'product_id' => $outfit['product_id'] ?? null,
+                    'product_image_id' => $outfit['product_image_id'] ?? null,
+                    'outfit_color' => $outfit['color'] ?? null,
                 ]);
             }
 
@@ -265,7 +315,7 @@ class VideoProject extends Model
             return;
         }
 
-        if (! $this->allScenesApproved()) {
+        if (! $this->imagesReady()) {
             // Duyệt luôn ảnh đã tạo xong; cảnh chưa có ảnh (hoặc ảnh lỗi) thì tạo.
             foreach ($this->scenes()->with('latestImage')->get() as $scene) {
                 if ($scene->latestImage?->status === SceneImageStatus::Ready) {
@@ -273,7 +323,7 @@ class VideoProject extends Model
                 }
             }
 
-            if (! $this->allScenesApproved()) {
+            if (! $this->imagesReady()) {
                 if ($this->queueMissingImages() === 0) {
                     $this->markFailed('Không tạo được ảnh cho mọi cảnh.');
                 }
@@ -290,16 +340,25 @@ class VideoProject extends Model
             if ($this->queueMissingClips() > 0) {
                 return;
             }
+            // Một cảnh quay liền: clip lỗi giữa chừng thì các nhịp sau không có khung để nối tiếp.
+            if ($this->one_take && ! $this->allScenesApproved()) {
+                $broken = $this->scenes()->orderBy('position')->whereNull('clip_path')->value('position');
+                $this->markFailed("Clip cảnh {$broken} chưa tạo được nên các nhịp sau chưa nối tiếp được. Tạo lại clip cảnh {$broken} rồi chạy ngầm lần nữa.");
+
+                return;
+            }
         }
 
         $this->update(['status' => VideoProjectStatus::Rendering, 'error' => null]);
-        RenderVideoJob::dispatch($this->renders()->create(['hook' => $this->selected_hook, 'status' => RenderStatus::Pending]));
+        RenderVideoJob::dispatch($this->renders()->create(['hook' => $this->selected_hook, 'with_text' => $this->render_text ?? true, 'status' => RenderStatus::Pending]));
     }
 
     /** @return Collection<int, Scene> Cảnh chưa có ảnh, hoặc ảnh gần nhất bị lỗi / đã bỏ. */
     public function scenesMissingImages(): Collection
     {
-        return $this->scenes()->with('latestImage')->get()
+        return $this->scenes()->with('latestImage')->orderBy('position')->get()
+            // Một cảnh quay liền: chỉ cảnh đầu tạo ảnh, các cảnh sau lấy khung cuối clip trước.
+            ->when($this->one_take, fn ($scenes) => $scenes->take(1))
             ->filter(fn (Scene $scene) => in_array($scene->latestImage?->status, [null, SceneImageStatus::Failed, SceneImageStatus::Rejected], true))
             ->values();
     }
@@ -331,7 +390,65 @@ class VideoProject extends Model
      */
     public function videoSettings(): array
     {
-        return VideoPreset::resolve($this->product);
+        $settings = VideoPreset::resolve($this->product);
+
+        // Video mẫu nhiều shot: số cảnh và độ dài theo các shot (mỗi shot dài được chia thành vài cảnh).
+        if ($this->one_take) {
+            $beats = max(2, min(6, (int) round($settings['seconds'] / self::ONE_TAKE_BEAT_SECONDS)));
+
+            return [
+                ...$settings,
+                'scenes' => $beats,
+                'seconds' => $beats * self::ONE_TAKE_BEAT_SECONDS,
+                'reason' => "Một cảnh quay liền: {$beats} nhịp nối tiếp, mỗi nhịp khoảng ".self::ONE_TAKE_BEAT_SECONDS.' giây.',
+            ];
+        }
+
+        $pieces = $this->shotPieces();
+        if ($pieces !== []) {
+            $shots = count(array_unique(array_column($pieces, 'shot')));
+
+            return [
+                ...$settings,
+                'scenes' => count($pieces),
+                'seconds' => (int) round(array_sum(array_map(fn (array $piece) => $piece['end'] - $piece['start'], $pieces))),
+                'reason' => "Theo video mẫu {$this->sampleVideo->name}: {$shots} shot".(count($pieces) > $shots ? ', shot dài chia thành nhiều cảnh' : '').'.',
+            ];
+        }
+
+        return $settings;
+    }
+
+    /**
+     * Danh sách bộ đồ (mỗi cảnh một bộ đồ), chỉ giữ sản phẩm / ảnh còn tồn tại của chủ dự án.
+     *
+     * @return list<array{product_id: int, product_image_id: ?int, color: ?string, product: Product}>
+     */
+    public function outfitList(): array
+    {
+        // Một cảnh quay liền không đổi đồ được (không có lúc cắt cảnh): chỉ bộ đầu.
+        $items = is_array($this->outfits) ? ($this->one_take ? array_slice($this->outfits, 0, 1) : $this->outfits) : [];
+        if ($items === []) {
+            return [];
+        }
+
+        $products = Product::query()->where('user_id', $this->user_id)
+            ->whereIn('id', array_column($items, 'product_id'))->with('images')->get()->keyBy('id');
+
+        return array_values(array_filter(array_map(function (array $item) use ($products) {
+            $product = $products->get($item['product_id'] ?? 0);
+            if ($product === null) {
+                return null;
+            }
+            $imageId = $item['product_image_id'] ?? null;
+
+            return [
+                'product_id' => $product->id,
+                'product_image_id' => $imageId && $product->images->contains('id', $imageId) ? (int) $imageId : null,
+                'color' => filled($item['color'] ?? null) ? mb_substr(trim($item['color']), 0, 80) : null,
+                'product' => $product,
+            ];
+        }, $items)));
     }
 
     /**
@@ -363,7 +480,8 @@ class VideoProject extends Model
     /** Có cách tạo chuyển động: kiểu có sẵn, hoặc video mẫu (của dự án hay của từng cảnh). */
     public function hasMotion(): bool
     {
-        return $this->motionStyles() !== []
+        return $this->one_take
+            || $this->motionStyles() !== []
             || $this->sample_video_id !== null
             || $this->scenes()->whereNotNull('sample_video_id')->exists();
     }
@@ -381,6 +499,15 @@ class VideoProject extends Model
     /** @return \Illuminate\Database\Eloquent\Collection<int, Scene> Cảnh có ảnh duyệt mà chưa có clip. */
     public function scenesMissingClips(bool $retryFailed = false): \Illuminate\Database\Eloquent\Collection
     {
+        // Một cảnh quay liền: tạo lần lượt, chỉ nhịp đầu tiên chưa có clip (nhịp sau cần khung cuối của nhịp này).
+        if ($this->one_take) {
+            $next = $this->scenes()->with('approvedImage')->orderBy('position')->whereNull('clip_path')->first();
+
+            return new \Illuminate\Database\Eloquent\Collection(
+                $next && $next->approvedImage && ($next->clip_status === null || ($retryFailed && $next->clip_status === SceneClipStatus::Failed)) ? [$next] : []
+            );
+        }
+
         return $this->scenes()
             ->whereHas('approvedImage')
             ->whereNull('clip_path')

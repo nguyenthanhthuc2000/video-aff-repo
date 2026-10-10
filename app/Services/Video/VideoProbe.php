@@ -40,6 +40,16 @@ class VideoProbe
     }
 
     /** Chụp một khung hình (giây thứ $at) làm ảnh bìa JPEG. */
+    /** Khung hình cuối của video, đủ nét để làm ảnh mở đầu clip tiếp theo. */
+    public function lastFrame(string $path, string $output): bool
+    {
+        $result = Process::timeout(60)->run([
+            $this->ffmpeg, '-v', 'error', '-y', '-sseof', '-0.25', '-i', $path, '-update', '1', '-q:v', '2', $output,
+        ]);
+
+        return $result->successful() && is_file($output) && filesize($output) > 0;
+    }
+
     public function thumbnail(string $path, string $output, float $at = 1.0): bool
     {
         $result = Process::timeout(60)->run([

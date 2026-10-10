@@ -68,6 +68,9 @@ class SceneImageController extends Controller
         if (! in_array($project->status, self::IMAGING_ALLOWED, true)) {
             return back()->with('status', 'Không thể tạo ảnh ở bước này.');
         }
+        if ($project->one_take && ! $project->firstScene()?->is($scene)) {
+            return back()->with('status', "Một cảnh quay liền: ảnh cảnh {$scene->position} là khung cuối clip cảnh trước. Tạo lại clip cảnh trước để đổi.");
+        }
 
         $latest = $scene->latestImage;
         if ($latest?->status === SceneImageStatus::Pending) {

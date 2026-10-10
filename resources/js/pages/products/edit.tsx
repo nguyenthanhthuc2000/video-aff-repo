@@ -10,7 +10,15 @@ import AppLayout from '@/layouts/app-layout';
 import { type MotionStyle } from '@/lib/motion-styles';
 import { projectStatusLabels } from '@/lib/project-status';
 import { type BreadcrumbItem } from '@/types';
-import { type AudioTrack, type Background, type FashionModel, type Product, type SampleVideo, type VideoProject } from '@/types/models';
+import {
+    type AudioTrack,
+    type Background,
+    type FashionModel,
+    type OutfitProduct,
+    type Product,
+    type SampleVideo,
+    type VideoProject,
+} from '@/types/models';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Star, Trash2 } from 'lucide-react';
 import CreateProjectForm from './create-project-form';
@@ -27,6 +35,7 @@ export default function ProductsEdit({
     audioTracks,
     sampleVideos,
     backgrounds,
+    outfitProducts,
     projects,
     autopilotAvailable,
 }: {
@@ -38,6 +47,7 @@ export default function ProductsEdit({
     audioTracks: AudioTrack[];
     sampleVideos: SampleVideo[];
     backgrounds: Background[];
+    outfitProducts: OutfitProduct[];
     projects: VideoProject[];
     autopilotAvailable: boolean;
 }) {
@@ -134,6 +144,7 @@ export default function ProductsEdit({
                             productCategory={productCategory}
                             sampleVideos={sampleVideos}
                             backgrounds={backgrounds}
+                            outfitProducts={outfitProducts}
                             audioTracks={audioTracks}
                             autopilotAvailable={autopilotAvailable}
                         />

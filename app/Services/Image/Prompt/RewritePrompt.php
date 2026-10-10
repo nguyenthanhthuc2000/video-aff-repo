@@ -13,7 +13,7 @@ final class RewritePrompt
     - Giữ bối cảnh (địa điểm, đồ vật xung quanh, thời điểm, ánh sáng). Sản phẩm phải giữ y như ảnh gốc.
     - image_prompt không tả lại thiết kế sản phẩm (màu, hoạ tiết, chất liệu, độ dài, cổ áo, tay áo...) và không yêu cầu sửa sản phẩm: chỉ gọi là "the exact product from the product photos" kèm cách mặc / cầm theo mục "Cách dùng sản phẩm". Muốn ảnh kín đáo thì đổi tư thế, góc máy, khoảng cách, bối cảnh; KHÔNG viết thêm áo khoác, khăn, lớp lót hay đổi kiểu sản phẩm.
     - Prompt mới phải khác prompt cũ: đổi tư thế, hành động, góc máy hoặc bố cục.
-    - Phong cách catalog thời trang trang nhã: tư thế tự nhiên kín đáo (đứng, đi, ngồi thẳng), góc máy ngang tầm mắt, toàn thân hoặc 3/4.
+    - Phong cách ảnh đời thường người mua tự chụp bằng điện thoại, trang nhã: tư thế tự nhiên kín đáo (đứng, đi, ngồi thẳng), góc máy ngang tầm mắt, toàn thân hoặc 3/4, ánh sáng có sẵn; không dùng các từ cinematic, studio, professional photoshoot, perfect, flawless, 8k, dreamy, glamour.
     - Bỏ mọi chi tiết gợi cảm: không nhắc cơ thể (ngực, eo, hông, đùi, chân trần), khe xẻ, phần hở, độ mỏng/xuyên thấu, không dùng từ sexy, seductive, sensual, alluring; không góc máy thấp nhìn lên, không cận cơ thể.
     - Cảnh cận chi tiết (ren, vải, đường may): chuyển thành ảnh sản phẩm trên manơcanh, móc treo hoặc trải phẳng, không có người.
     - Cảnh "trước" của video biến hình (mô tả có ảnh "trước", đồ cũ, mặt mộc): không tả hay đổi quần áo, tóc, mặt; chỉ tả bối cảnh, tư thế, biểu cảm.

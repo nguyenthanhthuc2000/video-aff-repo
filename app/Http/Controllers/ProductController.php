@@ -28,6 +28,8 @@ class ProductController extends Controller
                 // Loại sản phẩm (master data) hiện trên card.
                 ->map(fn (array $item, int $i) => [...$item, 'category' => ProductCategory::detect($products[$i])?->name])
                 ->all(),
+            // Chọn nhiều sản phẩm rồi tạo một video gộp (mỗi sản phẩm một bộ đồ).
+            ...VideoProjectController::createFormProps($request->user()),
         ]);
     }
 
@@ -67,6 +69,7 @@ class ProductController extends Controller
                 $request->user()->fashionModels()->whereNotNull('consent_at')->latest()->get()
             )->resolve(),
             'backgrounds' => $request->user()->backgrounds()->latest()->get()->map->present(),
+            'outfitProducts' => VideoProjectController::outfitProducts($request->user()),
             'maxImages' => config('videoaff.product_images_max'),
             // Gợi ý kiểu chuyển động theo loại sản phẩm (master data product_categories).
             'motionSuggestions' => array_map(fn (MotionStyle $style) => $style->value, MotionStyle::suggestFor($product)),

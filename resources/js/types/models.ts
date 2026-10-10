@@ -77,6 +77,7 @@ export interface Background {
 export interface Scene {
     id: number;
     background: Background | null;
+    outfit?: SceneOutfit | null;
     position: number;
     /** Video biến hình: cảnh trước / sau. Video thường: null. */
     phase: 'before' | 'after' | null;
@@ -101,6 +102,7 @@ export interface Scene {
 export interface Render {
     id: number;
     hook: number;
+    with_text?: boolean;
     status: 'pending' | 'done' | 'failed';
     progress: number;
     url: string | null;
@@ -133,6 +135,7 @@ export interface VideoProject {
     id: number;
     /** Bối cảnh người dùng đã chọn (rỗng = AI tự đề xuất). */
     background_ids: number[];
+    outfits?: Outfit[];
     status: VideoProjectStatus;
     is_busy: boolean;
     clips_available: boolean;
@@ -170,6 +173,21 @@ export interface VideoProject {
     before_fashion_model?: { id: number; name: string; photo_url: string } | null;
     scenes?: Scene[];
     all_approved?: boolean;
+    /** Một cảnh quay liền (one take): các nhịp nối nhau bằng khung cuối clip trước. */
+    one_take?: boolean;
+    render_text?: boolean;
+    /** Mọi sản phẩm trong video (video gộp: theo thứ tự bộ đồ). */
+    video_products?: {
+        id: number;
+        name: string;
+        price: number | null;
+        shopee_url: string | null;
+        url: string;
+        outfit_numbers: number[];
+        colors: string[];
+        scenes: number[];
+        images: { id: number; url: string | null; used: boolean }[];
+    }[];
     renders?: Render[];
     /** Video xuất xong gần nhất (danh sách dự án). */
     latest_render?: {
@@ -191,8 +209,31 @@ export interface SampleVideoRef {
     thumbnail_url: string | null;
 }
 
+/** Bộ đồ: sản phẩm, ảnh đúng màu / mẫu (null = mọi ảnh), màu. */
+export type Outfit = {
+    product_id: number;
+    product_image_id: number | null;
+    color: string | null;
+};
+
+/** Bộ đồ của một cảnh (đã tra tên, ảnh). */
+export interface SceneOutfit extends Outfit {
+    product_name: string;
+    image_url: string | null;
+}
+
+/** Sản phẩm chọn được làm bộ đồ. */
+export interface OutfitProduct {
+    id: number;
+    name: string;
+    colors: string[];
+    images: { id: number; url: string | null }[];
+}
+
 export interface SampleVideo {
     id: number;
+    /** Các shot (đoạn giữa hai lần cắt cảnh), rỗng = một shot. */
+    shots?: { start: number; end: number }[];
     name: string;
     url: string;
     thumbnail_url: string | null;

@@ -16,6 +16,7 @@ use App\Http\Controllers\SampleVideoController;
 use App\Http\Controllers\SceneClipController;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\SceneOrderController;
+use App\Http\Controllers\SceneOutfitController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\VideoProjectController;
 use App\Http\Controllers\VideoSettingsController;
@@ -116,6 +117,7 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('audio-tracks', AudioTrackController::class)->only(['index', 'store', 'update', 'destroy']);
     Route::resource('backgrounds', BackgroundController::class)->only(['index', 'store', 'update', 'destroy']);
     Route::put('scenes/{scene}/background', [BackgroundController::class, 'scene'])->name('scenes.background');
+    Route::put('scenes/{scene}/outfit', [SceneOutfitController::class, 'update'])->name('scenes.outfit');
 });
 
 require __DIR__.'/settings.php';

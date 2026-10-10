@@ -103,6 +103,11 @@ export default function SampleVideosIndex({
                                                 </span>
                                             )}
                                             <span>· {megabytes(video.size_bytes)}</span>
+                                            {(video.shots?.length ?? 0) > 1 && (
+                                                <Badge variant="secondary" title="Số đoạn giữa các lần cắt cảnh; mỗi shot có thể mặc một bộ đồ">
+                                                    {video.shots?.length} shot
+                                                </Badge>
+                                            )}
                                             {video.duration_ms !== null && video.duration_ms > recommendedSeconds * 1000 && (
                                                 <Badge variant="outline">Dài hơn {recommendedSeconds} giây</Badge>
                                             )}

@@ -8,6 +8,8 @@ use App\Enums\VideoProjectStatus;
 use App\Enums\VideoType;
 use App\Http\Resources\FashionModelResource;
 use App\Http\Resources\VideoProjectResource;
+use App\Models\ProductImage;
+use App\Models\User;
 use App\Models\VideoProject;
 use App\Services\Video\SampleAudio;
 use App\Support\CreditPricing;
@@ -65,6 +67,8 @@ class VideoProjectController extends Controller
             'motion_styles' => ['nullable', 'array', 'max:'.count(MotionStyle::cases())],
             'motion_styles.*' => ['distinct', Rule::enum(MotionStyle::class)],
             'autopilot' => ['boolean'],
+            // Một cảnh quay liền (không cắt cảnh): các nhịp nối nhau bằng khung cuối clip trước.
+            'one_take' => ['boolean'],
             'video_type' => ['nullable', Rule::enum(VideoType::class)],
             'audio_track_id' => ['nullable', Rule::exists('audio_tracks', 'id')->where('user_id', $userId)->whereNotNull('path')],
             // Sao chép chuyển động từ video mẫu cho mọi cảnh.
@@ -74,6 +78,11 @@ class VideoProjectController extends Controller
             // Bối cảnh: trống = AI tự đề xuất theo sản phẩm; có danh sách = dùng bối cảnh của người dùng (các cảnh dùng lần lượt).
             'background_ids' => ['nullable', 'array', 'max:20'],
             'background_ids.*' => ['integer', 'distinct', Rule::exists('backgrounds', 'id')->where('user_id', $userId)],
+            // Mỗi cảnh một bộ đồ: các cảnh mặc lần lượt (video mẫu nhiều shot thì mỗi shot một bộ).
+            'outfits' => ['nullable', 'array', 'max:12'],
+            'outfits.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('user_id', $userId)->whereNotNull('images_approved_at')],
+            'outfits.*.product_image_id' => ['nullable', 'integer'],
+            'outfits.*.color' => ['nullable', 'string', 'max:80'],
             // Biến hình: ảnh "trước" (đồ cũ, mặt mộc, tóc rối) là một người mẫu đã đồng ý của chính người dùng.
             'before_fashion_model_id' => [
                 Rule::requiredIf($request->input('video_type') === VideoType::Transformation->value),
@@ -88,6 +97,9 @@ class VideoProjectController extends Controller
             'sample_video_id' => 'video mẫu',
             'background_ids' => 'bối cảnh',
             'background_ids.*' => 'bối cảnh',
+            'outfits' => 'bộ đồ',
+            'outfits.*.product_id' => 'sản phẩm của bộ đồ',
+            'outfits.*.color' => 'màu',
             'product_id' => 'sản phẩm',
             'fashion_model_id' => 'người mẫu',
             'motion_style' => 'kiểu chuyển động',
@@ -97,6 +109,18 @@ class VideoProjectController extends Controller
 
         if (! $request->user()->products()->findOrFail($validated['product_id'])->imagesApproved()) {
             throw ValidationException::withMessages(['product_id' => 'Duyệt ảnh sản phẩm trước khi tạo video.']);
+        }
+
+        if ($request->boolean('one_take')) {
+            $message = match (true) {
+                ! VideoProject::clipsAvailable() => 'Một cảnh quay liền cần hệ thống tự tạo clip. Liên hệ quản trị viên.',
+                ($validated['video_type'] ?? null) === VideoType::Transformation->value => 'Video biến hình cần cắt cảnh trước / sau, chọn "Nhiều cảnh".',
+                count($validated['outfits'] ?? []) > 1 => 'Một cảnh quay liền chỉ mặc một bộ đồ. Bỏ "Gộp nhiều sản phẩm" hoặc chọn "Nhiều cảnh".',
+                default => null,
+            };
+            if ($message) {
+                throw ValidationException::withMessages(['one_take' => $message]);
+            }
         }
 
         $validated['video_type'] ??= VideoType::Standard->value;
@@ -115,6 +139,7 @@ class VideoProjectController extends Controller
         }
         unset($validated['use_sample_audio']);
         $validated['background_ids'] = array_values(array_map('intval', $validated['background_ids'] ?? [])) ?: null;
+        $validated['outfits'] = self::outfits($validated['outfits'] ?? []);
 
         $autopilot = (bool) ($validated['autopilot'] ?? false);
         $styles = array_values($validated['motion_styles'] ?? array_filter([$validated['motion_style'] ?? null]));
@@ -136,6 +161,32 @@ class VideoProjectController extends Controller
         return to_route('projects.show', $project);
     }
 
+    /**
+     * Chuẩn hoá danh sách bộ đồ; ảnh phải thuộc đúng sản phẩm.
+     *
+     * @return list<array{product_id: int, product_image_id: ?int, color: ?string}>|null
+     */
+    public static function outfits(array $items): ?array
+    {
+        $outfits = [];
+        foreach (array_values($items) as $i => $item) {
+            $imageId = isset($item['product_image_id']) ? (int) $item['product_image_id'] : null;
+            if ($imageId !== null && ! ProductImage::query()->whereKey($imageId)->where('product_id', $item['product_id'])->exists()) {
+                throw ValidationException::withMessages(["outfits.{$i}.product_image_id" => 'Ảnh không thuộc sản phẩm của bộ đồ.']);
+            }
+            $outfits[] = ['product_id' => (int) $item['product_id'], 'product_image_id' => $imageId, 'color' => filled($item['color'] ?? null) ? trim($item['color']) : null];
+        }
+
+        return $outfits ?: null;
+    }
+
+    /** Sản phẩm đã duyệt ảnh để chọn làm bộ đồ. */
+    public static function outfitProducts(User $user): array
+    {
+        return $user->products()->whereNotNull('images_approved_at')->with('images')->latest()->get()
+            ->map->outfitOption()->all();
+    }
+
     public function show(Request $request, VideoProject $project): Response
     {
         $this->authorize('view', $project);
@@ -145,19 +196,24 @@ class VideoProjectController extends Controller
         return Inertia::render('projects/show', [
             'credits' => ProjectCredits::forProjects(collect([$project]))[$project->id],
             'project' => VideoProjectResource::make($project)->resolve(),
-            'autopilotAvailable' => self::autopilotAvailable(),
             // Cho nút "Tạo thêm video" (cùng sản phẩm).
-            // Video mẫu để sao chép chuyển động.
-            'sampleVideos' => $request->user()->sampleVideos()->latest()->get()
-                ->map(fn ($video) => SampleVideoController::present($video)),
-            // Nhạc trong thư viện (chỉ bài có file) để chọn khi tạo video.
-            'audioTracks' => $request->user()->audioTracks()->whereNotNull('path')->latest()->get()
-                ->map(fn ($track) => AudioTrackController::present($track)),
-            'fashionModels' => FashionModelResource::collection(
-                $request->user()->fashionModels()->whereNotNull('consent_at')->latest()->get()
-            )->resolve(),
-            'backgrounds' => $request->user()->backgrounds()->latest()->get()->map->present(),
+            ...self::createFormProps($request->user()),
         ]);
+    }
+
+    /** Dữ liệu cho form tạo video: người mẫu, video mẫu, nhạc, bối cảnh, sản phẩm làm bộ đồ. @return array<string, mixed> */
+    public static function createFormProps(User $user): array
+    {
+        return [
+            'autopilotAvailable' => self::autopilotAvailable(),
+            // Video mẫu để sao chép chuyển động.
+            'sampleVideos' => $user->sampleVideos()->latest()->get()->map(fn ($video) => SampleVideoController::present($video)),
+            // Nhạc trong thư viện (chỉ bài có file) để chọn khi tạo video.
+            'audioTracks' => $user->audioTracks()->whereNotNull('path')->latest()->get()->map(fn ($track) => AudioTrackController::present($track)),
+            'fashionModels' => FashionModelResource::collection($user->fashionModels()->whereNotNull('consent_at')->latest()->get())->resolve(),
+            'backgrounds' => $user->backgrounds()->latest()->get()->map->present(),
+            'outfitProducts' => self::outfitProducts($user),
+        ];
     }
 
     /** Chạy ngầm các bước còn lại (kịch bản, ảnh, xuất video). */

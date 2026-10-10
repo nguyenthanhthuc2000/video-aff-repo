@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\VideoProject;
 use App\Services\Video\ClipGenerator;
 use App\Services\Video\ReferenceClip;
+use App\Support\MotionCopy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -71,8 +72,10 @@ class MotionCopyTest extends TestCase
             && str_contains($request['prompt'], 'exactly the same movements as the person in the reference video')
             && str_contains($request['prompt'], 'do not copy the person, clothes, background'));
 
-        // Bản rút gọn được lưu lại để dùng cho các cảnh sau.
-        $reference = $project->sampleVideo->fresh()->reference_path;
+        // Đoạn video mẫu của cảnh được lưu lại để dùng lại khi tạo lại clip.
+        $segment = $scene->fresh()->motionSegment();
+        $sample = $project->sampleVideo;
+        $reference = sprintf('sample-videos/%d/ref-%d-%d-%d.mp4', $sample->user_id, $sample->id, $segment['start'] * 1000, $segment['length'] * 1000);
         Storage::disk('public')->assertExists($reference);
         $this->assertSame([720], [Process::run(['ffprobe', '-v', 'error', '-show_entries', 'stream=height', '-of', 'csv=p=0', Storage::disk('public')->path($reference)])->output() + 0]);
     }
@@ -129,5 +132,37 @@ class MotionCopyTest extends TestCase
         $project = $user->videoProjects()->sole();
         $this->assertTrue($project->sampleVideo->is($video));
         $this->assertTrue($project->wantsClips());
+    }
+
+    public function test_scenes_copy_consecutive_segments_of_the_sample_video()
+    {
+        $project = VideoProject::factory()->create();
+        $sample = SampleVideo::factory()->for($project->user)->create([
+            'duration_ms' => 17000,
+            'motion_analysis' => ['summary' => '', 'tempo' => '', 'framing' => '', 'steps' => [
+                ['start' => 0, 'end' => 4, 'motion' => 'points at the camera'],
+                ['start' => 4, 'end' => 9, 'motion' => 'hands on hips'],
+                ['start' => 9, 'end' => 17, 'motion' => 'waves goodbye'],
+            ]],
+        ]);
+        $project->update(['sample_video_id' => $sample->id]);
+        $scenes = collect(range(1, 5))->map(fn ($position) => Scene::factory()->for($project)->create(['position' => $position, 'duration_ms' => 4200]));
+
+        $segments = $scenes->map(fn (Scene $scene) => $scene->fresh()->motionSegment())->all();
+
+        $this->assertSame([
+            ['start' => 0.0, 'length' => 4.7],
+            ['start' => 4.2, 'length' => 4.7],
+            ['start' => 8.4, 'length' => 4.7],
+            ['start' => 12.3, 'length' => 4.7], // làm nốt phần cuối điệu nhảy
+            ['start' => 0.0, 'length' => 4.7], // hết video mẫu thì quay lại từ đầu
+        ], $segments);
+
+        // Prompt của cảnh 2 chỉ có các nhịp trong đoạn 4,2–8,9s, tính lại từ 0.
+        $prompt = MotionCopy::prompt($scenes[1]->fresh());
+        $this->assertStringContainsString('4.7 seconds long', $prompt);
+        $this->assertStringContainsString('0.0–4.7s: hands on hips', $prompt);
+        $this->assertStringNotContainsString('points at the camera', $prompt);
+        $this->assertStringNotContainsString('waves goodbye', $prompt);
     }
 }

@@ -5,7 +5,6 @@ namespace App\Jobs;
 use App\Enums\SceneImageStatus;
 use App\Enums\ScenePhase;
 use App\Enums\VideoProjectStatus;
-use App\Models\ProductCategory;
 use App\Models\Scene;
 use App\Models\SceneImage;
 use App\Services\Claude\AiUsage;
@@ -21,6 +20,7 @@ use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
 use App\Support\ProductFidelity;
+use App\Support\Realism;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -36,7 +36,7 @@ class GenerateSceneImageJob implements ShouldQueue
      * Sản phẩm thời trang (ren, đồ ôm...) dễ bị Muse từ chối nếu ảnh trông gợi cảm:
      * yêu cầu ảnh trang nhã và để Muse tự chỉnh phần chưa phù hợp thay vì từ chối.
      */
-    public const MODEST_IMAGE = 'Keep it modest and tasteful, like an everyday commercial fashion catalog: not sexy, not provocative, '
+    public const MODEST_IMAGE = 'Keep it modest and tasteful, like a real customer\'s everyday outfit photo: not sexy, not provocative, '
         .'no emphasis on body parts, natural relaxed pose, eye-level camera. '
         .'If any part of this request is not appropriate to create, adjust it yourself (pose, framing, camera angle, setting, '
         .'or show the product on a mannequin, hanger or plain surface for close-ups) and create that modest version instead of declining; '
@@ -139,10 +139,15 @@ class GenerateSceneImageJob implements ShouldQueue
             return array_values(array_filter([$project->beforeFashionModel->photo_path, $background]));
         }
 
+        // Đã chọn đúng ảnh màu / mẫu của bộ đồ: chỉ gửi ảnh đó để AI không lẫn sang màu khác.
+        if ($scene->productImage) {
+            return [$project->fashionModel->photo_path, ...array_filter([$background]), $scene->productImage->path];
+        }
+
         return [
             $project->fashionModel->photo_path,
             ...array_filter([$background]),
-            ...$project->product->images()
+            ...$scene->outfitProduct()->images()
                 ->orderByDesc('is_primary')
                 ->orderBy('id')
                 // Muse nhận tối đa 4 ảnh: có ảnh nền thì bớt một ảnh sản phẩm.
@@ -269,7 +274,7 @@ class GenerateSceneImageJob implements ShouldQueue
     /** Prompt đầy đủ của cảnh (theo pha, loại sản phẩm, có ảnh nền bối cảnh hay không). */
     public static function scenePrompt(Scene $scene): string
     {
-        return self::prompt($scene->image_prompt, $scene->phase, ProductCategory::productLine($scene->videoProject->product), $scene->background_id !== null);
+        return self::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->background_id !== null);
     }
 
     /** Ảnh nền bối cảnh của người dùng: đặt người vào đúng nơi đó, không lấy người / đồ trong ảnh nền. */
@@ -286,7 +291,8 @@ class GenerateSceneImageJob implements ShouldQueue
                 .'Keep the person in the attached image exactly as they look there: same face, same hairstyle and natural bare skin, no makeup. '
                 .'The clothes must stay EXACTLY the same as in the attached photo (same garments, colors, patterns, fit and condition); '
                 .'do not change, replace, add or remove any clothing or accessory, and ignore any clothing described above. '
-                .'Photorealistic vertical 9:16 candid photo, no text, no watermark. '
+                .'Vertical 9:16 candid photo, no text, no watermark. '
+                .Realism::IMAGE.' '
                 .self::MODEST_IMAGE.' '
                 .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';
         }
@@ -299,7 +305,8 @@ class GenerateSceneImageJob implements ShouldQueue
             .'Keep the person\'s face and body the same. '
             .ProductFidelity::IMAGE.' '
             .self::ONLY_PRODUCT.' '
-            .'Photorealistic vertical 9:16 photo, no text, no watermark. '
+            .'Vertical 9:16 photo, no text, no watermark. '
+            .Realism::IMAGE.' '
             .self::MODEST_IMAGE.' '
             // Chữ của video nằm ở phần dưới khung hình: giữ mặt ở phần trên để không bị che.
             .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';

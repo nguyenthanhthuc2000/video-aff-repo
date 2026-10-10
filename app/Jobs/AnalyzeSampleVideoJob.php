@@ -5,6 +5,8 @@ namespace App\Jobs;
 use App\Models\SampleVideo;
 use App\Services\Claude\AiUsage;
 use App\Services\Video\Analysis\MotionAnalyzer;
+use App\Services\Video\ReferenceClip;
+use App\Services\Video\ShotDetector;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
@@ -14,14 +16,14 @@ use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use Throwable;
 
-/** Phân tích chuyển động của video mẫu: chụp 2 khung hình mỗi giây (tối đa 10 giây) rồi nhờ Claude tả từng nhịp. */
+/** Phân tích chuyển động của video mẫu: chụp 2 khung hình mỗi giây (tối đa 30 giây, đủ cho các cảnh lần lượt sao chép từng đoạn) rồi nhờ Claude tả từng nhịp. */
 class AnalyzeSampleVideoJob implements ShouldQueue
 {
     use Queueable;
 
     public const FPS = 2;
 
-    public const MAX_SECONDS = 10;
+    public const MAX_SECONDS = 30;
 
     public int $tries = 2;
 
@@ -31,14 +33,8 @@ class AnalyzeSampleVideoJob implements ShouldQueue
 
     public function __construct(public SampleVideo $video) {}
 
-    public function handle(MotionAnalyzer $analyzer): void
+    public function handle(MotionAnalyzer $analyzer, ShotDetector $shots): void
     {
-        if ($message = Credits::shortfall($this->video->user, CreditPricing::aiEstimates()['motion_analysis'], 'phân tích video mẫu')) {
-            $this->video->update(['analysis_status' => 'failed', 'analysis_error' => $message]);
-
-            return;
-        }
-
         $contents = Media::disk()->get($this->video->path) ?? throw new RuntimeException('Không đọc được video mẫu.');
         $dir = sys_get_temp_dir().'/frames-'.uniqid();
         mkdir($dir);
@@ -46,6 +42,15 @@ class AnalyzeSampleVideoJob implements ShouldQueue
         file_put_contents($input, $contents);
 
         try {
+            // Tìm shot (cắt cảnh) bằng ffmpeg, không tốn Credits: video đổi đồ thì mỗi shot một bộ đồ.
+            $this->video->update(['shots' => $shots->detect($input, ($this->video->duration_ms ?? 0) / 1000 ?: ReferenceClip::MAX_SECONDS) ?: null]);
+
+            if ($message = Credits::shortfall($this->video->user, CreditPricing::aiEstimates()['motion_analysis'], 'phân tích video mẫu')) {
+                $this->video->update(['analysis_status' => 'failed', 'analysis_error' => $message]);
+
+                return;
+            }
+
             $result = Process::timeout(120)->run([
                 config('videoaff.ffmpeg'), '-v', 'error', '-y', '-i', $input, '-t', (string) self::MAX_SECONDS,
                 '-vf', 'fps='.self::FPS.',scale=320:-2', '-q:v', '5', "{$dir}/frame_%02d.jpg",

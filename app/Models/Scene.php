@@ -6,6 +6,8 @@ use App\Enums\SceneClipStatus;
 use App\Enums\SceneImageStatus;
 use App\Enums\ScenePhase;
 use App\Jobs\GenerateSceneClipJob;
+use App\Services\Video\ReferenceClip;
+use App\Support\Media;
 use Database\Factories\SceneFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +24,9 @@ class Scene extends Model
         'position',
         'phase',
         'background_id',
+        'product_id',
+        'product_image_id',
+        'outfit_color',
         'duration_ms',
         'visual',
         'on_screen_text',
@@ -53,6 +58,56 @@ class Scene extends Model
     public function background(): BelongsTo
     {
         return $this->belongsTo(Background::class);
+    }
+
+    /** Sản phẩm (bộ đồ) riêng của cảnh khi mỗi cảnh một bộ đồ; null = sản phẩm của dự án. */
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    /** Ảnh sản phẩm đúng màu / mẫu của cảnh; null = mọi ảnh sản phẩm. */
+    public function productImage(): BelongsTo
+    {
+        return $this->belongsTo(ProductImage::class);
+    }
+
+    /** Sản phẩm cảnh này mặc. */
+    public function outfitProduct(): Product
+    {
+        return $this->product ?? $this->videoProject->product;
+    }
+
+    /** Câu tả sản phẩm trong prompt ảnh / clip, kèm màu đã chọn. */
+    public function productLine(): string
+    {
+        $line = ProductCategory::productLine($this->outfitProduct());
+        if (filled($this->outfit_color)) {
+            $line .= " Use exactly the \"{$this->outfit_color}\" color / variant of this product".($this->product_image_id ? ', as in the attached product photo' : '').'.';
+        }
+
+        return $line;
+    }
+
+    /** Có bộ đồ riêng (khác sản phẩm của dự án hoặc chọn màu / ảnh). */
+    public function hasOutfit(): bool
+    {
+        return $this->product_id !== null || $this->product_image_id !== null || filled($this->outfit_color);
+    }
+
+    /** @return array{product_id: int, product_name: string, product_image_id: ?int, image_url: ?string, color: ?string} */
+    public function outfit(): array
+    {
+        $product = $this->outfitProduct();
+        $image = $this->productImage ?? $product->images()->orderByDesc('is_primary')->orderBy('id')->first();
+
+        return [
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'product_image_id' => $this->product_image_id,
+            'image_url' => Media::url($image?->path),
+            'color' => $this->outfit_color,
+        ];
     }
 
     public function videoProject(): BelongsTo
@@ -96,5 +151,49 @@ class Scene extends Model
     public function motionReference(): ?SampleVideo
     {
         return $this->sampleVideo ?? $this->videoProject->sampleVideo;
+    }
+
+    /**
+     * Đoạn video mẫu cảnh này sao chép (giây). Các cảnh cùng video mẫu lần lượt lấy đoạn tiếp theo theo thời lượng cảnh,
+     * nên cả video làm trọn điệu nhảy thay vì cảnh nào cũng lặp lại mấy giây đầu. Hết video mẫu thì quay lại từ đầu.
+     *
+     * @return array{start: float, length: float}
+     */
+    public function motionSegment(): array
+    {
+        $sample = $this->motionReference();
+        // Video mẫu nhiều shot: cảnh thứ k (trong các cảnh cùng video mẫu) sao chép đúng đoạn thứ k.
+        // (Một cảnh quay liền thì không theo shot, các nhịp sao chép lần lượt theo thời gian.)
+        if ($sample !== null && ! $this->videoProject->one_take && ($pieces = $sample->pieces()) !== []) {
+            $index = $this->videoProject->scenes()
+                ->where('position', '<', $this->position)
+                ->get()
+                ->filter(fn (Scene $scene) => $scene->motionReference()?->id === $sample->id)
+                ->count();
+            $piece = $pieces[$index % count($pieces)];
+
+            return ['start' => round($piece['start'], 1), 'length' => round(min(ReferenceClip::MAX_SECONDS, max(1.0, $piece['end'] - $piece['start'])), 1)];
+        }
+
+        $span = $sample?->motionSpan() ?? ReferenceClip::MAX_SECONDS;
+        // Thêm 0,5 giây cho đoạn chuyển cảnh, tối thiểu 2 giây để Muse kịp làm động tác.
+        $length = min($span, ReferenceClip::MAX_SECONDS, max(2.0, $this->duration_ms / 1000 + 0.5));
+        if ($sample === null || $span <= $length) {
+            return ['start' => 0.0, 'length' => round($length, 1)];
+        }
+
+        $offset = $this->videoProject->scenes()
+            ->where('position', '<', $this->position)
+            ->get()
+            ->filter(fn (Scene $scene) => $scene->motionReference()?->id === $sample->id)
+            ->sum('duration_ms') / 1000;
+
+        $start = fmod($offset, $span);
+        if ($start + $length > $span) {
+            // Còn hơn nửa đoạn thì làm nốt phần cuối điệu nhảy, không thì quay lại từ đầu.
+            $start = $span - $start >= $length / 2 ? $span - $length : 0.0;
+        }
+
+        return ['start' => round($start, 1), 'length' => round($length, 1)];
     }
 }
