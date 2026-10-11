@@ -23,6 +23,7 @@ use App\Services\Script\ClaudeScriptWriter;
 use App\Services\Script\FakeScriptWriter;
 use App\Services\Script\ScriptWriter;
 use App\Services\Social\FacebookClient;
+use App\Services\Social\TikTokClient;
 use App\Services\Video\Analysis\ClaudeApiMotionAnalyzer;
 use App\Services\Video\Analysis\ClaudeCliMotionAnalyzer;
 use App\Services\Video\Analysis\FakeMotionAnalyzer;
@@ -48,6 +49,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(ClaudeCli::class, fn () => ClaudeCli::fromConfig());
         $this->app->bind(FacebookClient::class, fn () => FacebookClient::fromConfig());
+        $this->app->bind(TikTokClient::class, fn () => TikTokClient::fromConfig());
 
         $this->app->bind(ScriptWriter::class, function () {
             return match (ScriptDriver::current()) {

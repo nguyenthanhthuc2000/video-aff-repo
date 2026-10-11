@@ -85,7 +85,7 @@ class FacebookClient
                 ->withBody($contents, 'application/octet-stream')
                 ->post("https://rupload.facebook.com/video-upload/{$this->version}/{$videoId}");
         } catch (ConnectionException $e) {
-            throw new FacebookException('Không kết nối được Facebook khi tải video lên.', true, $e);
+            throw new SocialPostException('Không kết nối được Facebook khi tải video lên.', true, $e);
         }
         $this->check($response);
     }
@@ -130,7 +130,7 @@ class FacebookClient
         try {
             return $this->check(Http::timeout(60)->get("https://graph.facebook.com/{$this->version}/{$path}", $query));
         } catch (ConnectionException $e) {
-            throw new FacebookException('Không kết nối được Facebook.', true, $e);
+            throw new SocialPostException('Không kết nối được Facebook.', true, $e);
         }
     }
 
@@ -139,7 +139,7 @@ class FacebookClient
         try {
             return $this->check(Http::timeout(120)->asForm()->post("https://graph.facebook.com/{$this->version}/{$path}", $data));
         } catch (ConnectionException $e) {
-            throw new FacebookException('Không kết nối được Facebook.', true, $e);
+            throw new SocialPostException('Không kết nối được Facebook.', true, $e);
         }
     }
 
@@ -157,6 +157,6 @@ class FacebookClient
             default => '',
         };
 
-        throw new FacebookException('Facebook báo lỗi: '.$message.$hint, $response->status() >= 500 || $response->status() === 429);
+        throw new SocialPostException('Facebook báo lỗi: '.$message.$hint, $response->status() >= 500 || $response->status() === 429);
     }
 }

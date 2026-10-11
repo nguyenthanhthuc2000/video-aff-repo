@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\SocialPost;
 use App\Services\Social\FacebookClient;
-use App\Services\Social\FacebookException;
+use App\Services\Social\SocialPostException;
 use App\Support\Media;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -35,7 +35,7 @@ class PublishFacebookReelJob implements ShouldQueue
         }
         $account = $post->socialAccount;
         if ($account === null) {
-            $this->fail(new FacebookException('Trang Facebook đã bị ngắt kết nối.'));
+            $this->fail(new SocialPostException('Trang Facebook đã bị ngắt kết nối.'));
 
             return;
         }
@@ -44,7 +44,7 @@ class PublishFacebookReelJob implements ShouldQueue
             if ($post->external_id === null) {
                 $contents = $post->render?->path ? Media::disk()->get($post->render->path) : null;
                 if ($contents === null) {
-                    throw new FacebookException('Không tìm thấy file video đã xuất.');
+                    throw new SocialPostException('Không tìm thấy file video đã xuất.');
                 }
                 $post->update(['status' => 'uploading']);
                 $videoId = $facebook->startReel($account->external_id, $account->access_token);
@@ -58,7 +58,7 @@ class PublishFacebookReelJob implements ShouldQueue
             }
 
             $status = $facebook->reelStatus($post->external_id, $account->access_token);
-        } catch (FacebookException $e) {
+        } catch (SocialPostException $e) {
             if ($e->retryable && $this->attempts() < 5) {
                 // Chưa đăng xong thì làm lại từ đầu (phiên tải cũ bỏ).
                 if ($post->status === 'uploading') {
@@ -80,7 +80,7 @@ class PublishFacebookReelJob implements ShouldQueue
             return;
         }
         if ($status['state'] === 'failed') {
-            $this->fail(new FacebookException((string) $status['error']));
+            $this->fail(new SocialPostException((string) $status['error']));
 
             return;
         }

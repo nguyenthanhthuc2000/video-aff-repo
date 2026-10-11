@@ -61,6 +61,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('settings/social', [SocialAccountController::class, 'index'])->name('social.index');
     Route::post('social/facebook/connect', [SocialAccountController::class, 'facebookConnect'])->name('social.facebook.connect');
     Route::get('social/facebook/callback', [SocialAccountController::class, 'facebookCallback'])->name('social.facebook.callback');
+    Route::post('social/tiktok/connect', [SocialAccountController::class, 'tiktokConnect'])->name('social.tiktok.connect');
+    Route::get('social/tiktok/callback', [SocialAccountController::class, 'tiktokCallback'])->name('social.tiktok.callback');
+    Route::get('social/accounts/{account}/creator', [SocialPostController::class, 'creator'])->name('social.accounts.creator');
     Route::delete('social/accounts/{account}', [SocialAccountController::class, 'destroy'])->name('social.accounts.destroy');
     Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
     Route::put('projects/{project}/scenes/order', [SceneOrderController::class, 'update'])->name('projects.scenes.order');

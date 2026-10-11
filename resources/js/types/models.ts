@@ -316,12 +316,25 @@ export interface PostCaptions {
     error?: string;
 }
 
-/** Trang Facebook (hoặc tài khoản khác) đã kết nối để đăng video. */
+/** Trang Facebook / tài khoản TikTok đã kết nối để đăng video. */
 export interface SocialAccount {
     id: number;
-    provider: 'facebook';
+    provider: 'facebook' | 'tiktok';
     name: string;
     external_id: string;
+    avatar_url: string | null;
+    /** Kết nối hết hạn, phải kết nối lại. */
+    expired: boolean;
+}
+
+/** Thông tin người đăng TikTok (hỏi trước khi đăng thẳng). */
+export interface TikTokCreator {
+    nickname: string;
+    privacy_level_options: string[];
+    max_video_post_duration_sec: number;
+    comment_disabled: boolean;
+    duet_disabled: boolean;
+    stitch_disabled: boolean;
 }
 
 /** Một lần đăng video lên mạng xã hội. */
@@ -330,7 +343,7 @@ export interface SocialPost {
     provider: string;
     account_name: string | null;
     caption: string;
-    status: 'pending' | 'uploading' | 'processing' | 'published' | 'failed';
+    status: 'pending' | 'uploading' | 'processing' | 'published' | 'inbox' | 'failed';
     permalink: string | null;
     error: string | null;
     published_at: string | null;

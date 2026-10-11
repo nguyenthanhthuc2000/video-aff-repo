@@ -20,12 +20,13 @@ function Privacy({ appName, contact }: { appName: string; contact: string }) {
                     Khi bạn kết nối Facebook: mã Trang, tên Trang và mã truy cập của Trang (lưu mã hoá) mà bạn chọn cấp quyền, qua các quyền pages_show_list,
                     pages_read_engagement, pages_manage_posts.
                 </li>
+                <li>Khi bạn kết nối TikTok: mã tài khoản (open_id), tên hiển thị, ảnh đại diện và mã truy cập (lưu mã hoá), qua các quyền user.info.basic, video.publish, video.upload.</li>
             </ul>
             <h2>Cách chúng tôi sử dụng dữ liệu</h2>
             <ul>
                 <li>Tạo kịch bản, ảnh và video theo yêu cầu của bạn.</li>
-                <li>Dữ liệu Facebook chỉ dùng để liệt kê Trang bạn quản lý và đăng video bạn chủ động chọn đăng, với caption bạn duyệt. Chúng tôi không đọc tin nhắn, không đăng khi bạn chưa yêu cầu.</li>
-                <li>Chúng tôi không bán dữ liệu và không chia sẻ dữ liệu Facebook với bên thứ ba.</li>
+                <li>Dữ liệu Facebook / TikTok chỉ dùng để hiện tài khoản bạn đã kết nối và đăng video bạn chủ động chọn đăng, với caption và cài đặt bạn duyệt. Chúng tôi không đọc tin nhắn, không đăng khi bạn chưa yêu cầu.</li>
+                <li>Chúng tôi không bán dữ liệu và không chia sẻ dữ liệu Facebook / TikTok với bên thứ ba.</li>
             </ul>
             <h2>Dịch vụ bên thứ ba</h2>
             <p>Để tạo nội dung, dữ liệu sản phẩm và hình ảnh có thể được gửi tới các dịch vụ AI (Claude của Anthropic, muse.ai) chỉ nhằm tạo nội dung cho bạn.</p>
@@ -50,7 +51,7 @@ function Terms({ appName, contact }: { appName: string; contact: string }) {
             <ul>
                 <li>Bạn chịu trách nhiệm về sản phẩm, hình ảnh, nhạc và nội dung bạn tải lên và đăng; bạn phải có quyền sử dụng chúng.</li>
                 <li>Video có người do AI tạo: bạn đồng ý ghi rõ là nội dung AI khi nền tảng yêu cầu và không dùng để lừa dối người xem.</li>
-                <li>Khi đăng lên Facebook, bạn tuân thủ Tiêu chuẩn cộng đồng và Chính sách nội dung có thương hiệu của Meta.</li>
+                <li>Khi đăng lên Facebook / TikTok, bạn tuân thủ Tiêu chuẩn cộng đồng và chính sách nội dung có thương hiệu của Meta và TikTok.</li>
                 <li>Không dùng {appName} để đăng spam, nội dung vi phạm pháp luật, nội dung người lớn hay quảng cáo sai sự thật.</li>
                 <li>Credits đã dùng để tạo nội dung không hoàn lại, trừ khi tạo lỗi do hệ thống.</li>
                 <li>Chúng tôi có thể tạm khoá tài khoản vi phạm các điều trên.</li>
@@ -70,10 +71,10 @@ function DataDeletion({ appName, contact }: { appName: string; contact: string }
             <p>Bạn có thể xoá dữ liệu của mình trên {appName} theo một trong các cách sau:</p>
             <ol>
                 <li>
-                    <b>Ngắt kết nối Facebook:</b> vào Cài đặt → Mạng xã hội → Ngắt kết nối. Mã truy cập và thông tin Trang bị xoá ngay.
+                    <b>Ngắt kết nối Facebook / TikTok:</b> vào Cài đặt → Mạng xã hội → Ngắt kết nối. Mã truy cập và thông tin tài khoản bị xoá ngay.
                 </li>
                 <li>
-                    <b>Gỡ app trên Facebook:</b> Facebook → Cài đặt → Ứng dụng và trang web → chọn {appName} → Gỡ. Mã truy cập sẽ không còn dùng được.
+                    <b>Gỡ quyền trên Facebook / TikTok:</b> Facebook → Cài đặt → Ứng dụng và trang web → chọn {appName} → Gỡ; TikTok → Cài đặt và quyền riêng tư → Bảo mật → Quyền ứng dụng → {appName} → Gỡ. Mã truy cập sẽ không còn dùng được.
                 </li>
                 <li>
                     <b>Xoá toàn bộ tài khoản:</b> vào Cài đặt → Hồ sơ → Xoá tài khoản. Tài khoản, sản phẩm, dự án và các kết nối mạng xã hội bị xoá khỏi hệ thống (muốn xoá cả file ảnh / video đã tạo thì gửi yêu cầu qua email).

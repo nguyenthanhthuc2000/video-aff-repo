@@ -5,17 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Một lần đăng video lên mạng xã hội: pending → uploading → processing → published / failed. */
+/** Một lần đăng video lên mạng xã hội: pending → uploading → processing → published / inbox (TikTok hộp nháp) / failed. */
 class SocialPost extends Model
 {
     protected $fillable = [
-        'video_project_id', 'render_id', 'social_account_id', 'provider', 'account_name', 'caption',
+        'video_project_id', 'render_id', 'social_account_id', 'provider', 'account_name', 'caption', 'options',
         'status', 'external_id', 'permalink', 'error', 'published_at',
     ];
 
     protected function casts(): array
     {
-        return ['published_at' => 'datetime'];
+        return ['published_at' => 'datetime', 'options' => 'array'];
     }
 
     public function videoProject(): BelongsTo
@@ -46,6 +46,7 @@ class SocialPost extends Model
             'provider' => $this->provider,
             'account_name' => $this->account_name,
             'caption' => $this->caption,
+            'options' => $this->options,
             'status' => $this->status,
             'permalink' => $this->permalink,
             'error' => $this->error,

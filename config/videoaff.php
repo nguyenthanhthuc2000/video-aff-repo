@@ -75,6 +75,12 @@ return [
         'graph_version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
     ],
 
+    // Đăng video lên TikTok (Content Posting API): app tạo ở developers.tiktok.com.
+    'tiktok' => [
+        'client_key' => env('TIKTOK_CLIENT_KEY'),
+        'client_secret' => env('TIKTOK_CLIENT_SECRET'),
+    ],
+
     'muse_browser' => [
         'url' => env('MUSE_BROWSER_URL', 'http://browser:3000'),
         'token' => env('MUSE_BROWSER_TOKEN'),

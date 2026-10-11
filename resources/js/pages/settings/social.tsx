@@ -8,16 +8,44 @@ import { Head, router, usePage } from '@inertiajs/react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Kết nối mạng xã hội', href: '/settings/social' }];
 
-/** Kết nối Trang Facebook để đăng video (Reels) từ trang dự án. */
+/** Kết nối Trang Facebook / tài khoản TikTok để đăng video từ trang dự án. */
+function AccountList({ accounts, onDisconnect }: { accounts: SocialAccount[]; onDisconnect: (account: SocialAccount) => void }) {
+    if (accounts.length === 0) return null;
+
+    return (
+        <ul className="divide-y rounded-lg border">
+            {accounts.map((account) => (
+                <li key={account.id} className="flex items-center justify-between gap-2 p-3 text-sm">
+                    <span className="flex items-center gap-2">
+                        {account.avatar_url && <img src={account.avatar_url} alt="" className="size-6 rounded-full" />}
+                        {account.name}
+                        {account.provider === 'facebook' && <span className="text-muted-foreground text-xs">(Trang {account.external_id})</span>}
+                        {account.expired && <span className="text-destructive text-xs">Hết hạn, hãy kết nối lại</span>}
+                    </span>
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDisconnect(account)}>
+                        Ngắt kết nối
+                    </Button>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
 export default function Social({
     accounts,
     facebookConfigured,
     facebookRedirectUri,
+    tiktokConfigured,
+    tiktokRedirectUri,
 }: {
     accounts: SocialAccount[];
     facebookConfigured: boolean;
     facebookRedirectUri: string;
+    tiktokConfigured: boolean;
+    tiktokRedirectUri: string;
 }) {
+    const facebook = accounts.filter((account) => account.provider === 'facebook');
+    const tiktok = accounts.filter((account) => account.provider === 'tiktok');
     const status = (usePage<SharedData>().props as { flash?: { status?: string } }).flash?.status;
     const connect = () => router.post(route('social.facebook.connect'));
     const disconnect = (account: SocialAccount) => {
@@ -41,22 +69,22 @@ export default function Social({
                             </p>
                         </div>
                     ) : (
-                        <Button onClick={connect}>{accounts.length ? 'Kết nối thêm / làm mới Trang' : 'Kết nối Facebook'}</Button>
+                        <Button onClick={connect}>{facebook.length ? 'Kết nối thêm / làm mới Trang' : 'Kết nối Facebook'}</Button>
                     )}
-                    {accounts.length > 0 && (
-                        <ul className="divide-y rounded-lg border">
-                            {accounts.map((account) => (
-                                <li key={account.id} className="flex items-center justify-between gap-2 p-3 text-sm">
-                                    <span>
-                                        {account.name} <span className="text-muted-foreground text-xs">(Trang {account.external_id})</span>
-                                    </span>
-                                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => disconnect(account)}>
-                                        Ngắt kết nối
-                                    </Button>
-                                </li>
-                            ))}
-                        </ul>
+                    <AccountList accounts={facebook} onDisconnect={disconnect} />
+
+                    <HeadingSmall title="TikTok" description="Kết nối tài khoản TikTok để đăng thẳng hoặc gửi video vào hộp nháp TikTok." />
+                    {!tiktokConfigured ? (
+                        <div className="text-muted-foreground space-y-1 text-sm">
+                            <p>Chưa cài app TikTok. Thêm TIKTOK_CLIENT_KEY và TIKTOK_CLIENT_SECRET vào file .env rồi khởi động lại app.</p>
+                            <p>
+                                Redirect URI cần khai báo trong app TikTok (phải là https): <code className="bg-muted rounded px-1">{tiktokRedirectUri}</code>
+                            </p>
+                        </div>
+                    ) : (
+                        <Button onClick={() => router.post(route('social.tiktok.connect'))}>{tiktok.length ? 'Kết nối thêm tài khoản TikTok' : 'Kết nối TikTok'}</Button>
                     )}
+                    <AccountList accounts={tiktok} onDisconnect={disconnect} />
                 </div>
             </SettingsLayout>
         </AppLayout>
