@@ -195,6 +195,12 @@ class VideoProject extends Model
         return $this->hasMany(AiUsageLog::class);
     }
 
+    /** Các lần đăng video lên mạng xã hội. */
+    public function socialPosts(): HasMany
+    {
+        return $this->hasMany(SocialPost::class)->latest('id');
+    }
+
     public function renders(): HasMany
     {
         return $this->hasMany(Render::class)->latest('id');

@@ -92,6 +92,7 @@ class VideoProjectResource extends JsonResource
             'muse_plan' => MusePlan::of($this->resource),
             'post_captions_status' => $this->post_captions_status,
             'post_captions' => $this->post_captions,
+            'social_posts' => $this->whenLoaded('socialPosts', fn () => $this->socialPosts->map->present()),
             'video_type_label' => $this->video_type->label(),
             'before_fashion_model' => $this->whenLoaded('beforeFashionModel', fn () => $this->beforeFashionModel ? [
                 'id' => $this->beforeFashionModel->id,

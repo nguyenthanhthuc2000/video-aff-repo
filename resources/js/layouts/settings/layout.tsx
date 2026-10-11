@@ -21,6 +21,11 @@ const sidebarNavItems: NavItem[] = [
         url: '/settings/appearance',
         icon: null,
     },
+    {
+        title: 'Mạng xã hội',
+        url: '/settings/social',
+        icon: null,
+    },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

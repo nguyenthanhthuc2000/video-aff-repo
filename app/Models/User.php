@@ -66,6 +66,12 @@ class User extends Authenticatable
         return $this->hasMany(SampleVideo::class);
     }
 
+    /** Tài khoản mạng xã hội đã kết nối để đăng video. */
+    public function socialAccounts(): HasMany
+    {
+        return $this->hasMany(SocialAccount::class);
+    }
+
     public function audioTracks(): HasMany
     {
         return $this->hasMany(AudioTrack::class);

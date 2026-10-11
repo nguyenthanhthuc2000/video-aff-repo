@@ -10,7 +10,7 @@ import AppLayout from '@/layouts/app-layout';
 import { projectStatusLabels } from '@/lib/project-status';
 import { voiceModes } from '@/lib/voice-modes';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { type AudioTrack, type Background, type FashionModel, type OutfitProduct, type SampleVideo, type VideoProject } from '@/types/models';
+import { type AudioTrack, type Background, type FashionModel, type OutfitProduct, type SampleVideo, type SocialAccount, type VideoProject } from '@/types/models';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { LoaderCircle, Play, Plus } from 'lucide-react';
 import CreateProjectForm from '../products/create-project-form';
@@ -19,6 +19,7 @@ import MotionClips from './motion-clips';
 import MusePlanPanel from './muse-plan';
 import MuseWebImages from './muse-web-images';
 import PostCaptionsPanel from './post-captions';
+import SocialPublish from './social-publish';
 import RenderPanel from './render-panel';
 import SceneImages from './scene-images';
 import SceneOrder from './scene-order';
@@ -34,6 +35,7 @@ export default function ProjectsShow({
     outfitProducts,
     credits,
     autopilotAvailable,
+    socialAccounts,
 }: {
     project: VideoProject;
     fashionModels: FashionModel[];
@@ -43,6 +45,7 @@ export default function ProjectsShow({
     outfitProducts: OutfitProduct[];
     credits: ProjectCreditsData;
     autopilotAvailable: boolean;
+    socialAccounts: SocialAccount[];
 }) {
     const isAdmin = usePage<SharedData>().props.auth.user?.is_admin === true;
     const breadcrumbs: BreadcrumbItem[] = [
@@ -51,7 +54,8 @@ export default function ProjectsShow({
     ];
 
     // Khi có job chạy nền, tự làm mới dữ liệu dự án mỗi 3 giây.
-    usePoll(project.is_busy || project.post_captions_status === 'pending', ['project']);
+    const posting = project.social_posts?.some((post) => ['pending', 'uploading', 'processing'].includes(post.status)) ?? false;
+    usePoll(project.is_busy || project.post_captions_status === 'pending' || posting, ['project']);
 
     const runAutopilot = () => router.post(route('projects.autopilot', project.id), {}, { preserveScroll: true });
     const canAutopilot = !project.is_busy && project.status !== 'done' && !project.autopilot;
@@ -244,6 +248,7 @@ export default function ProjectsShow({
                         )}
                         <RenderPanel key={`${project.selected_hook}-${project.updated_at}`} project={project} audioTracks={audioTracks} />
                         <PostCaptionsPanel project={project} />
+                        <SocialPublish project={project} accounts={socialAccounts} />
                     </section>
                 )}
 

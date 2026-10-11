@@ -191,6 +191,7 @@ export interface VideoProject {
     muse_plan?: MusePlan | null;
     post_captions_status?: 'pending' | 'ready' | 'failed' | null;
     post_captions?: PostCaptions | null;
+    social_posts?: SocialPost[];
     render_text?: boolean;
     /** Mọi sản phẩm trong video (video gộp: theo thứ tự bộ đồ). */
     video_products?: {
@@ -313,4 +314,25 @@ export interface PostCaptions {
     sale?: string[];
     view?: string[];
     error?: string;
+}
+
+/** Trang Facebook (hoặc tài khoản khác) đã kết nối để đăng video. */
+export interface SocialAccount {
+    id: number;
+    provider: 'facebook';
+    name: string;
+    external_id: string;
+}
+
+/** Một lần đăng video lên mạng xã hội. */
+export interface SocialPost {
+    id: number;
+    provider: string;
+    account_name: string | null;
+    caption: string;
+    status: 'pending' | 'uploading' | 'processing' | 'published' | 'failed';
+    permalink: string | null;
+    error: string | null;
+    published_at: string | null;
+    created_at: string;
 }

@@ -19,11 +19,18 @@ use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\SceneOrderController;
 use App\Http\Controllers\SceneOutfitController;
 use App\Http\Controllers\ScriptController;
+use App\Http\Controllers\SocialAccountController;
+use App\Http\Controllers\SocialPostController;
 use App\Http\Controllers\VideoProjectController;
 use App\Http\Controllers\VideoSettingsController;
 use App\Support\CreditPricing;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
+// Trang công khai Meta yêu cầu khi cho người dùng kết nối Facebook (chính sách, điều khoản, xoá dữ liệu).
+foreach (['privacy' => 'legal.privacy', 'terms' => 'legal.terms', 'data-deletion' => 'legal.data-deletion'] as $uri => $name) {
+    Route::get($uri, fn () => Inertia::render('legal', ['page' => $uri, 'appName' => config('app.name'), 'contactEmail' => config('videoaff.contact_email'), 'updatedAt' => '2026-10-11']))->name($name);
+}
 
 Route::get('/', function () {
     return Inertia::render('welcome', ['creditRates' => CreditPricing::publicRates()]);
@@ -50,6 +57,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('projects/{project}/script', [ScriptController::class, 'store'])->name('projects.script.store');
     Route::post('projects/{project}/muse-plan', [ScriptController::class, 'replan'])->name('projects.muse-plan');
     Route::post('projects/{project}/post-captions', [ScriptController::class, 'postCaptions'])->name('projects.post-captions');
+    Route::post('projects/{project}/social-posts', [SocialPostController::class, 'store'])->name('projects.social-posts.store');
+    Route::get('settings/social', [SocialAccountController::class, 'index'])->name('social.index');
+    Route::post('social/facebook/connect', [SocialAccountController::class, 'facebookConnect'])->name('social.facebook.connect');
+    Route::get('social/facebook/callback', [SocialAccountController::class, 'facebookCallback'])->name('social.facebook.callback');
+    Route::delete('social/accounts/{account}', [SocialAccountController::class, 'destroy'])->name('social.accounts.destroy');
     Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
     Route::put('projects/{project}/scenes/order', [SceneOrderController::class, 'update'])->name('projects.scenes.order');
     Route::post('projects/{project}/script/import', [ScriptController::class, 'import'])->name('projects.script.import');

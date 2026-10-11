@@ -65,6 +65,16 @@ return [
         'timeout' => (int) env('AUDIO_ANALYZER_TIMEOUT', 900),
     ],
 
+    // Email liên hệ hiện trên trang Chính sách / Điều khoản / Xoá dữ liệu.
+    'contact_email' => env('CONTACT_EMAIL', env('MAIL_FROM_ADDRESS')),
+
+    // Đăng video lên Trang Facebook (Reels) qua Graph API: app tạo ở developers.facebook.com.
+    'facebook' => [
+        'app_id' => env('FACEBOOK_APP_ID'),
+        'app_secret' => env('FACEBOOK_APP_SECRET'),
+        'graph_version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
+    ],
+
     'muse_browser' => [
         'url' => env('MUSE_BROWSER_URL', 'http://browser:3000'),
         'token' => env('MUSE_BROWSER_TOKEN'),

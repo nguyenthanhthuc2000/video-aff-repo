@@ -199,7 +199,7 @@ class VideoProjectController extends Controller
     {
         $this->authorize('view', $project);
 
-        $project->load(['product.primaryImage', 'fashionModel', 'beforeFashionModel', 'audioTrack', 'sampleVideo', 'scenes.latestImage', 'scenes.sampleVideo', 'scenes.background', 'renders']);
+        $project->load(['product.primaryImage', 'fashionModel', 'beforeFashionModel', 'audioTrack', 'sampleVideo', 'scenes.latestImage', 'scenes.sampleVideo', 'scenes.background', 'renders', 'socialPosts']);
 
         return Inertia::render('projects/show', [
             'credits' => ProjectCredits::forProjects(collect([$project]))[$project->id],
@@ -220,6 +220,7 @@ class VideoProjectController extends Controller
             'audioTracks' => $user->audioTracks()->whereNotNull('path')->latest()->get()->map(fn ($track) => AudioTrackController::present($track)),
             'fashionModels' => FashionModelResource::collection($user->fashionModels()->whereNotNull('consent_at')->latest()->get())->resolve(),
             'backgrounds' => $user->backgrounds()->latest()->get()->map->present(),
+            'socialAccounts' => $user->socialAccounts()->orderBy('name')->get()->map->present(),
             'outfitProducts' => self::outfitProducts($user),
         ];
     }
