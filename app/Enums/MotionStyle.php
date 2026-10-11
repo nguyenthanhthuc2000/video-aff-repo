@@ -5,6 +5,7 @@ namespace App\Enums;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\Scene;
+use App\Support\Framing;
 use App\Support\ProductCoverage;
 use App\Support\ProductFidelity;
 use App\Support\Realism;
@@ -54,7 +55,7 @@ enum MotionStyle: string
             self::TryOn => 'is already wearing the product; she gently adjusts it with one hand, turns her head left and right to show it from both sides, then poses with a smile',
             self::Unboxing => 'sits at a table with a closed package already in front of her; she opens it, takes the product out of the package (it comes from inside the box, never from nowhere), holds it up to the camera and smiles',
             self::DemoUse => 'is already holding the product; she uses it the way it is meant to be used, slowly and clearly, then shows it close to the camera',
-            self::WalkShowcase => 'walks casually toward the camera with the product clearly visible the whole time, then stops and shows it closer',
+            self::WalkShowcase => 'walks casually toward the camera with the product clearly visible the whole time, then stops a few meters away and holds it out toward the camera',
         };
     }
 
@@ -89,9 +90,10 @@ enum MotionStyle: string
         return "Animate this photo into a 5-second vertical 9:16 video. {$product} "
             .($style ? "The same person {$style->moves()}. " : '')
             .($angle !== '' ? $angle.' ' : '')
-            ."Scene context: {$scene->visual}. "
+            .'Scene context: '.Framing::strip((string) $scene->visual).'. '
             .self::NATURAL_CUT.' '
             .self::CONTINUITY.' '
+            .Framing::VIDEO.' '
             .'Keep the face, hair and outfit exactly the same. '
             .($scene->phase === ScenePhase::Before ? '' : ProductFidelity::VIDEO.' ')
             .Realism::VIDEO.' No text, no extra people. '

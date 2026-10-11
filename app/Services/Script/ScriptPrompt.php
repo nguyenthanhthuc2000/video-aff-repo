@@ -6,6 +6,7 @@ use App\Enums\VoiceMode;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\VideoProject;
+use App\Support\MusePlan;
 use App\Support\ProductCoverage;
 use App\Support\SceneSettings;
 
@@ -26,21 +27,24 @@ class ScriptPrompt
       - phase: "after" (video thường luôn là after); video biến hình xem phần "Video biến hình".
       - visual: mô tả khung hình bằng tiếng Việt.
       - on_screen_text: chữ trên màn hình, tối đa 8 từ.
-      - voiceover: lời đọc cho cảnh, khớp thời lượng (khoảng 3 từ mỗi giây).
+      - voiceover: lời của cảnh, khớp thời lượng (tối đa khoảng 2,5 từ mỗi giây); người mẫu nói thành tiếng hay chỉ hiện phụ đề theo mục "Tiếng trong video" ở cuối.
+      - visual và image_prompt luôn ghi rõ biểu cảm và tư thế của người mẫu theo mục "Tiếng trong video" (đang nói hay chỉ cười, đá mắt, làm dáng).
       - image_prompt: prompt tiếng Anh để AI chỉnh ảnh người mẫu mặc đúng sản phẩm trong ảnh tham chiếu. Mở đầu bằng bối cảnh cụ thể (địa điểm, đồ vật xung quanh, thời điểm trong ngày), rồi đến tư thế, hành động, góc máy, ánh sáng; khung dọc 9:16.
         image_prompt không tả lại thiết kế sản phẩm (màu, hoạ tiết, chất liệu, độ dài, cổ áo, tay áo...) và không yêu cầu sửa sản phẩm: chỉ gọi là "the exact product from the product photos" kèm cách mặc / cầm theo mục "Cách dùng sản phẩm". Muốn ảnh kín đáo thì đổi tư thế, góc máy, khoảng cách, bối cảnh; KHÔNG viết thêm áo khoác, khăn, lớp lót hay đổi kiểu sản phẩm.
       - duration_ms: thời lượng cảnh; tổng các cảnh bằng tổng thời lượng yêu cầu.
     - Quay như MỘT buổi quay thật của một người: tối đa 2–3 địa điểm gần nhau, đi theo trình tự hợp lý (ví dụ trong phòng → trước gương → ra cửa),
       các cảnh liền nhau cùng địa điểm giữ đúng địa điểm và ánh sáng đó; không nhảy sang nơi khác ở mỗi cảnh (ghép lại sẽ rời rạc).
       Chọn địa điểm trong mục "Bối cảnh hợp với sản phẩm" (nơi người mua thật sự sẽ dùng).
-    - Đổi góc máy và khoảng cách giữa các cảnh liền nhau (toàn thân → cận → nghiêng...), không lặp cùng một kiểu đứng tạo dáng; có mục "Góc quay sản phẩm" thì theo đúng mục đó.
+    - Mọi cảnh quay TOÀN THÂN, máy đặt xa khoảng 3 m: luôn thấy trọn người từ đầu đến chân, không cận mặt, không nửa người, không dí máy sát người;
+      chi tiết sản phẩm (cổ áo, chất vải, gấu...) khoe bằng tay chạm / chỉ / vuốt trong khi vẫn thấy toàn thân. image_prompt luôn ghi "wide full-body shot from a few meters away".
+      Đổi hướng đứng và hành động giữa các cảnh liền nhau (chính diện → nghiêng → mặt sau → đi lại...), không lặp cùng một kiểu tạo dáng; có mục "Góc quay sản phẩm" thì theo đúng mục đó.
     - Sản phẩm là nhân vật chính: mọi cảnh đều thấy rõ sản phẩm; lời đọc và chữ trên màn hình nói về đúng phần sản phẩm đang thấy trong cảnh đó.
     - Chỉ có đúng MỘT sản phẩm đang bán trong mỗi cảnh. image_prompt không được nhắc túi, ví, mũ, kính, trang sức, điện thoại
       hay phụ kiện nào khác (trừ khi đó chính là sản phẩm). Sản phẩm luôn được mặc / đeo / cầm trên người mẫu ngay trong khung hình
       theo đúng mục "Cách dùng sản phẩm", không đặt rời, không lơ lửng, không "xuất hiện" giữa chừng.
     - Phong cách trang nhã, lịch sự như ảnh thời trang thương mại: KHÔNG gợi cảm, không sexy, không khiêu khích.
       Không mô tả hay nhấn vào cơ thể (ngực, eo, đùi, khe xẻ, phần hở, độ mỏng xuyên thấu), không góc máy thấp nhìn lên hay cận cơ thể.
-      Với đồ ren, đồ mỏng, đồ ôm, đồ ngủ: tư thế kín đáo tự nhiên, góc máy ngang tầm mắt, cận chi tiết thì chụp vải trên móc/manơcanh hoặc trải phẳng.
+      Với đồ ren, đồ mỏng, đồ ôm, đồ ngủ: tư thế kín đáo tự nhiên, góc máy ngang tầm mắt, toàn thân.
     - Cùng một buổi trong ngày, ánh sáng nhất quán giữa các cảnh để ghép lại tự nhiên như quay liền một lần.
     - Video phải trông như người mua thật tự quay bằng điện thoại (UGC), không phải quảng cáo bóng bẩy: image_prompt tả một khoảnh khắc đời thường có thật (chỉnh váy trước gương, cầm ly cà phê, bước ra cửa, ngồi bậc thềm...), ánh sáng có sẵn ở nơi đó, góc chụp kiểu điện thoại (selfie gương, bạn chụp hộ ngang tầm mắt, dựng máy trên kệ); KHÔNG dùng các từ cinematic, studio, professional photoshoot, perfect, flawless, 8k, ultra-detailed, dreamy, glamour.
     - Lời đọc và chữ trên màn như người thật nói chuyện với bạn bè (tự nhiên, có cảm xúc, có thể dùng "nè", "nha", "xinh xỉu"), không giọng quảng cáo đọc thông số.
@@ -92,6 +96,7 @@ class ScriptPrompt
             .self::coverageText($project, $settings['scenes'])
             ."Yêu cầu video: đúng {$settings['scenes']} cảnh, tổng khoảng {$settings['seconds']} giây (mỗi cảnh khoảng {$perScene} giây; cảnh cuối là kêu gọi mua)."
             .self::piecesText($project)
+            .MusePlan::scriptText($project)
             .($project->isTransformation() ? "\n\n".self::TRANSFORMATION : '')
             .($project->one_take ? "\n\n".self::ONE_TAKE : '')
             ."\n\n".self::voiceText($project);
@@ -103,7 +108,7 @@ class ScriptPrompt
         return match ($project->voice_mode) {
             VoiceMode::Speak => self::SPEAK,
             VoiceMode::Sing => self::SING,
-            default => 'Video chỉ có nhạc nền, người mẫu không nói: voiceover chỉ hiện thành phụ đề; visual không tả người mẫu đang nói chuyện hay hát.',
+            default => self::MUSIC,
         };
     }
 
@@ -116,15 +121,31 @@ class ScriptPrompt
     - Câu sau nối ý câu trước (dùng "mà", "thêm nữa", "đặc biệt là", "nên"), không chào lại, không giới thiệu lại sản phẩm, không lặp ý hay lặp từ giữa các cảnh.
     - Luôn xưng "mình", gọi người xem là "mọi người"; cùng một giọng điệu từ đầu đến cuối.
     - Mỗi câu phải nói xong trong thời lượng cảnh: tối đa khoảng 2,5 từ mỗi giây (cảnh 5 giây thì không quá 12 từ), câu hoàn chỉnh, không bỏ lửng sang cảnh sau.
-    - visual tả người mẫu nhìn camera nói chuyện tự nhiên, cử chỉ tay chỉ vào chi tiết đang nói (ví dụ nói về cổ áo thì chạm nhẹ cổ áo).
+    - Chỉ khi review mới nói: visual tả người mẫu đứng toàn thân (máy cách khoảng 3 m) nhìn camera nói chuyện tự nhiên, thân người đứng yên vừa đủ để nói,
+      cử chỉ tay chỉ vào chi tiết đang nói (nói về cổ áo thì chạm nhẹ cổ áo); không nhảy, không đi nhanh khi đang nói; trước và sau câu nói thì mỉm cười với camera.
+    - image_prompt tả khoảnh khắc đang nói: nhìn thẳng camera, miệng hé cười như đang nói dở câu, một tay chạm / chỉ vào phần sản phẩm của cảnh.
     - on_screen_text là ý chính ngắn của câu nói (phụ đề sẽ hiện đúng lời nói).
+    PROMPT;
+
+    /** Chỉ nhạc nền: người mẫu không nói, chỉ cười, đá mắt, làm dáng làm duyên; lời chỉ hiện thành phụ đề. */
+    public const MUSIC = <<<'PROMPT'
+    Video CHỈ CÓ NHẠC NỀN, người mẫu KHÔNG nói, không hát: chỉ cười, đá mắt, làm dáng làm duyên khoe đồ, toàn thân.
+    - voiceover là câu ngắn hiện thành phụ đề (người mẫu không nói câu này); visual và image_prompt KHÔNG tả người mẫu đang nói chuyện, mở miệng hay hát.
+    - Mỗi cảnh một biểu cảm + một dáng, đổi giữa các cảnh, không lặp, chọn kiểu như:
+      mỉm cười nhẹ rồi cười tươi với camera; nhìn đi chỗ khác rồi liếc lại camera cười; đá mắt / liếc nghiêng tinh nghịch; nháy mắt nhẹ;
+      nghiêng đầu, vén tóc ra sau tai; tay chống hông, dồn trọng tâm sang một chân; xoay nửa người rồi ngoảnh lại nhìn camera; vuốt nhẹ tà váy / vạt áo.
+    - Duyên dáng, tự tin, tự nhiên như con gái đang khoe đồ mới với bạn, KHÔNG gợi cảm, không uốn éo, không cắn môi, không nhấn vào cơ thể.
+    - visual ghi theo thứ tự: biểu cảm (cười / đá mắt...) → dáng / cử chỉ → phần sản phẩm đang khoe. Ví dụ:
+      "Đứng toàn thân trước gương, liếc camera cười tinh nghịch, tay chống hông rồi xoay nửa người khoe dáng váy."
+    - image_prompt ghi biểu cảm và dáng bằng tiếng Anh, ví dụ "smiling softly and glancing playfully at the camera, one hand on her hip, weight on one leg".
     PROMPT;
 
     /** Hát nhép theo nhạc nền: không có lời đọc. */
     public const SING = <<<'PROMPT'
     Video HÁT NHÉP theo nhạc nền (lip-sync kiểu TikTok): người mẫu nhép miệng theo bài nhạc, không có lời đọc.
     - voiceover để trống "" ở mọi cảnh.
-    - visual tả biểu cảm hát nhép hợp tâm trạng bài, nhún nhảy và cử chỉ theo nhịp nhạc, vẫn khoe rõ sản phẩm; nhìn vào camera.
+    - visual tả biểu cảm hát nhép hợp tâm trạng bài, nhún nhẹ và cử chỉ theo nhịp nhạc, vẫn khoe rõ sản phẩm; nhìn vào camera.
+      Đoạn không có lời hát thì không nhép: chỉ cười, đá mắt, làm dáng (như video chỉ có nhạc nền).
     - on_screen_text là câu ngắn về sản phẩm (không chép lời bài hát).
     PROMPT;
 
@@ -194,9 +215,9 @@ class ScriptPrompt
         $rows = array_map(fn (?string $angle, int $i) => 'Cảnh '.($i + 1).': '.ProductCoverage::label($angle).' — '.ProductCoverage::ANGLES[$angle]['image'], $plan, array_keys($plan));
 
         return "Góc quay sản phẩm (video review phải cho thấy đủ sản phẩm từ nhiều góc, mỗi cảnh đúng một góc):\n".implode("\n", $rows)."\n"
-            .'Quy tắc: visual và image_prompt của cảnh tả đúng góc đó (cận cảnh thì khung hình chủ yếu là phần sản phẩm, không cần thấy mặt); '
-            .'voiceover và on_screen_text nói về đúng phần đang thấy (cận cổ áo thì nói cổ áo, cận vải thì nói chất vải theo đánh giá, mặt sau thì nói dáng sau); '
-            .'cảnh cận ngắn hơn (2–3 giây), cảnh toàn thân dài hơn. Nếu ảnh sản phẩm không có mặt sau thì cảnh mặt sau chỉ nói về dáng, không tả chi tiết mặt sau.'."\n\n";
+            .'Quy tắc: visual và image_prompt của cảnh tả đúng góc đó, luôn toàn thân từ xa (chi tiết khoe bằng tay chạm / chỉ, không cận); '
+            .'voiceover và on_screen_text nói về đúng phần đang khoe (chạm cổ áo thì nói cổ áo, vuốt vải thì nói chất vải theo đánh giá, mặt sau thì nói dáng sau). '
+            .'Nếu ảnh sản phẩm không có mặt sau thì cảnh mặt sau chỉ nói về dáng, không tả chi tiết mặt sau.'."\n\n";
     }
 
     /** Video mẫu nhiều shot: độ dài từng cảnh theo shot (sao chép chuyển động từng shot). */
@@ -217,7 +238,7 @@ class ScriptPrompt
     Video MỘT CẢNH QUAY LIỀN (one take, không cắt cảnh), thay cho quy tắc mỗi cảnh một bối cảnh / góc máy khác:
     - Cùng một địa điểm, cùng ánh sáng, cùng bộ đồ từ đầu đến cuối; máy quay điện thoại cầm tay đi theo người mẫu.
     - Mỗi phần tử của scenes là một nhịp khoảng 5 giây nối tiếp liền mạch: nhịp sau bắt đầu đúng tư thế, vị trí cuối nhịp trước
-      (bước tiếp, xoay người, tiến lại gần camera khoe chi tiết, ngồi xuống, đứng dậy, vẫy tay chào...). Không nhảy địa điểm hay đổi góc máy đột ngột.
+      (bước tiếp, xoay người, chạm tay khoe chi tiết, đổi dáng, vẫy tay chào...), máy vẫn cách khoảng 3 m thấy toàn thân. Không nhảy địa điểm hay đổi góc máy đột ngột.
     - Chỉ image_prompt của cảnh 1 dùng để tạo ảnh (các nhịp sau lấy khung cuối clip trước): image_prompt cảnh 1 tả bối cảnh và tư thế mở đầu;
       các cảnh sau image_prompt chỉ cần tóm tắt nhịp đó.
     - visual tả rõ hành động trong nhịp (AI làm clip theo visual), ví dụ "Bước chậm về phía camera, tay vuốt nhẹ tà váy".

@@ -116,7 +116,9 @@ class PromptRewriteTest extends TestCase
         $this->assertStringContainsString('modest', $prompt);
 
         $macro = (new RuleScenePromptRewriter)->rewrite(Scene::factory()->make(['image_prompt' => 'Extreme close-up of the lace bodice on her chest.']), '');
-        $this->assertStringContainsString('mannequin', $macro);
+        // Cận chi tiết cũng đổi thành toàn thân từ xa (không còn ảnh manơcanh không người).
+        $this->assertStringContainsString('wide full-body shot', $macro);
+        $this->assertStringNotContainsString('close-up', $macro);
     }
 
     public function test_muse_message_marks_request_as_independent()

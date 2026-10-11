@@ -2,6 +2,7 @@
 
 namespace App\Services\Script;
 
+use App\Support\MusePlan;
 use App\Support\PromoText;
 
 /** JSON schema cho đầu ra kịch bản (structured outputs). */
@@ -67,7 +68,7 @@ class ScriptSchema
                 'on_screen_text' => mb_substr(PromoText::strip((string) ($scene['on_screen_text'] ?? '')), 0, 200),
                 'voiceover' => PromoText::strip((string) ($scene['voiceover'] ?? '')),
                 'image_prompt' => (string) $scene['image_prompt'],
-                'duration_ms' => max(1000, min(10000, (int) ($scene['duration_ms'] ?? 3000))),
+                'duration_ms' => max(1000, min(MusePlan::MAX_SHOT * 1000, (int) ($scene['duration_ms'] ?? 3000))),
             ];
         }
 

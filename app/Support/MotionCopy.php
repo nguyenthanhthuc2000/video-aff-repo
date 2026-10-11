@@ -23,13 +23,14 @@ final class MotionCopy
             .'The first attachment is a photo of the person; the second attachment is a reference video. '
             .'Animate the person in the photo so she performs exactly the same movements as the person in the reference video, '
             .'move for move from the first frame to the last: the same dance moves, gestures, poses, timing and rhythm, at the same real-time speed '
-            .'(no slow motion, do not stretch or loop the moves), and the same camera framing and movement. '
+            .'(no slow motion, do not stretch or loop the moves), and the same camera movement. '
             .'She starts moving right away from the very first frame, in the pose of the photo. '
             .($timeline ? $timeline.' ' : '')
             .'Use the reference video ONLY for the motion: keep the face, hair, outfit, product and background from the photo; '
             .'do not copy the person, clothes, background, text or logos from the reference video. '
-            ."{$product} Scene context: {$scene->visual}. "
+            ."{$product} Scene context: ".Framing::strip((string) $scene->visual).'. '
             .MotionStyle::CONTINUITY.' '
+            .Framing::VIDEO.' Keep this full-body framing even if the reference video is framed closer. '
             .($scene->phase === ScenePhase::Before ? '' : ProductFidelity::VIDEO.' ')
             .'Keep the camera motion of the reference video; otherwise: '.Realism::VIDEO.' No text, no extra people. '
             .'Keep it modest and family-friendly: if a move in the reference is too suggestive, replace it with a modest move of similar rhythm, '

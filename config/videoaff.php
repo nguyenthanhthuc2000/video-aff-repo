@@ -57,6 +57,14 @@ return [
     ],
 
     // MUSE_DRIVER=browser: dịch vụ trình duyệt ngầm (docker service "browser") thao tác muse.ai.
+    // Phân tích nhạc cho hát nhép (service docker "audio": Demucs tách giọng + faster-whisper ghi lời), chạy trên CPU.
+    'audio_analyzer' => [
+        'url' => env('AUDIO_ANALYZER_URL', 'http://audio:3100'),
+        'token' => env('AUDIO_ANALYZER_TOKEN'),
+        // Tách giọng một bài 4–5 phút trên CPU mất vài phút.
+        'timeout' => (int) env('AUDIO_ANALYZER_TIMEOUT', 900),
+    ],
+
     'muse_browser' => [
         'url' => env('MUSE_BROWSER_URL', 'http://browser:3000'),
         'token' => env('MUSE_BROWSER_TOKEN'),

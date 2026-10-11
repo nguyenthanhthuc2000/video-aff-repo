@@ -75,6 +75,10 @@ Muốn tự động qua API thì đặt khoá trong `.env` (không commit, khôn
 
 **Muse qua trình duyệt ngầm (`MUSE_DRIVER=browser`):** dịch vụ `browser` (Playwright) đăng nhập [muse.ai](https://muse.ai) bằng tài khoản của bạn và gửi lệnh tạo ảnh, nên tạo ảnh và chạy ngầm được mà không cần `FAL_KEY`. Đặt `MUSE_DRIVER=browser` và `MUSE_BROWSER_TOKEN` (chuỗi ngẫu nhiên) trong `.env`, chạy `docker compose up -d --build browser` và `docker compose restart app queue`, rồi vào **Xác thực Muse** trên menu: nhập email, nhập mã OTP gửi về mail. Phiên đăng nhập lưu trong volume `browser-data`; mật khẩu không được lưu. Điều khoản của Meta không cho phép truy cập tự động nên tài khoản có thể bị yêu cầu xác minh hoặc giới hạn, và bước tự động có thể hỏng khi muse.ai đổi giao diện (xem ảnh chụp trên màn hình Xác thực Muse).
 
+**Phân cảnh bằng Muse:** dự án có video mẫu hoặc nhạc nền thì trước khi viết kịch bản, app gửi video mẫu (có tiếng), nhạc nền và ảnh sản phẩm cho Muse (đoạn chat phụ mới). Muse tự xem / nghe rồi trả JSON: đoạn nhạc bắt đầu, lời bài hát kèm mốc thời gian, từng shot (2–30 giây, động tác, máy quay, biểu cảm, đoạn video mẫu cần sao chép, lúc nào nhép lời / ngậm miệng). Thường mất 3–30 phút; job gửi rồi hỏi lại nên không chặn hàng đợi. Kịch bản (số cảnh, thời lượng, hành động), ảnh và clip làm theo phân cảnh này. Muse lỗi thì vẫn viết kịch bản như trước. Shot dài hơn 10 giây được Muse làm thành nhiều đoạn, đoạn sau nối từ khung cuối đoạn trước, rồi ghép lại thành một clip liền. Dán lời chuẩn ở trang **Âm thanh** để Muse dóng đúng lời.
+
+**Dịch vụ `audio` (tuỳ chọn, phân tích bằng thuật toán):** Demucs tách giọng hát, faster-whisper ghi lời kèm mốc thời gian (CPU, miễn phí). Không còn tự chạy; chỉ chạy khi bấm phân tích ở trang **Âm thanh**, và chỉ dùng cho hát nhép khi dự án không có phân cảnh Muse.
+
 Có thể ép chế độ bằng `SCRIPT_DRIVER=web|claude|fake` và `MUSE_DRIVER=web|fal|fake`. Sau khi sửa `.env` trong Docker, chạy `docker compose restart app queue`.
 
 ## Luồng dùng

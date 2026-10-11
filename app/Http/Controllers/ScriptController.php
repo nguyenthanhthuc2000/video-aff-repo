@@ -3,13 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Enums\VideoProjectStatus;
-use App\Jobs\GenerateScriptJob;
 use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
 use App\Services\Script\ScriptSchema;
 use App\Services\Script\ScriptWriterException;
 use App\Support\CreditPricing;
 use App\Support\Credits;
+use App\Support\MusePlan;
 use App\Support\ScriptDriver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -37,11 +37,39 @@ class ScriptController extends Controller
             return back()->with('status', $message);
         }
 
-        $project->update(['status' => VideoProjectStatus::Scripting, 'error' => null]);
+        $project->queueScript();
 
-        GenerateScriptJob::dispatch($project);
+        return back()->with('status', $project->muse_plan_status === 'pending' ? 'Muse đang xem video mẫu và nghe nhạc để lên phân cảnh, xong sẽ viết kịch bản...' : 'Đang viết kịch bản...');
+    }
 
-        return back()->with('status', 'Đang viết kịch bản...');
+    /** Muse xem lại video mẫu, nghe lại nhạc và lên phân cảnh mới, rồi viết lại kịch bản theo phân cảnh đó. */
+    public function replan(VideoProject $project): RedirectResponse
+    {
+        $this->authorize('update', $project);
+
+        if (! MusePlan::wanted($project)) {
+            return back()->with('status', 'Chọn video mẫu hoặc nhạc nền để Muse phân tích.');
+        }
+        if (! in_array($project->status, self::WRITE_ALLOWED, true) || $project->muse_plan_status === 'pending') {
+            return back()->with('status', 'Không thể phân tích lại ở bước này.');
+        }
+
+        $project->forgetMusePlan();
+
+        return $this->store($project);
+    }
+
+    /** Viết lại đề xuất caption đăng video (bán hàng / câu view). */
+    public function postCaptions(VideoProject $project): RedirectResponse
+    {
+        $this->authorize('update', $project);
+
+        if ($project->script === null || $project->post_captions_status === 'pending') {
+            return back()->with('status', 'Cần có kịch bản trước, hoặc đề xuất đang được viết.');
+        }
+        $project->queuePostCaptions();
+
+        return back()->with('status', 'Đang viết đề xuất caption...');
     }
 
     /** Nhập kịch bản từ câu trả lời của Claude bản web (claude.ai). Thay toàn bộ cảnh cũ. */
@@ -98,7 +126,7 @@ class ScriptController extends Controller
             'scenes.*.voiceover' => ['nullable', 'string', 'max:1000'],
             // Chỉ admin thấy và sửa prompt ảnh; người dùng không gửi thì giữ prompt cũ.
             'scenes.*.image_prompt' => [$request->user()->isAdmin() ? 'required' : 'exclude', 'string', 'max:2000'],
-            'scenes.*.duration_ms' => ['required', 'integer', 'min:1000', 'max:10000'],
+            'scenes.*.duration_ms' => ['required', 'integer', 'min:1000', 'max:30000'],
         ], [], [
             'hooks.*' => 'hook',
             'scenes.*.visual' => 'mô tả cảnh',

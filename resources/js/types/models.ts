@@ -186,6 +186,11 @@ export interface VideoProject {
     angle_options?: { value: string; label: string }[];
     /** Hát nhép: đoạn nhạc bắt đầu từ (ms), AI chọn khi tạo clip đầu tiên. */
     music_start_ms?: number | null;
+    muse_plan_status?: 'pending' | 'ready' | 'failed' | null;
+    muse_plan_error?: string | null;
+    muse_plan?: MusePlan | null;
+    post_captions_status?: 'pending' | 'ready' | 'failed' | null;
+    post_captions?: PostCaptions | null;
     render_text?: boolean;
     /** Mọi sản phẩm trong video (video gộp: theo thứ tự bộ đồ). */
     video_products?: {
@@ -275,4 +280,37 @@ export interface AudioTrack {
     size_bytes: number;
     duration_ms: number | null;
     used_count?: number;
+    /** Phân tích giọng hát (hát nhép): null = chưa phân tích. */
+    vocal_status?: 'pending' | 'ready' | 'failed' | null;
+    vocal_error?: string | null;
+    vocal_summary?: { sung_seconds: number; lines: { start: number; end: number; text: string }[] } | null;
+    /** Lời bài hát chuẩn người dùng dán (thay chữ Whisper nghe nhầm). */
+    lyrics?: string | null;
+}
+
+export interface MusePlanShot {
+    duration: number;
+    camera: string;
+    action: string;
+    expression: string;
+    product_focus: string;
+    sample_start: number | null;
+    sample_end: number | null;
+    mouth: { start: number; end: number; state: 'sing' | 'closed'; words: string }[];
+}
+
+export interface MusePlan {
+    music_start: number | null;
+    tempo_bpm: number | null;
+    mood: string;
+    summary: string;
+    song_lines: { start: number; end: number; text: string }[];
+    shots: MusePlanShot[];
+}
+
+/** Đề xuất caption đăng video: bản bán hàng và bản câu view (error khi viết lỗi). */
+export interface PostCaptions {
+    sale?: string[];
+    view?: string[];
+    error?: string;
 }

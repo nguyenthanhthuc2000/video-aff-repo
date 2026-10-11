@@ -65,6 +65,8 @@ class SceneClipController extends Controller
 
         $validated = $request->validate(self::referenceRules($request), [], ['sample_video_id' => 'video mẫu']);
         $project->update(['sample_video_id' => $validated['sample_video_id'] ?? null]);
+        // Đổi video mẫu: viết lại kịch bản thì Muse xem video mới và lên lại phân cảnh.
+        $project->forgetMusePlan();
 
         return back()->with('status', $project->sample_video_id
             ? 'Đã chọn video mẫu cho dự án. Tạo (lại) clip để sao chép chuyển động.'

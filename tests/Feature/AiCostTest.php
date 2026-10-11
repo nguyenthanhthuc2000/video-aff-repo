@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GeneratePostCaptionsJob;
 use App\Jobs\GenerateScriptJob;
 use App\Models\AiUsageLog;
 use App\Models\Scene;
@@ -13,6 +14,7 @@ use App\Services\ProductImport\PageSnapshot;
 use App\Services\ProductImport\ProductExtractor;
 use App\Services\ProductImport\ProductImportException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 use RuntimeException;
@@ -63,6 +65,8 @@ class AiCostTest extends TestCase
             ],
         ]);
         $project = VideoProject::factory()->create();
+        // Chỉ xét lượt viết kịch bản (đề xuất caption viết sau là lượt gọi riêng).
+        Queue::fake([GeneratePostCaptionsJob::class]);
 
         GenerateScriptJob::dispatchSync($project);
 

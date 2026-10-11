@@ -11,10 +11,13 @@ use App\Enums\VideoType;
 use App\Enums\VoiceMode;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
+use App\Jobs\GeneratePostCaptionsJob;
 use App\Jobs\GenerateSceneImageJob;
 use App\Jobs\GenerateScriptJob;
+use App\Jobs\PlanWithMuseJob;
 use App\Jobs\RenderVideoJob;
 use App\Support\CreditPricing;
+use App\Support\MusePlan;
 use App\Support\ProductCoverage;
 use App\Support\VideoPreset;
 use Database\Factories\VideoProjectFactory;
@@ -49,6 +52,12 @@ class VideoProject extends Model
         'music',
         'audio_track_id',
         'music_start_ms',
+        'muse_plan_status',
+        'muse_plan',
+        'muse_plan_error',
+        'muse_plan_request_id',
+        'post_captions_status',
+        'post_captions',
         'sample_video_id',
         'background_ids',
         'outfits',
@@ -73,6 +82,8 @@ class VideoProject extends Model
             'one_take' => 'boolean',
             'voice_mode' => VoiceMode::class,
             'music_start_ms' => 'integer',
+            'muse_plan' => 'array',
+            'post_captions' => 'array',
             'autopilot' => 'boolean',
             'script' => 'array',
             'selected_hook' => 'integer',
@@ -129,7 +140,8 @@ class VideoProject extends Model
      */
     public function shotPieces(): array
     {
-        return $this->one_take ? [] : ($this->sampleVideo?->pieces() ?? []);
+        // Có phân cảnh Muse thì theo phân cảnh, không dò shot bằng thuật toán.
+        return $this->one_take || MusePlan::of($this) !== null ? [] : ($this->sampleVideo?->pieces() ?? []);
     }
 
     /** Cảnh đầu tiên (một cảnh quay liền chỉ cảnh này tạo ảnh, các cảnh sau lấy khung cuối clip trước). */
@@ -235,6 +247,8 @@ class VideoProject extends Model
             $backgrounds = $this->chosenBackgrounds();
             // Video mẫu nhiều shot: cảnh i dài đúng đoạn thứ i và mặc bộ đồ của shot đó.
             $pieces = $this->shotPieces();
+            // Phân cảnh Muse: cảnh i dài đúng shot thứ i.
+            $plan = MusePlan::of($this);
             $outfits = $this->outfitList();
             // Góc quay sản phẩm của từng cảnh, giống phần prompt đã gửi Claude.
             $angles = ProductCoverage::plan($this, count($script['scenes']));
@@ -248,9 +262,11 @@ class VideoProject extends Model
                     $outfit = $outfits[($piece !== null ? $piece['shot'] : $worn) % count($outfits)];
                     $worn++;
                 }
+                $shot = $plan !== null && count($plan['shots']) === count($script['scenes']) ? $plan['shots'][$i] : null;
                 $this->scenes()->create([
                     ...$scene,
                     ...($piece !== null ? ['duration_ms' => (int) round(($piece['end'] - $piece['start']) * 1000)] : []),
+                    ...($shot !== null ? ['duration_ms' => (int) round($shot['duration'] * 1000)] : []),
                     'position' => $i + 1,
                     'phase' => $phase,
                     'angle' => $angles[$i] ?? null,
@@ -275,6 +291,15 @@ class VideoProject extends Model
                 'error' => null,
             ]);
         });
+
+        $this->queuePostCaptions();
+    }
+
+    /** Viết (lại) đề xuất caption đăng video theo kịch bản hiện tại. */
+    public function queuePostCaptions(): void
+    {
+        $this->update(['post_captions_status' => 'pending']);
+        GeneratePostCaptionsJob::dispatch($this);
     }
 
     public function markFailed(string $error): void
@@ -300,18 +325,45 @@ class VideoProject extends Model
         return $missing === [] ? null : 'Chạy ngầm chưa sẵn sàng (hệ thống chưa tự '.implode(' và ', $missing).' được). Liên hệ quản trị viên.';
     }
 
+    /**
+     * Viết kịch bản: có video mẫu / nhạc nền thì Muse phân tích và lên phân cảnh trước (PlanWithMuseJob viết kịch bản khi xong),
+     * phân cảnh đã có (hoặc Muse lỗi) thì viết luôn.
+     */
+    public function queueScript(): void
+    {
+        $this->update(['status' => VideoProjectStatus::Scripting, 'error' => null]);
+        if (MusePlan::wanted($this) && ! in_array($this->muse_plan_status, ['ready', 'failed', 'pending'], true)) {
+            $this->update(['muse_plan_status' => 'pending', 'muse_plan' => null, 'muse_plan_error' => null, 'muse_plan_request_id' => null]);
+            PlanWithMuseJob::dispatch($this);
+
+            return;
+        }
+        if ($this->muse_plan_status !== 'pending') {
+            GenerateScriptJob::dispatch($this);
+        }
+    }
+
+    /** Video mẫu / nhạc nền / kiểu tiếng / quay liền đổi: phân cảnh cũ không còn đúng, lần viết kịch bản sau Muse phân tích lại. */
+    public function forgetMusePlan(): void
+    {
+        if ($this->muse_plan_status !== null && $this->muse_plan_status !== 'pending') {
+            $this->update(['muse_plan_status' => null, 'muse_plan' => null, 'muse_plan_error' => null, 'muse_plan_request_id' => null]);
+        }
+    }
+
     /** Bật chạy ngầm và đưa bước tiếp theo vào hàng đợi. */
     public function startAutopilot(): void
     {
         $this->update(['autopilot' => true, 'error' => null]);
-        $this->advanceAutopilot();
+        // Người dùng bấm chạy lại: clip lỗi lần trước cũng tạo lại (không thì một cảnh quay liền dừng ngay ở nhịp lỗi).
+        $this->advanceAutopilot(retryFailed: true);
     }
 
     /**
      * Chạy bước tiếp theo khi đang chạy ngầm: kịch bản → tạo ảnh → duyệt ảnh mới nhất → xuất video (hook đang chọn).
      * Được gọi lại sau mỗi job.
      */
-    public function advanceAutopilot(): void
+    public function advanceAutopilot(bool $retryFailed = false): void
     {
         $this->refresh();
         if (! $this->autopilot || $this->status->isBusy()) {
@@ -319,8 +371,7 @@ class VideoProject extends Model
         }
 
         if ($this->script === null || $this->scenes()->doesntExist()) {
-            $this->update(['status' => VideoProjectStatus::Scripting]);
-            GenerateScriptJob::dispatch($this);
+            $this->queueScript();
 
             return;
         }
@@ -347,7 +398,7 @@ class VideoProject extends Model
             if ($this->clipsPending()) {
                 return;
             }
-            if ($this->queueMissingClips() > 0) {
+            if ($this->queueMissingClips($retryFailed) > 0) {
                 return;
             }
             // Một cảnh quay liền: clip lỗi giữa chừng thì các nhịp sau không có khung để nối tiếp.
@@ -401,6 +452,16 @@ class VideoProject extends Model
     public function videoSettings(): array
     {
         $settings = VideoPreset::resolve($this->product);
+
+        // Muse đã lên phân cảnh từ video mẫu và nhạc: số cảnh và độ dài theo đúng phân cảnh.
+        if (($plan = MusePlan::of($this)) !== null) {
+            return [
+                ...$settings,
+                'scenes' => count($plan['shots']),
+                'seconds' => (int) round(array_sum(array_column($plan['shots'], 'duration'))),
+                'reason' => 'Theo phân cảnh Muse lên từ video mẫu và nhạc nền: '.count($plan['shots']).' shot.',
+            ];
+        }
 
         // Video mẫu nhiều shot: số cảnh và độ dài theo các shot (mỗi shot dài được chia thành vài cảnh).
         if ($this->one_take) {
@@ -562,7 +623,9 @@ class VideoProject extends Model
 
         return match ($this->status) {
             VideoProjectStatus::Draft => ['percent' => 0, 'label' => 'Chưa bắt đầu'],
-            VideoProjectStatus::Scripting => ['percent' => 10, 'label' => 'AI đang viết kịch bản'],
+            VideoProjectStatus::Scripting => $this->muse_plan_status === 'pending'
+                ? ['percent' => 5, 'label' => 'Muse đang xem video mẫu và nghe nhạc để lên phân cảnh (thường 5–30 phút)']
+                : ['percent' => 10, 'label' => 'AI đang viết kịch bản'],
             VideoProjectStatus::ScriptReady => ['percent' => 20, 'label' => 'Có kịch bản, chờ tạo ảnh'],
             VideoProjectStatus::Imaging => ['percent' => 20 + (int) round(50 * $withImage / $total), 'label' => "Đang tạo ảnh {$withImage}/{$scenes->count()}"],
             VideoProjectStatus::Reviewing => $this->clipsPending()

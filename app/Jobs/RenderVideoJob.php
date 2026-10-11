@@ -109,6 +109,10 @@ class RenderVideoJob implements ShouldQueue
                 'completed_at' => now(),
             ]);
             $project->update(['status' => VideoProjectStatus::Done, 'error' => null, 'autopilot' => false]);
+            // Video xong mà chưa có đề xuất caption đăng bài (dự án cũ / lần trước lỗi) thì viết luôn.
+            if ($project->script !== null && in_array($project->post_captions_status, [null, 'failed'], true)) {
+                $project->queuePostCaptions();
+            }
             Credits::charge($project->user_id, self::price($spec->durationMs()), 'render', "render:{$render->id}", 'Xuất video', $project->id);
         } finally {
             File::deleteDirectory($workDir);

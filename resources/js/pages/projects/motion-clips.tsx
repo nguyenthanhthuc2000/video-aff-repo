@@ -98,7 +98,13 @@ export default function MotionClips({ project, sampleVideos = [] }: { project: V
                         {pending > 0 ? `AI đang tạo ${pending} clip...` : 'Tạo clip bằng AI cho mọi cảnh'}
                     </Button>
                     <span className="text-muted-foreground text-xs">
-                        Tạo clip từ ảnh cảnh đã duyệt với động tác "{project.motion_style_label}", chờ video xong rồi tự tải về. Mỗi clip mất vài
+                        Tạo clip từ ảnh cảnh đã duyệt
+                        {project.sample_video
+                            ? ` theo động tác video mẫu "${project.sample_video.name}"`
+                            : project.motion_style_label
+                              ? ` với động tác "${project.motion_style_label}"`
+                              : ''}
+                        , chờ video xong rồi tự tải về. Mỗi clip mất vài
                         phút.
                     </span>
                 </div>
@@ -116,10 +122,13 @@ export default function MotionClips({ project, sampleVideos = [] }: { project: V
                 <li>Tải clip về (MP4, tối đa 100MB) và bấm "Tải clip lên". Cảnh không có clip sẽ dùng ảnh tĩnh.</li>
             </ol>
             <p className="text-muted-foreground text-xs">
-                Kiểu: {project.motion_style_label}. Đã có clip {withClip}/{scenes.length} cảnh.{' '}
+                {project.motion_style_label && !project.sample_video && `Kiểu: ${project.motion_style_label}. `}
+                Đã có clip {withClip}/{scenes.length} cảnh.{' '}
                 {project.voice_mode === 'speak'
                     ? 'Video giữ giọng nói trong clip, nhạc nền nhỏ lại.'
-                    : 'Tiếng trong clip bị bỏ, video dùng nhạc nền đã chọn.'}{' '}
+                    : project.voice_mode === 'sing'
+                      ? 'Người mẫu nhép theo đúng đoạn nhạc nền của từng cảnh, video phát nhạc nền đầy đủ.'
+                      : 'Tiếng trong clip bị bỏ, video dùng nhạc nền đã chọn.'}{' '}
                 Nhạc trend TikTok thường có bản quyền, nên thêm nhạc khi đăng trên Shopee Video.
             </p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

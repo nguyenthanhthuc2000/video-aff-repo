@@ -173,7 +173,7 @@ class ScriptTest extends TestCase
         $this->assertCount(5, $script['hooks']);
         $this->assertSame(['Tò mò', '', '', '', ''], $script['hook_themes']);
         $this->assertSame(0, $script['recommended_hook']);
-        $this->assertSame(10000, $script['scenes'][0]['duration_ms']);
+        $this->assertSame(30000, $script['scenes'][0]['duration_ms']);
         $this->assertSame([], $script['hashtags']);
 
         $this->expectException(ScriptWriterException::class);

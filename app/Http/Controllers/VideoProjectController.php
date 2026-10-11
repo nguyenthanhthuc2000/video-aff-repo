@@ -256,10 +256,12 @@ class VideoProjectController extends Controller
             throw ValidationException::withMessages(['voice_mode' => $message]);
         }
         $project->update(['voice_mode' => $mode, 'music_start_ms' => null]);
+        // Phân cảnh Muse lên theo kiểu tiếng cũ: viết lại kịch bản thì Muse lên lại.
+        $project->forgetMusePlan();
 
         return back()->with('status', match ($mode) {
             VoiceMode::Speak => 'Đã chọn "Người mẫu nói". Viết lại kịch bản để lời nói nối thành một bài review, rồi tạo lại clip.',
-            VoiceMode::Sing => 'Đã chọn "Hát nhép theo nhạc". Tạo lại clip để người mẫu hát nhép theo nhạc nền.',
+            VoiceMode::Sing => 'Đã chọn "Hát nhép theo nhạc". Viết lại kịch bản để Muse nghe nhạc và lên lại phân cảnh hát nhép, rồi tạo lại clip.',
             VoiceMode::Music => 'Đã chọn "Chỉ nhạc nền". Tạo lại clip để người mẫu không nhép miệng.',
         });
     }

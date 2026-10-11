@@ -8,6 +8,7 @@ use App\Enums\ScenePhase;
 use App\Jobs\GenerateSceneClipJob;
 use App\Services\Video\ReferenceClip;
 use App\Support\Media;
+use App\Support\MusePlan;
 use Database\Factories\SceneFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -34,6 +35,7 @@ class Scene extends Model
         'voiceover',
         'image_prompt',
         'clip_path',
+        'clip_parts',
         'clip_status',
         'clip_error',
         'clip_request_id',
@@ -49,6 +51,7 @@ class Scene extends Model
             'position' => 'integer',
             'duration_ms' => 'integer',
             'clip_status' => SceneClipStatus::class,
+            'clip_parts' => 'array',
             'clip_started_at' => 'datetime',
             'clip_completed_at' => 'datetime',
             'phase' => ScenePhase::class,
@@ -136,10 +139,47 @@ class Scene extends Model
     }
 
     /** Đưa việc tạo clip chuyển động (muse.ai) vào hàng đợi. */
+    /**
+     * Ảnh cảnh đổi (tạo lại, tải lên, duyệt ảnh khác): clip cũ / clip đang tạo không còn khớp ảnh nên bỏ;
+     * job đang hỏi kết quả tự dừng vì cảnh không còn chờ clip. Một cảnh quay liền: các nhịp sau nối từ clip này nên bỏ theo.
+     */
+    public function discardClip(): void
+    {
+        $project = $this->videoProject;
+        $scenes = $project->one_take
+            ? $project->scenes()->where('position', '>=', $this->position)->get()
+            : collect([$this]);
+
+        foreach ($scenes as $scene) {
+            if ($scene->clip_path === null && $scene->clip_status === null && $scene->clip_request_id === null) {
+                continue;
+            }
+            Media::delete($scene->clip_path);
+            $scene->dropClipParts();
+            $scene->update(['clip_path' => null, 'clip_status' => null, 'clip_error' => null, 'clip_request_id' => null, 'clip_started_at' => null, 'clip_completed_at' => null]);
+            if (! $scene->is($this)) {
+                // Khung mở đầu lấy từ clip cảnh trước: bỏ, sẽ có lại khi clip cảnh trước tạo xong.
+                $scene->images()->where('provider', 'one_take')->where('status', SceneImageStatus::Approved)->update(['status' => SceneImageStatus::Rejected]);
+            }
+        }
+    }
+
     public function queueClip(): void
     {
+        $this->dropClipParts();
         $this->update(['clip_status' => SceneClipStatus::Pending, 'clip_error' => null, 'clip_request_id' => null]);
         GenerateSceneClipJob::dispatch($this);
+    }
+
+    /** Bỏ các đoạn đã làm dở của shot dài (làm lại từ đoạn đầu). */
+    public function dropClipParts(): void
+    {
+        foreach ($this->clip_parts ?? [] as $part) {
+            Media::delete($part['path'] ?? null);
+        }
+        if ($this->clip_parts !== null) {
+            $this->update(['clip_parts' => null]);
+        }
     }
 
     /** Video mẫu riêng của cảnh (null = theo dự án). */
@@ -163,6 +203,10 @@ class Scene extends Model
     public function motionSegment(): array
     {
         $sample = $this->motionReference();
+        // Phân cảnh Muse ghi rõ đoạn video mẫu của cảnh.
+        if ($sample !== null && ($range = MusePlan::sampleRange($this)) !== null) {
+            return ['start' => round($range['start'], 1), 'length' => round(max(1.0, $range['end'] - $range['start']), 1)];
+        }
         // Video mẫu nhiều shot: cảnh thứ k (trong các cảnh cùng video mẫu) sao chép đúng đoạn thứ k.
         // (Một cảnh quay liền thì không theo shot, các nhịp sao chép lần lượt theo thời gian.)
         if ($sample !== null && ! $this->videoProject->one_take && ($pieces = $sample->pieces()) !== []) {

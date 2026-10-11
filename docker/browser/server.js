@@ -275,7 +275,7 @@ async function download(p, src) {
 // nên kết quả được nhận theo mã. Muse không đặt tiêu đề theo mã thì lấy lần lượt theo thứ tự gửi.
 
 const CODE_PATTERN = /VA-[A-Z0-9]{6}/g;
-/** @type {Map<string, {code: string, kind: 'image'|'video', sentAt: number, deadline: number, state: string, error?: string, result?: object, candidate?: string|null}>} */
+/** @type {Map<string, {code: string, kind: 'image'|'video'|'text', sentAt: number, deadline: number, state: string, error?: string, result?: object, candidate?: string|null}>} */
 const tasks = new Map();
 const claimed = new Set();
 let pollTimer = null;
@@ -428,7 +428,19 @@ async function scan(p) {
                     return { text, codes };
                 })
                 .filter((reply) => reply.codes.length > 0 && reply.text.length > 20 && new RegExp(refusalSource, 'i').test(reply.text));
-            return { anchors: [...new Set(occurrences.map((occ) => occ.code))], media: [...images, ...videos], refusals };
+            // Câu trả lời dạng chữ đã viết xong (yêu cầu phân tích): gắn với mã trong tin gần nhất của mình phía trước nó.
+            const users = [...document.querySelectorAll('[data-message-role="user"]')];
+            const replies = [...document.querySelectorAll('[data-message-role="assistant"]')]
+                .filter((msg) => !msg.querySelector('[data-hatch-markdown-streaming="true"], [aria-busy="true"]'))
+                .map((msg) => {
+                    const owner = users.filter((user) => user.compareDocumentPosition(msg) & Node.DOCUMENT_POSITION_FOLLOWING).at(-1);
+                    return {
+                        code: owner?.innerText.match(new RegExp(codeSource))?.[0] ?? null,
+                        text: (msg.querySelector('[data-hatch-assistant-message-body]')?.innerText ?? msg.innerText ?? '').trim(),
+                    };
+                })
+                .filter((reply) => reply.code && reply.text.length > 0);
+            return { anchors: [...new Set(occurrences.map((occ) => occ.code))], media: [...images, ...videos], refusals, replies };
         },
         { imageSelector: GENERATED_IMAGES, videoSelector: GENERATED_VIDEOS, codeSource: CODE_PATTERN.source, refusalSource: REFUSAL_PATTERN.source },
     );
@@ -458,6 +470,17 @@ function schedulePoll() {
  * Không tạo được (giao diện đổi) thì gửi vào đoạn chat chính như trước.
  */
 async function openSideChat(p) {
+    // Cách nhanh: mở thẳng trang đoạn chat mới (bấm nút "Đoạn chat phụ mới" hay lỗi khi đã có tab khác vừa mở đoạn chat mới).
+    try {
+        await p.goto(new URL('thread/new', BASE_URL).href, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await p.locator(SELECTORS.composer).first().waitFor({ timeout: 15000 });
+        for (let i = 0; i < 10 && (await p.locator('[data-message-role]').count()) > 0; i++) await p.waitForTimeout(500);
+        if ((await p.locator('[data-message-role]').count()) === 0) return;
+    } catch (error) {
+        console.log(`[tab] không mở được thread/new: ${error.message.split('\n')[0]}`);
+        await p.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await ensureReady(p);
+    }
     try {
         const newChat = p
             .locator('button[aria-label="Đoạn chat phụ mới"], button[aria-label="New side chat"], button:has-text("Đoạn chat phụ mới"), button:has-text("New side chat")')
@@ -527,15 +550,29 @@ async function pollTasks() {
 }
 
 async function pollPage(p, pending) {
-    const { anchors, media, refusals } = await scan(p);
+    const { anchors, media, refusals, replies } = await scan(p);
 
     for (const task of pending) {
         if (Date.now() > task.deadline) {
-            fail(task, `Hết thời gian mà muse.ai chưa trả ${task.kind === 'video' ? 'video' : 'ảnh'}.`);
+            fail(task, `Hết thời gian mà muse.ai chưa trả ${{ video: 'video', text: 'kết quả phân tích' }[task.kind] ?? 'ảnh'}.`);
             continue;
         }
         if (!anchors.includes(task.code)) {
             if (Date.now() - task.sentAt > 90000) fail(task, 'Không thấy tin nhắn đã gửi trên muse.ai. Xem ảnh chụp ở màn hình Xác thực Muse.');
+            continue;
+        }
+        // Yêu cầu phân tích: lấy câu trả lời chữ khi đã viết xong và không đổi qua 2 lần quét.
+        if (task.kind === 'text') {
+            const text = replies.filter((reply) => reply.code === task.code).map((reply) => reply.text).join('\n\n');
+            // Không đổi qua 3 lần quét (~12 giây): tránh lấy dòng "đang xem video..." khi Muse chưa trả lời xong.
+            task.stable = text && text === task.candidate ? (task.stable ?? 0) + 1 : 0;
+            if (task.stable >= 2) {
+                task.result = { text };
+                task.state = 'done';
+                console.log(`[task ${task.code}] trả lời sau ${Math.round((Date.now() - task.sentAt) / 1000)}s (${text.length} ký tự)`);
+            } else {
+                task.candidate = text || null;
+            }
             continue;
         }
         // Kết quả của mã này (theo tiêu đề hoặc mã gần nhất phía trước), chưa được yêu cầu khác nhận.
@@ -875,7 +912,62 @@ async function generatedImages() {
     return result;
 }
 
+/** Chẩn đoán yêu cầu đang chờ: cấu trúc tin nhắn trong tab của nó (vai trò, độ dài chữ, có đang viết không) và ảnh chụp. */
+async function debugTasks() {
+    const result = [];
+    for (const task of tasks.values()) {
+        const p = task.page && !task.page.isClosed() ? task.page : null;
+        if (!p) {
+            result.push({ code: task.code, kind: task.kind, state: task.state, page: null });
+            continue;
+        }
+        const messages = await p.evaluate(() =>
+            [...document.querySelectorAll('[data-message-role]')].map((msg) => ({
+                role: msg.getAttribute('data-message-role'),
+                streaming: !!msg.querySelector('[data-hatch-markdown-streaming="true"], [aria-busy="true"]'),
+                body: !!msg.querySelector('[data-hatch-assistant-message-body]'),
+                text: (msg.innerText ?? '').trim().slice(0, 3000),
+            })),
+        );
+        result.push({ code: task.code, kind: task.kind, state: task.state, url: p.url(), messages, screenshot: (await p.screenshot()).toString('base64') });
+    }
+    return result;
+}
+
+/** Mở lại đoạn chat có mã (theo tên trong danh sách đoạn chat) và đọc tin nhắn: lấy kết quả trả về muộn / chẩn đoán. */
+async function readThread(code) {
+    if (!/^VA-[A-Z0-9]{6}$/.test(code)) {
+        const error = new Error('Mã yêu cầu không hợp lệ.');
+        error.status = 422;
+        throw error;
+    }
+    await getPage();
+    const p = await context.newPage();
+    try {
+        await p.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await ensureReady(p);
+        const row = p.locator(`[data-testid="hatch-thread-row"]:has-text("${code}")`).first();
+        for (let i = 0; i < 2 && !(await visible(row, 4000)); i++) {
+            await p.locator('[data-testid="hatch-chat-switcher-trigger"]').first().click({ timeout: 10000 });
+        }
+        await row.click({ timeout: 10000 });
+        await p.waitForTimeout(5000);
+        const messages = await p.evaluate(() =>
+            [...document.querySelectorAll('[data-message-role]')].map((msg) => ({
+                role: msg.getAttribute('data-message-role'),
+                streaming: !!msg.querySelector('[data-hatch-markdown-streaming="true"], [aria-busy="true"]'),
+                text: (msg.querySelector('[data-hatch-assistant-message-body]')?.innerText ?? msg.innerText ?? '').trim(),
+            })),
+        );
+        return { url: p.url(), messages, screenshot: (await p.screenshot({ fullPage: false })).toString('base64') };
+    } finally {
+        await p.close().catch(() => {});
+    }
+}
+
 const routes = {
+    'POST /threads/read': ({ code }) => serial(() => readThread(String(code ?? ''))),
+    'GET /debug/tasks': () => serial(debugTasks),
     'GET /inspect': () => serial(inspect),
     'GET /inspect/chats': () => serial(inspectChats),
     'GET /generated': () => serial(generatedImages),
@@ -889,7 +981,7 @@ const routes = {
         serial(() =>
             sendTask({
                 code: String(code ?? ''),
-                kind: kind === 'video' ? 'video' : 'image',
+                kind: ['video', 'text'].includes(kind) ? kind : 'image',
                 prompt: String(prompt ?? ''),
                 images: Array.isArray(images) ? images : [],
                 timeoutMs: Number(timeout_ms) || GENERATE_TIMEOUT_MS,
@@ -916,7 +1008,7 @@ createServer(async (req, res) => {
         const handler = routes[`${req.method} ${req.url}`];
         if (!handler) return send(res, 404, { message: 'Không có route.' });
         const result = await handler(await readJson(req));
-        const raw = ['/tasks', '/inspect', '/inspect/chats', '/generated'].includes(req.url) || req.url.startsWith('/claude/');
+        const raw = ['/tasks', '/inspect', '/inspect/chats', '/generated', '/debug/tasks', '/threads/read'].includes(req.url) || req.url.startsWith('/claude/');
         return send(res, 200, raw ? result : { ...status });
     } catch (error) {
         // Hết chỗ (429) là bình thường: Laravel gửi lại sau.

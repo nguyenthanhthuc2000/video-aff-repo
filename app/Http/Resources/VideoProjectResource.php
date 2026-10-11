@@ -14,6 +14,7 @@ use App\Models\VideoProject;
 use App\Services\Script\ScriptPrompt;
 use App\Support\Media;
 use App\Support\MotionCopy;
+use App\Support\MusePlan;
 use App\Support\ProductCoverage;
 use App\Support\SceneSettings;
 use Illuminate\Http\Request;
@@ -86,6 +87,11 @@ class VideoProjectResource extends JsonResource
             'angle_options' => ProductCoverage::applies($this->resource) ? ProductCoverage::options($this->resource) : [],
             'voice_mode' => ($this->voice_mode ?? VoiceMode::Music)->value,
             'music_start_ms' => $this->music_start_ms,
+            'muse_plan_status' => $this->muse_plan_status,
+            'muse_plan_error' => $this->muse_plan_error,
+            'muse_plan' => MusePlan::of($this->resource),
+            'post_captions_status' => $this->post_captions_status,
+            'post_captions' => $this->post_captions,
             'video_type_label' => $this->video_type->label(),
             'before_fashion_model' => $this->whenLoaded('beforeFashionModel', fn () => $this->beforeFashionModel ? [
                 'id' => $this->beforeFashionModel->id,

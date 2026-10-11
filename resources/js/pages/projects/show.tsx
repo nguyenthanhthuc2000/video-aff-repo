@@ -16,7 +16,9 @@ import { LoaderCircle, Play, Plus } from 'lucide-react';
 import CreateProjectForm from '../products/create-project-form';
 import ClaudeWebScript from './claude-web-script';
 import MotionClips from './motion-clips';
+import MusePlanPanel from './muse-plan';
 import MuseWebImages from './muse-web-images';
+import PostCaptionsPanel from './post-captions';
 import RenderPanel from './render-panel';
 import SceneImages from './scene-images';
 import SceneOrder from './scene-order';
@@ -49,7 +51,7 @@ export default function ProjectsShow({
     ];
 
     // Khi có job chạy nền, tự làm mới dữ liệu dự án mỗi 3 giây.
-    usePoll(project.is_busy, ['project']);
+    usePoll(project.is_busy || project.post_captions_status === 'pending', ['project']);
 
     const runAutopilot = () => router.post(route('projects.autopilot', project.id), {}, { preserveScroll: true });
     const canAutopilot = !project.is_busy && project.status !== 'done' && !project.autopilot;
@@ -180,7 +182,10 @@ export default function ProjectsShow({
                             )}
                         </p>
                     )}
-                    {project.status === 'scripting' && <p className="text-muted-foreground text-sm">AI đang viết kịch bản...</p>}
+                    <MusePlanPanel project={project} canReplan={canWriteScript && project.script_mode === 'api'} />
+                    {project.status === 'scripting' && project.muse_plan_status !== 'pending' && (
+                        <p className="text-muted-foreground text-sm">AI đang viết kịch bản...</p>
+                    )}
                     {!project.script && project.status === 'draft' && project.script_mode === 'api' && (
                         <p className="text-muted-foreground text-sm">
                             AI sẽ viết 5 hook theo 5 chủ đề (tự chọn hook hợp nhất), {project.video_settings?.scenes ?? 6} cảnh trong khoảng{' '}
@@ -238,6 +243,7 @@ export default function ProjectsShow({
                             <SceneOrder key={`order-${project.scenes?.map((scene) => scene.id).join('-')}-${project.updated_at}`} project={project} />
                         )}
                         <RenderPanel key={`${project.selected_hook}-${project.updated_at}`} project={project} audioTracks={audioTracks} />
+                        <PostCaptionsPanel project={project} />
                     </section>
                 )}
 

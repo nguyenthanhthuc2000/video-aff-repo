@@ -18,6 +18,7 @@ use App\Services\Image\Prompt\RuleScenePromptRewriter;
 use App\Services\Image\Prompt\ScenePromptRewriter;
 use App\Support\CreditPricing;
 use App\Support\Credits;
+use App\Support\Framing;
 use App\Support\Media;
 use App\Support\ProductCoverage;
 use App\Support\ProductFidelity;
@@ -39,8 +40,8 @@ class GenerateSceneImageJob implements ShouldQueue
      */
     public const MODEST_IMAGE = 'Keep it modest and tasteful, like a real customer\'s everyday outfit photo: not sexy, not provocative, '
         .'no emphasis on body parts, natural relaxed pose, eye-level camera. '
-        .'If any part of this request is not appropriate to create, adjust it yourself (pose, framing, camera angle, setting, '
-        .'or show the product on a mannequin, hanger or plain surface for close-ups) and create that modest version instead of declining; '
+        .'If any part of this request is not appropriate to create, adjust it yourself (pose, camera angle, setting) '
+        .'and create that modest version instead of declining; '
         .'never alter the product itself to do so.';
 
     /**
@@ -287,12 +288,13 @@ class GenerateSceneImageJob implements ShouldQueue
     {
         // Cảnh "trước" của video biến hình: giữ nguyên vẻ ngoài cũ trong ảnh "trước", không mặc sản phẩm.
         if ($phase === ScenePhase::Before) {
-            return trim($scenePrompt)."\n\n"
+            return Framing::strip($scenePrompt)."\n\n"
                 .($background ? 'The first attached image is the person; the second attached image is the background location. '.self::BACKGROUND.' ' : '')
                 .'Keep the person in the attached image exactly as they look there: same face, same hairstyle and natural bare skin, no makeup. '
                 .'The clothes must stay EXACTLY the same as in the attached photo (same garments, colors, patterns, fit and condition); '
                 .'do not change, replace, add or remove any clothing or accessory, and ignore any clothing described above. '
                 .'Vertical 9:16 candid photo, no text, no watermark. '
+                .Framing::IMAGE.' '
                 .Realism::IMAGE.' '
                 .self::MODEST_IMAGE.' '
                 .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';
@@ -300,7 +302,7 @@ class GenerateSceneImageJob implements ShouldQueue
 
         $angleLine = ProductCoverage::imageLine($angle);
 
-        return trim($scenePrompt)."\n\n"
+        return Framing::strip($scenePrompt)."\n\n"
             .($angleLine !== '' ? $angleLine.' ' : '')
             .($productLine ?? 'The person is wearing or holding the exact product shown in the other attached images.').' '
             .($background
@@ -310,11 +312,10 @@ class GenerateSceneImageJob implements ShouldQueue
             .ProductFidelity::IMAGE.' '
             .self::ONLY_PRODUCT.' '
             .'Vertical 9:16 photo, no text, no watermark. '
+            .Framing::IMAGE.' '
             .Realism::IMAGE.' '
             .self::MODEST_IMAGE.' '
-            // Chữ của video nằm ở phần dưới khung hình: giữ mặt (hoặc chi tiết sản phẩm khi cận) ở phần trên để không bị che.
-            .(ProductCoverage::isClose($angle)
-                ? 'Compose so the product detail is sharp in the upper two thirds of the frame; keep the bottom quarter simple.'
-                : 'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).');
+            // Chữ của video nằm ở phần dưới khung hình: giữ mặt ở phần trên để không bị che.
+            .'Compose so the face is in the upper half of the frame with some headroom; keep the bottom quarter simple (floor, table, background).';
     }
 }

@@ -16,12 +16,9 @@ class RuleScenePromptRewriter implements ScenePromptRewriter
     {
         $sentences = preg_split('/(?<=[.!?])\s+/u', trim($scene->image_prompt)) ?: [];
         $kept = array_values(array_filter($sentences, fn (string $sentence) => ! preg_match(self::RISKY, $sentence)));
-        $closeUp = (bool) preg_match('/\b(close-?up|macro|detail)\b/i', $scene->image_prompt);
 
         $base = $kept[0] ?? 'A bright, tidy everyday setting with soft natural light.';
-        $extra = $closeUp
-            ? 'Show the garment on a mannequin or neatly on a hanger, no person, soft even light, focus on the fabric texture and color.'
-            : 'The woman wears the exact garment from the reference, standing or walking naturally with a relaxed, modest pose, full-body, eye-level camera.';
+        $extra = 'The woman wears the exact garment from the reference, standing or walking naturally with a relaxed, modest pose, wide full-body shot from a few meters away, eye-level camera.';
 
         return trim(implode(' ', array_slice($kept, 0, 2)) ?: $base).' '.$extra.' Vertical 9:16.';
     }

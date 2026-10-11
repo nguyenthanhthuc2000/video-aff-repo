@@ -94,6 +94,7 @@ class SceneImageController extends Controller
         $scene->images()
             ->whereIn('status', [SceneImageStatus::Ready, SceneImageStatus::Approved])
             ->update(['status' => SceneImageStatus::Rejected]);
+        $scene->discardClip();
 
         $project->update(['status' => VideoProjectStatus::Imaging, 'error' => null]);
 
@@ -126,6 +127,7 @@ class SceneImageController extends Controller
         $scene->images()
             ->whereIn('status', [SceneImageStatus::Ready, SceneImageStatus::Approved])
             ->update(['status' => SceneImageStatus::Rejected]);
+        $scene->discardClip();
 
         $scene->images()->create([
             'status' => SceneImageStatus::Approved,
@@ -155,6 +157,10 @@ class SceneImageController extends Controller
             return back()->with('status', 'Chỉ duyệt được ảnh đã tạo xong.');
         }
 
+        // Duyệt ảnh khác ảnh đang dùng: clip làm từ ảnh cũ không còn khớp.
+        if ($scene->approvedImage !== null && ! $scene->approvedImage->is($image)) {
+            $scene->discardClip();
+        }
         $scene->images()
             ->whereKeyNot($image->id)
             ->where('status', SceneImageStatus::Approved)

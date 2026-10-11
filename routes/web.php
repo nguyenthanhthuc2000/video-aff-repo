@@ -48,6 +48,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('projects/{project}/autopilot', [VideoProjectController::class, 'autopilot'])->name('projects.autopilot');
     Route::put('projects/{project}/voice', [VideoProjectController::class, 'voice'])->name('projects.voice');
     Route::post('projects/{project}/script', [ScriptController::class, 'store'])->name('projects.script.store');
+    Route::post('projects/{project}/muse-plan', [ScriptController::class, 'replan'])->name('projects.muse-plan');
+    Route::post('projects/{project}/post-captions', [ScriptController::class, 'postCaptions'])->name('projects.post-captions');
     Route::put('projects/{project}/script', [ScriptController::class, 'update'])->name('projects.script.update');
     Route::put('projects/{project}/scenes/order', [SceneOrderController::class, 'update'])->name('projects.scenes.order');
     Route::post('projects/{project}/script/import', [ScriptController::class, 'import'])->name('projects.script.import');
@@ -117,6 +119,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('sample-videos/{sampleVideo}/analyze', [SampleVideoController::class, 'reanalyze'])->name('sample-videos.analyze');
     Route::post('sample-videos/{sampleVideo}/audio', [SampleVideoController::class, 'extractAudio'])->name('sample-videos.audio');
     Route::resource('audio-tracks', AudioTrackController::class)->only(['index', 'store', 'update', 'destroy']);
+    Route::post('audio-tracks/{audioTrack}/vocals', [AudioTrackController::class, 'vocals'])->name('audio-tracks.vocals');
+    Route::put('audio-tracks/{audioTrack}/lyrics', [AudioTrackController::class, 'lyrics'])->name('audio-tracks.lyrics');
     Route::resource('backgrounds', BackgroundController::class)->only(['index', 'store', 'update', 'destroy']);
     Route::put('scenes/{scene}/background', [BackgroundController::class, 'scene'])->name('scenes.background');
     Route::put('scenes/{scene}/outfit', [SceneOutfitController::class, 'update'])->name('scenes.outfit');

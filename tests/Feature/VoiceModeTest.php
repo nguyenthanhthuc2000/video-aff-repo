@@ -92,7 +92,11 @@ class VoiceModeTest extends TestCase
         $project = VideoProject::factory()->create(['status' => VideoProjectStatus::Reviewing, 'motion_style' => 'groove', 'motion_styles' => ['groove']]);
         $this->runClip($this->sceneFor($project));
 
-        Http::assertSent(fn (Request $request) => str_contains($request['prompt'], 'does not talk or sing'));
+        Http::assertSent(fn (Request $request) => str_contains($request['prompt'], 'does not talk or sing')
+            && str_contains($request['prompt'], 'playful glances at the camera'));
+        // Kịch bản: chỉ cười, đá mắt, làm dáng; không tả người mẫu đang nói.
+        $this->assertStringContainsString('chỉ cười, đá mắt, làm dáng làm duyên', ScriptPrompt::userText($project));
+        $this->assertStringNotContainsString('Video REVIEW', ScriptPrompt::userText($project));
     }
 
     public function test_singing_clip_attaches_its_part_of_the_song()
@@ -101,7 +105,8 @@ class VoiceModeTest extends TestCase
             $this->markTestSkipped('Cần ffmpeg.');
         }
         $project = VideoProject::factory()->create(['status' => VideoProjectStatus::Reviewing, 'voice_mode' => VoiceMode::Sing]);
-        $track = AudioTrack::factory()->for($project->user)->create(['path' => 'audio/song.mp3']);
+        // Phân tích giọng hát lỗi: vẫn tạo clip, chỉ không có dòng thời gian lời.
+        $track = AudioTrack::factory()->for($project->user)->create(['path' => 'audio/song.mp3', 'vocal_status' => 'failed']);
         Storage::disk('public')->put($track->path, file_get_contents(base_path('tests/Fixtures/tiny.mp3')));
         $project->update(['audio_track_id' => $track->id]);
         $this->sceneFor($project, 1, '');
@@ -112,7 +117,7 @@ class VoiceModeTest extends TestCase
         $this->assertSame(0, $project->fresh()->music_start_ms);
         Http::assertSent(fn (Request $request) => count($request['images']) === 2
             && $request['images'][1]['name'] === 'song-part.m4a'
-            && str_contains($request['prompt'], 'lip-syncs to the vocals'));
+            && str_contains($request['prompt'], 'She lip-syncs to it'));
         // Đoạn nhạc tạm đã gửi thì xoá.
         $this->assertSame([], Storage::disk('public')->allFiles('audio-parts'));
     }

@@ -6,6 +6,7 @@ use App\Models\AudioTrack;
 use App\Services\Audio\RemoteAudio;
 use App\Services\Audio\RemoteAudioException;
 use App\Services\Video\VideoProbe;
+use App\Support\LyricsAligner;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -115,6 +116,56 @@ class AudioTrackController extends Controller
             'playable' => $track->isPlayable(),
             'size_bytes' => $track->size_bytes,
             'duration_ms' => $track->duration_ms,
+            // Phân tích giọng hát cho hát nhép: số giây có lời, vài câu đầu để kiểm tra.
+            'vocal_status' => $track->vocal_status,
+            'vocal_error' => $track->vocal_error,
+            'vocal_summary' => $track->vocal_status === 'ready' ? self::vocalSummary($track->vocal_analysis ?? [], $track->lyrics) : null,
+            'lyrics' => $track->lyrics,
         ];
+    }
+
+    /** @return array{sung_seconds: float, lines: list<array{start: float, end: float, text: string}>} */
+    private static function vocalSummary(array $analysis, ?string $lyrics): array
+    {
+        if (filled($lyrics)) {
+            $analysis['words'] = LyricsAligner::align($analysis['words'] ?? [], $lyrics);
+        }
+        $lines = array_map(fn ($vocal) => [
+            'start' => $vocal['start'],
+            'end' => $vocal['end'],
+            'text' => implode(' ', array_map(fn ($w) => $w['text'], array_filter($analysis['words'] ?? [], fn ($w) => $w['start'] >= $vocal['start'] - 0.2 && $w['start'] < $vocal['end']))),
+        ], $analysis['vocals'] ?? []);
+
+        return [
+            'sung_seconds' => round(array_sum(array_map(fn ($v) => $v['end'] - $v['start'], $analysis['vocals'] ?? [])), 1),
+            'lines' => array_values($lines),
+        ];
+    }
+
+    /** Lời bài hát chuẩn: dùng thay chữ Whisper nghe nhầm khi hát nhép. */
+    public function lyrics(Request $request, AudioTrack $audioTrack): RedirectResponse
+    {
+        $this->authorize('update', $audioTrack);
+
+        $lyrics = $request->validate(['lyrics' => ['nullable', 'string', 'max:20000']], [], ['lyrics' => 'lời bài hát'])['lyrics'] ?? null;
+        $audioTrack->update(['lyrics' => filled($lyrics) ? trim($lyrics) : null]);
+
+        return back()->with('status', filled($lyrics) ? 'Đã lưu lời bài hát, hát nhép sẽ dùng đúng lời này.' : 'Đã bỏ lời bài hát.');
+    }
+
+    /** Phân tích (lại) giọng hát của bài. */
+    public function vocals(AudioTrack $audioTrack): RedirectResponse
+    {
+        $this->authorize('update', $audioTrack);
+
+        if (! $audioTrack->isPlayable()) {
+            return back()->withErrors(['audio' => 'Chỉ phân tích được bài có file nhạc.']);
+        }
+        if ($audioTrack->vocal_status === 'ready') {
+            $audioTrack->update(['vocal_status' => null]);
+        }
+        $audioTrack->analyzeVocals();
+
+        return back()->with('status', 'Đang tách giọng hát và ghi lời (vài phút, không tốn Credits).');
     }
 }

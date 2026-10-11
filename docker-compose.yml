@@ -11,6 +11,7 @@ x-php: &php
     DB_USERNAME: ${DB_USERNAME:-video_aff}
     DB_PASSWORD: ${DB_PASSWORD:-secret}
     MUSE_BROWSER_URL: http://browser:3000
+    AUDIO_ANALYZER_URL: http://audio:3100
   depends_on:
     db:
       condition: service_healthy
@@ -87,6 +88,18 @@ services:
       # Phiên đăng nhập muse.ai (cookie) giữ qua các lần khởi động lại.
       - browser-data:/data
     shm_size: 1gb
+    networks:
+      - internal
+
+  # Phân tích nhạc cho hát nhép: Demucs tách giọng hát + faster-whisper ghi lời (CPU). Chỉ mạng nội bộ.
+  audio:
+    container_name: video-aff-audio
+    image: video-aff-audio
+    build:
+      context: ./docker/audio
+    restart: unless-stopped
+    environment:
+      AUDIO_TOKEN: ${AUDIO_ANALYZER_TOKEN:-}
     networks:
       - internal
 

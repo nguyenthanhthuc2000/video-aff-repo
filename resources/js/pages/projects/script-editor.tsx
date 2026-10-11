@@ -98,7 +98,7 @@ export default function ScriptEditor({ project, disabled }: { project: VideoProj
                                         id={`duration-${scene.id}`}
                                         type="number"
                                         min={1}
-                                        max={10}
+                                        max={30}
                                         step={0.5}
                                         className="w-20"
                                         value={scene.duration_ms / 1000}

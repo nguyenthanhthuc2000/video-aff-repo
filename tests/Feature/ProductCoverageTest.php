@@ -13,6 +13,7 @@ use App\Services\Script\ScriptPrompt;
 use App\Services\Video\FfmpegVideoRenderer;
 use App\Services\Video\RenderScene;
 use App\Services\Video\RenderSpec;
+use App\Support\Framing;
 use App\Support\ProductCoverage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -52,7 +53,7 @@ class ProductCoverageTest extends TestCase
         $project = $this->dressProject();
         $text = ScriptPrompt::userText($project);
         $this->assertStringContainsString('Góc quay sản phẩm', $text);
-        $this->assertStringContainsString('Cận chất vải', $text);
+        $this->assertStringContainsString('Toàn thân, vuốt chất vải', $text);
         $this->assertStringContainsString('MỘT buổi quay thật', ScriptPrompt::SYSTEM);
 
         $project->applyScript($this->script(5));
@@ -64,12 +65,14 @@ class ProductCoverageTest extends TestCase
         $scene = Scene::factory()->for($this->dressProject())->create(['angle' => 'fabric']);
 
         $image = GenerateSceneImageJob::scenePrompt($scene);
-        $this->assertStringContainsString('Camera angle for this shot: Macro close-up of the fabric', $image);
-        $this->assertStringContainsString('product detail is sharp', $image);
+        $this->assertStringContainsString('Camera angle for this shot: Wide full-body shot; one hand smooths', $image);
+        $this->assertStringContainsString('wide full-body shot taken from about 3 meters away', $image);
+        $this->assertStringNotContainsString('close-up of', $image);
 
-        // Cận chất vải: không nhảy theo kiểu chuyển động, làm hành động của góc quay.
+        // Khoe chất vải: không nhảy theo kiểu chuyển động, làm hành động của góc quay, vẫn toàn thân.
         $clip = MotionStyle::TiktokDance->prompt($scene);
-        $this->assertStringContainsString('fingers gently rub', $clip);
+        $this->assertStringContainsString('smooths and lightly pinches the fabric', $clip);
+        $this->assertStringContainsString('no zoom-in, no push-in, no close-up', $clip);
         $this->assertStringNotContainsString(MotionStyle::TiktokDance->moves(), $clip);
         $this->assertStringContainsString(MotionStyle::NATURAL_CUT, $clip);
 
@@ -96,5 +99,13 @@ class ProductCoverageTest extends TestCase
         $this->actingAs($user)->put(route('scenes.angle', $scene), ['angle' => 'back'])->assertSessionHasNoErrors();
         $this->assertSame('back', $scene->fresh()->angle);
         $this->actingAs(User::factory()->create())->put(route('scenes.angle', $scene), ['angle' => null])->assertForbidden();
+    }
+
+    public function test_close_up_sentences_are_dropped_for_full_body_framing()
+    {
+        $prompt = Framing::strip('On the city street in daylight. She steps closer to the camera and tilts slightly. Close-up framed from the shoulders up, the neckline fills most of the frame. Vertical 9:16.');
+
+        $this->assertSame('On the city street in daylight. Vertical 9:16.', $prompt);
+        $this->assertSame('Người mẫu đứng cười.', Framing::strip('Người mẫu đứng cười. Cận cổ áo.'));
     }
 }

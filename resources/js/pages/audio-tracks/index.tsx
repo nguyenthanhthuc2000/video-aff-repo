@@ -7,12 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { type AudioTrack } from '@/types/models';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { ExternalLink, Link2, Pencil, Trash2, Upload } from 'lucide-react';
+import { ExternalLink, FileText, Link2, LoaderCircle, Mic, Pencil, Trash2, Upload } from 'lucide-react';
 import { FormEventHandler, useRef, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Âm thanh', href: '/audio-tracks' }];
@@ -27,6 +28,12 @@ const duration = (ms: number | null) => {
 
 export default function AudioTracksIndex({ audioTracks, maxMb }: { audioTracks: AudioTrack[]; maxMb: number }) {
     const { errors: pageErrors } = usePage().props as { errors: Record<string, string> };
+    // Tự làm mới khi đang tách giọng hát.
+    usePoll(
+        audioTracks.some((track) => track.vocal_status === 'pending'),
+        ['audioTracks'],
+        5000,
+    );
 
     const rename = (track: AudioTrack) => {
         const name = window.prompt('Tên nhạc', track.name);
@@ -75,6 +82,7 @@ export default function AudioTracksIndex({ audioTracks, maxMb }: { audioTracks: 
                                                 Link trang web, không phải file nhạc: không ghép vào video được. Tải file nhạc lên để dùng.
                                             </p>
                                         )}
+                                        {track.playable && <VocalInfo track={track} />}
                                         {track.source_url && (
                                             <a
                                                 href={track.source_url}
@@ -201,5 +209,75 @@ function AddTrackForm({ maxMb }: { maxMb: number }) {
             <InputError message={errors.rights} />
             <Button disabled={processing}>{processing && progress ? `Đang tải ${progress.percentage}%` : 'Thêm nhạc'}</Button>
         </form>
+    );
+}
+
+/** Giọng hát đã tách: khoảng có lời và lời (dùng để người mẫu chỉ nhép khi có lời). */
+function VocalInfo({ track }: { track: AudioTrack }) {
+    const [editing, setEditing] = useState(false);
+    const [lyrics, setLyrics] = useState(track.lyrics ?? '');
+    const analyze = () => router.post(route('audio-tracks.vocals', track.id), {}, { preserveScroll: true });
+
+    if (track.vocal_status === 'pending') {
+        return (
+            <p className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                <LoaderCircle className="size-3 animate-spin" /> Đang tách giọng hát và ghi lời...
+            </p>
+        );
+    }
+
+    return (
+        <div className="space-y-1 text-xs">
+            {track.vocal_status === 'failed' && <p className="text-red-600 dark:text-red-400">Phân tích giọng hát lỗi: {track.vocal_error}</p>}
+            {track.vocal_summary && (
+                <details>
+                    <summary className="cursor-pointer">
+                        Giọng hát: {track.vocal_summary.sung_seconds} giây có lời, {track.vocal_summary.lines.length} câu
+                    </summary>
+                    <ol className="text-muted-foreground mt-1 max-h-48 space-y-0.5 overflow-y-auto">
+                        {track.vocal_summary.lines.map((line, i) => (
+                            <li key={i}>
+                                <span className="tabular-nums">
+                                    {line.start.toFixed(1)}–{line.end.toFixed(1)}s
+                                </span>
+                                : {line.text || '(không nghe rõ lời)'}
+                            </li>
+                        ))}
+                    </ol>
+                </details>
+            )}
+            <div className="flex flex-wrap gap-1">
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={analyze}>
+                    <Mic /> {track.vocal_status ? 'Phân tích lại giọng hát' : 'Phân tích giọng hát (cho hát nhép)'}
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setEditing((open) => !open)}>
+                    <FileText /> {track.lyrics ? 'Sửa lời bài hát' : 'Dán lời bài hát'}
+                </Button>
+            </div>
+            {editing && (
+                <div className="space-y-1">
+                    <textarea
+                        aria-label="Lời bài hát"
+                        className="border-input bg-background min-h-32 w-full max-w-md rounded-md border p-2 text-xs"
+                        placeholder="Dán lời bài hát (đúng thứ tự, lặp điệp khúc nếu bài hát lặp). AI tự dóng lời vào đúng thời điểm hát."
+                        value={lyrics}
+                        onChange={(e) => setLyrics(e.target.value)}
+                    />
+                    <Button
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                            router.put(
+                                route('audio-tracks.lyrics', track.id),
+                                { lyrics },
+                                { preserveScroll: true, onSuccess: () => setEditing(false) },
+                            )
+                        }
+                    >
+                        Lưu lời
+                    </Button>
+                </div>
+            )}
+        </div>
     );
 }

@@ -83,7 +83,8 @@ class MotionAnalysisTest extends TestCase
         $prompt = MotionCopy::prompt($scene);
         $this->assertStringContainsString('Motion timeline to reproduce exactly', $prompt);
         $this->assertStringContainsString('Camera: full body, static camera', $prompt);
-        $this->assertStringContainsString('same camera framing and movement', $prompt);
+        $this->assertStringContainsString('same camera movement', $prompt);
+        $this->assertStringContainsString('Keep this full-body framing even if the reference video is framed closer', $prompt);
     }
 
     public function test_clip_job_waits_for_pending_analysis()
