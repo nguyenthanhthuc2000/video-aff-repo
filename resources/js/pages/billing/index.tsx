@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
 import { type CreditRates, formatNumber, formatVndShort, packages, VND_PER_CREDIT } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
-import { Head, Link } from '@inertiajs/react';
-import { Building2, Coins, CreditCard, History, Info, Smartphone, Wallet } from 'lucide-react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { Building2, Coins, CreditCard, History, Info, Plus, Smartphone, Wallet } from 'lucide-react';
 import { useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Nạp tiền', href: '/billing' }];
@@ -44,6 +44,7 @@ export default function Billing({
     const [packageKey, setPackageKey] = useState<string>(packages.find((pkg) => pkg.key === selectedPackage)?.key ?? 'popular');
     const [method, setMethod] = useState('bank');
     const chosen = packages.find((pkg) => pkg.key === packageKey) ?? packages[0];
+    const { auth } = usePage<SharedData>().props;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -52,10 +53,22 @@ export default function Billing({
                 <Heading title="Nạp tiền" description="Nạp tiền quy ra Credits. Mỗi thao tác tạo video trừ Credits tuỳ độ phức tạp." />
                 <FlashStatus />
 
-                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                    <Info className="mt-0.5 size-4 shrink-0" />
-                    Thanh toán online đang được hoàn thiện. Cần nạp Credits ngay, vui lòng liên hệ quản trị viên.
-                </div>
+                {auth.user.is_admin ? (
+                    <div className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm">
+                        <Info className="size-4 shrink-0" />
+                        <span className="flex-1">Bạn là admin: tự cộng Credits cho tài khoản này (ghi vào sổ như lần nạp thủ công).</span>
+                        <Button asChild size="sm">
+                            <Link href={route('admin.users.show', { user: auth.user.id, credit: 1 })}>
+                                <Plus /> Cộng Credits
+                            </Link>
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                        <Info className="mt-0.5 size-4 shrink-0" />
+                        Thanh toán online đang được hoàn thiện. Cần nạp Credits ngay, vui lòng liên hệ quản trị viên.
+                    </div>
+                )}
 
                 {/* Số dư */}
                 <div className="grid gap-4 md:grid-cols-3">

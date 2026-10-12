@@ -63,10 +63,14 @@ class TikTokPublishTest extends TestCase
         $this->assertStringContainsString('tiktok.com/v2/auth/authorize', $location);
         $this->assertStringContainsString('video.publish', urldecode($location));
         $state = session('tiktok_state');
+        $verifier = session('tiktok_verifier');
+        // PKCE: code_challenge là SHA256 hex của code_verifier, gửi lại code_verifier khi đổi mã.
+        $this->assertStringContainsString('code_challenge='.hash('sha256', $verifier).'&code_challenge_method=S256', $location);
 
-        $this->actingAs($user)->withSession(['tiktok_state' => $state])
+        $this->actingAs($user)->withSession(['tiktok_state' => $state, 'tiktok_verifier' => $verifier])
             ->get(route('social.tiktok.callback', ['state' => $state, 'code' => 'c']))->assertRedirect(route('social.index'));
 
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/oauth/token/') && $request['code_verifier'] === $verifier);
         $account = SocialAccount::sole();
         $this->assertSame(['tiktok', 'open-1', 'Shop Váy', 'act', 'rft'], [$account->provider, $account->external_id, $account->name, $account->access_token, $account->refresh_token]);
         $this->assertTrue($account->token_expires_at->isAfter(now()->addHours(23)));

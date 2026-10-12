@@ -22,6 +22,7 @@ final class MuseTask
     {
         // Đoạn chat muse.ai là một luồng liên tục: dặn xét yêu cầu này độc lập với các yêu cầu trước (kể cả lần đã từ chối).
         return "Request code: {$code}\nThis is a new, independent request; judge it on its own, not on earlier requests in this chat.\n"
-            ."Use exactly \"{$code}\" as the title of the {$what}. Do not ask questions, just reply with the {$what}.";
+            ."Use exactly \"{$code}\" as the title of the {$what} (the title is only the name shown in this chat: never write it, or any caption, inside the {$what} itself). "
+            ."Do not ask questions, just reply with the {$what}.";
     }
 }

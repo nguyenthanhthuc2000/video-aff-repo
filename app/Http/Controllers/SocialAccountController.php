@@ -33,14 +33,17 @@ class SocialAccountController extends Controller
             return back()->with('status', 'Chưa cài TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET.');
         }
         $state = Str::random(40);
-        $request->session()->put('tiktok_state', $state);
+        // PKCE: TikTok bắt buộc; chuỗi 43–128 ký tự chữ / số.
+        $verifier = Str::random(64);
+        $request->session()->put(['tiktok_state' => $state, 'tiktok_verifier' => $verifier]);
 
-        return Inertia::location($tiktok->loginUrl(route('social.tiktok.callback'), $state));
+        return Inertia::location($tiktok->loginUrl(route('social.tiktok.callback'), $state, $verifier));
     }
 
     public function tiktokCallback(Request $request, TikTokClient $tiktok): RedirectResponse
     {
         $state = $request->session()->pull('tiktok_state');
+        $verifier = (string) $request->session()->pull('tiktok_verifier');
         if (! $state || ! hash_equals($state, (string) $request->query('state'))) {
             return to_route('social.index')->with('status', 'Phiên kết nối TikTok không hợp lệ, hãy thử lại.');
         }
@@ -49,7 +52,7 @@ class SocialAccountController extends Controller
         }
 
         try {
-            $user = $tiktok->connect((string) $request->query('code'), route('social.tiktok.callback'));
+            $user = $tiktok->connect((string) $request->query('code'), route('social.tiktok.callback'), $verifier);
         } catch (Throwable $e) {
             return to_route('social.index')->with('status', 'Kết nối TikTok thất bại: '.$e->getMessage());
         }

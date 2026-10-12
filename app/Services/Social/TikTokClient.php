@@ -36,7 +36,8 @@ class TikTokClient
         return filled($this->clientKey) && filled($this->clientSecret);
     }
 
-    public function loginUrl(string $redirectUri, string $state): string
+    /** @param  string  $codeVerifier  PKCE: chuỗi ngẫu nhiên giữ trong phiên, gửi lại khi đổi mã */
+    public function loginUrl(string $redirectUri, string $state, string $codeVerifier): string
     {
         return 'https://www.tiktok.com/v2/auth/authorize/?'.http_build_query([
             'client_key' => $this->clientKey,
@@ -44,7 +45,15 @@ class TikTokClient
             'response_type' => 'code',
             'redirect_uri' => $redirectUri,
             'state' => $state,
+            'code_challenge' => self::codeChallenge($codeVerifier),
+            'code_challenge_method' => 'S256',
         ]);
+    }
+
+    /** PKCE của TikTok: SHA256 của code_verifier viết dạng hex (TikTok dùng hex, không phải base64url như chuẩn). */
+    public static function codeChallenge(string $codeVerifier): string
+    {
+        return hash('sha256', $codeVerifier);
     }
 
     /**
@@ -52,9 +61,9 @@ class TikTokClient
      *
      * @return array{open_id: string, name: string, avatar_url: ?string, access_token: string, refresh_token: string, token_expires_at: Carbon, refresh_expires_at: Carbon}
      */
-    public function connect(string $code, string $redirectUri): array
+    public function connect(string $code, string $redirectUri, string $codeVerifier): array
     {
-        $token = $this->token(['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => $redirectUri]);
+        $token = $this->token(['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => $redirectUri, 'code_verifier' => $codeVerifier]);
         $user = $this->call('get', '/user/info/?fields=open_id,display_name,avatar_url', $token['access_token'])['user'] ?? [];
 
         return [

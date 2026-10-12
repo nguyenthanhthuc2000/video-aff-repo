@@ -1,166 +1,130 @@
 # Tài liệu thiết kế: Video Aff
 
-Cập nhật: 2026-10-09. Bản phân tích gốc (có chi phí, rủi ro): [Claude Doc](https://claude.ai/code/artifact/5708d9e0-0766-40e6-b80a-f5abe67c4e21).
+Cập nhật: 2026-10-12. Thay bản MVP ngày 2026-10-09 (ảnh tĩnh + fal). Tính năng phim hoạt hình đang thiết kế ở [phim-hoat-hinh.md](phim-hoat-hinh.md), danh sách việc ở [tasks.md](tasks.md).
 
 ## 1. Mục tiêu
 
-Web nội bộ giúp làm video affiliate Shopee (9:16, 20–30 giây) cho sản phẩm thời trang từ 3 đầu vào: link Shopee, ảnh sản phẩm, ảnh người mẫu.
+Web giúp người bán làm video affiliate Shopee dọc 9:16 (20–30 giây) cho sản phẩm thời trang, chạy ngầm từ đầu đến cuối:
 
-- Claude viết hook, kịch bản, lời đọc, caption.
-- Meta Muse Image mặc sản phẩm lên ảnh người mẫu cho từng cảnh.
-- Máy chủ ghép ảnh thành video có chuyển động (zoom/lướt), chữ, phụ đề, nhạc.
+- **Claude** (gói Pro/Max qua Claude Code CLI, hoặc API) đọc sản phẩm, viết hook, kịch bản, prompt, caption đăng bài.
+- **muse.ai** (qua trình duyệt ngầm) lên phân cảnh từ video mẫu + nhạc, tạo ảnh người mẫu mặc sản phẩm và clip chuyển động.
+- **ffmpeg** ghép clip, chữ, phụ đề, nhạc thành MP4 1080×1920.
+- Đăng video lên **Trang Facebook (Reels)** và **TikTok**.
 
-**Ngoài phạm vi MVP:** tự lấy dữ liệu từ Shopee (Shopee chặn), clip chuyển động AI (Muse Video chưa có API), giọng đọc AI, đăng video tự động.
+Nhiều người dùng, trả bằng **Credits** (admin đặt giá, theo chi phí AI thật).
 
 ## 2. Luồng người dùng
 
-1. Tạo **sản phẩm**: dán link Shopee, tải 2–5 ảnh (ít nhất 1 ảnh nền trắng), nhập giá, size, chất liệu, vài đánh giá.
-2. Chọn **người mẫu** trong thư viện (ảnh toàn thân, đã có giấy đồng ý).
-3. Bấm **Tạo kịch bản**: Claude trả về 3 hook + 6–7 cảnh (mô tả hình, chữ trên màn, lời đọc, prompt ảnh, thời lượng). Người dùng sửa trực tiếp.
-4. Bấm **Tạo ảnh**: mỗi cảnh gọi Muse Image một lần.
-5. **Duyệt ảnh**: giữ ảnh đúng sản phẩm, bấm tạo lại ảnh sai (có thể sửa prompt).
-6. Bấm **Xuất video**: chọn hook, nhạc; máy chủ render MP4 1080×1920.
-7. Tải MP4, đăng Shopee Video và **bật nhãn AI**.
+1. **Sản phẩm:** bấm bookmark "Lấy từ Shopee" trên trang sản phẩm Shopee; job tải ảnh, Claude rút giá, size, chất liệu, đánh giá.
+2. **Người mẫu** (đã có đồng ý), **bối cảnh** (ảnh nền thật, tuỳ chọn), **video mẫu** và **nhạc** (tuỳ chọn).
+3. Tạo **dự án video**: chọn sản phẩm (một hoặc nhiều bộ), người mẫu, kiểu tiếng (chỉ nhạc / người mẫu nói review / hát nhép), kiểu chuyển động, một cảnh quay liền hay nhiều cảnh. Tick **Chạy ngầm** để app tự làm hết.
+4. **Phân cảnh Muse** (khi có video mẫu / nhạc): Muse xem, nghe rồi trả danh sách shot 2–30 giây.
+5. **Kịch bản:** Claude viết 5 hook, các cảnh theo phân cảnh, quay toàn thân; người dùng sửa được.
+6. **Ảnh cảnh** → **clip chuyển động** (Muse) → **xuất video** (chọn hook, nhạc).
+7. **Đề xuất caption** (3 bán hàng, 3 câu view) → **đăng Facebook / TikTok** (hoặc tải MP4). Luôn bật nhãn nội dung AI.
 
 ## 3. Kiến trúc
 
 ```mermaid
 flowchart LR
-    U[Trình duyệt<br/>React + Inertia] <--> L[Laravel<br/>Controllers]
-    L --> Q[(Queue<br/>database)]
-    Q --> W[Queue worker]
-    W --> C[Claude API]
-    W --> M[Meta Muse Image API]
+    U[Trình duyệt<br/>React + Inertia] <--> N[nginx :8080] <--> L[Laravel app]
+    L --> Q[(Hàng đợi<br/>database)]
+    Q --> W[queue worker]
+    W --> C[Claude Code CLI / Claude API]
+    W --> B[browser: Playwright<br/>điều khiển muse.ai]
+    W --> A[audio: Demucs + faster-whisper<br/>tuỳ chọn]
     W --> F[ffmpeg]
+    W --> S[Facebook Graph API<br/>TikTok Content Posting API]
     L <--> DB[(MySQL)]
-    W <--> S[(Storage<br/>local / S3)]
+    W <--> ST[(Storage)]
 ```
 
-- Mọi lời gọi API ngoài và render chạy trong **job** (dịch vụ `queue` trong Docker), không chặn request web.
-- Trang dùng Inertia polling (`router.reload` mỗi vài giây) để hiện trạng thái job. Có thể thay bằng Laravel Reverb sau.
-- Ảnh và video lưu qua `Storage` (disk `public` khi chạy local, S3/R2 khi triển khai).
+Dịch vụ Docker: `app` (PHP-FPM), `queue` (1 worker), `nginx`, `db` (MySQL), `browser` (Playwright, muse.ai, tối đa `MUSE_MAX_TABS` tab), `audio` (phân tích giọng hát, tuỳ chọn), `node` (Vite).
 
-## 4. Mô hình dữ liệu
+- Mọi việc gọi ngoài chạy trong job. Việc lâu (Muse tạo ảnh / clip / phân tích) theo kiểu **gửi rồi hỏi lại**: job gửi yêu cầu kèm mã `VA-XXXXXX`, nhả hàng đợi (`release`), lần sau hỏi kết quả theo mã. Nhờ vậy một worker chạy song song nhiều việc.
+- Trang dự án tự làm mới (poll) khi có job chạy.
+- Ảnh, video, nhạc lưu qua disk `MEDIA_DISK` (mặc định `public`).
 
-| Bảng | Cột chính | Ghi chú |
-| --- | --- | --- |
-| `products` | `user_id`, `shopee_url`, `name`, `price`, `details` (json: size, chất liệu, màu), `reviews` (text) | Dữ liệu người dùng nhập |
-| `product_images` | `product_id`, `path`, `is_primary` | Ảnh nền trắng đánh dấu `is_primary` |
-| `fashion_models` | `user_id`, `name`, `photo_path`, `consent_at` | Không cho dùng nếu `consent_at` rỗng |
-| `video_projects` | `product_id`, `fashion_model_id`, `status`, `script` (json), `selected_hook`, `music`, `error` | Trạng thái ở mục 5 |
-| `scenes` | `video_project_id`, `position`, `duration_ms`, `visual`, `on_screen_text`, `voiceover`, `image_prompt` | Tách từ `script` để sửa từng cảnh |
-| `scene_images` | `scene_id`, `path`, `status` (`pending`/`ready`/`approved`/`rejected`/`failed`), `provider_request_id`, `cost_usd` | Mỗi lần tạo lại là một dòng mới |
-| `renders` | `video_project_id`, `hook`, `path`, `status`, `duration_ms` | Một dự án có nhiều bản (A/B hook) |
+## 4. Mô hình dữ liệu (chính)
 
-Tên model Eloquent dùng `FashionModel` để tránh trùng nghĩa với "model" của Laravel.
+| Bảng | Vai trò |
+| --- | --- |
+| `users` | Tài khoản, quyền admin, bị khoá, số dư Credits |
+| `products`, `product_images`, `product_categories` | Sản phẩm, ảnh, loại sản phẩm (cách mặc, kiểu chuyển động hợp) |
+| `fashion_models`, `backgrounds`, `sample_videos`, `audio_tracks` | Thư viện đầu vào; video mẫu có phân tích chuyển động, nhạc có lời / phân tích giọng hát |
+| `video_projects` | Dự án: trạng thái, cài đặt (tiếng, chuyển động, quay liền), `script`, `muse_plan`, `post_captions`, chạy ngầm |
+| `scenes`, `scene_images` | Cảnh (thời lượng, góc quay, bộ đồ, prompt, clip, các đoạn của shot dài) và các lần tạo ảnh |
+| `renders` | Các bản MP4 đã xuất |
+| `muse_analyses` | Kho mọi lần Muse phân tích (prompt, câu trả lời gốc, kết quả, đầu vào) để xây bộ skill viết prompt |
+| `social_accounts`, `social_posts` | Trang Facebook / tài khoản TikTok đã kết nối (mã lưu mã hoá) và các lần đăng |
+| `ai_usage_logs`, `credit_transactions`, `app_settings` | Chi phí AI từng lần gọi, sổ Credits, cài đặt hệ thống (giá, model) |
 
 ## 5. Trạng thái `video_projects`
 
 ```mermaid
 stateDiagram-v2
     [*] --> draft
-    draft --> scripting: Tạo kịch bản
+    draft --> scripting: Tạo kịch bản (chờ phân cảnh Muse nếu có)
     scripting --> script_ready
-    scripting --> failed
     script_ready --> imaging: Tạo ảnh
     imaging --> reviewing: mọi cảnh có ảnh
-    reviewing --> imaging: tạo lại ảnh
-    reviewing --> rendering: Xuất video
+    reviewing --> rendering: Xuất video (sau khi có clip)
     rendering --> done
+    scripting --> failed
     rendering --> failed
-    failed --> draft: thử lại
+    failed --> draft
     done --> rendering: xuất bản khác
 ```
 
-## 6. Jobs và services
+`autopilot` (chạy ngầm) tự đi tiếp từng bước; bấm lại thì tạo lại các clip lỗi.
 
-| Job | Việc | Gọi |
-| --- | --- | --- |
-| `GenerateScriptJob` | Gửi thông tin + ảnh sản phẩm cho Claude, lưu `script`, tạo `scenes` | `ScriptWriter` |
-| `GenerateSceneImageJob` | Ảnh người mẫu + ảnh sản phẩm + `image_prompt` → 1 ảnh cảnh | `ImageGenerator` |
-| `RenderVideoJob` | Ghép ảnh đã duyệt thành MP4 | `VideoRenderer` |
+## 6. Jobs
 
-Services trong `app/Services`, đăng ký qua service container để đổi nhà cung cấp mà không sửa job:
-
-- `ScriptWriter` → `ClaudeScriptWriter`.
-- `ImageGenerator` (interface) → `MetaMuseImageGenerator`, `FalMuseImageGenerator`. Chọn bằng `MUSE_DRIVER`.
-- `VideoRenderer` → `FfmpegVideoRenderer`.
-
-Job đặt `$tries = 3`, `$backoff` tăng dần, `$timeout` 600 giây cho render. Lỗi cuối cùng ghi vào `video_projects.error`.
+| Job | Việc |
+| --- | --- |
+| `ImportProductJob` | Tải ảnh Shopee, Claude rút thông tin sản phẩm |
+| `AnalyzeSampleVideoJob` | Dò shot, phân tích chuyển động video mẫu |
+| `AnalyzeVocalsJob` | Tách giọng, ghi lời có mốc thời gian (dịch vụ `audio`, chỉ khi bấm) |
+| `PlanWithMuseJob` | Muse lên phân cảnh từ video mẫu + nhạc + ảnh sản phẩm (3–30 phút); lưu vào `muse_analyses` |
+| `GenerateScriptJob` | Claude viết kịch bản theo phân cảnh, quy tắc quay toàn thân, kiểu tiếng |
+| `GeneratePostCaptionsJob` | Claude viết caption đăng bài (bán hàng / câu view) |
+| `GenerateSceneImageJob` | Muse tạo ảnh cảnh (người mẫu + sản phẩm + bối cảnh) |
+| `GenerateSceneClipJob` | Muse làm clip từ ảnh cảnh; shot dài làm nhiều đoạn nối khung cuối rồi ghép |
+| `RenderVideoJob` | ffmpeg ghép MP4, xong thì viết caption nếu chưa có |
+| `PublishFacebookReelJob`, `PublishTikTokJob` | Đăng video, hỏi lại đến khi nền tảng xử lý xong |
 
 ## 7. Tích hợp ngoài
 
-### Claude API (kịch bản)
+**Claude.** `SCRIPT_DRIVER`: `claude_cli` (Claude Code CLI bằng gói Pro/Max, đăng nhập trên giao diện, mọi tool tắt), `claude` (API), `web` (dán tay claude.ai), `fake` (test). Đầu ra JSON theo schema. Model chọn theo thao tác (admin). Chi phí ghi `ai_usage_logs` và trừ Credits.
 
-- SDK: `composer require anthropic-ai/sdk` (`Anthropic\Client`).
-- Model: `claude-opus-5-5`, đặt trong `config/services.php` (`CLAUDE_MODEL`) để đổi được.
-- Đầu ra JSON có cấu trúc qua `outputConfig: ['format' => ...]` (structured outputs), không parse văn bản tự do. Schema: `hooks[3]`, `scenes[]` (`visual`, `on_screen_text`, `voiceover`, `image_prompt`, `duration_ms`), `caption`, `hashtags[]`.
-- Gửi kèm ảnh sản phẩm (base64) để Claude mô tả đúng chi tiết.
-- System prompt cố định, có các quy tắc: tiếng Việt tự nhiên; không khẳng định điều sản phẩm không ghi ("không lộ", "lụa cao cấp", giá cố định); CTA "xem màu, size, ưu đãi trong giỏ hàng". Đặt `cache_control` cho system prompt.
-- Kiểm tra `stop_reason` trước khi đọc nội dung; xử lý lỗi theo lớp exception của SDK (429/5xx thì retry job).
+**muse.ai qua trình duyệt ngầm.** `MUSE_DRIVER=browser`: dịch vụ `browser` đăng nhập muse.ai bằng tài khoản người vận hành (OTP), mỗi yêu cầu mở đoạn chat phụ mới. Loại việc: `image` (ảnh kèm ảnh tham chiếu), `clip` (video từ ảnh, có thể kèm đoạn nhạc), `text` (phân tích, trả JSON). Điều khoản của Meta không cho phép truy cập tự động, nên tài khoản có thể bị giới hạn và bước tự động có thể hỏng khi muse.ai đổi giao diện. Muse đôi khi dừng chờ người duyệt ("Một nhiệm vụ cần xem xét"); app không tự duyệt thay.
 
-### Meta Muse Image (mặc đồ lên người mẫu)
+**ffmpeg.** H.264 + AAC, 1080×1920, 30 fps, phụ đề `.ass` font tiếng Việt, chuyển cảnh nối liền.
 
-- Dùng endpoint chỉnh sửa ảnh có nhiều ảnh tham chiếu: qua Meta Model API, hoặc qua fal (`meta/muse-image/edit`). Giá tham khảo 0,01 USD/ảnh ([nguồn](https://runtimewire.com/article/meta-ships-muse-image-api-at-one-cent-per-image), [nguồn](https://letsdatascience.com/news/fal-opens-access-to-meta-muse-image-0fef298a)).
-- **Chưa kiểm chứng:** định dạng request/response, số ảnh tham chiếu tối đa, giấy phép thương mại và quy định về ảnh người thật. Đọc tài liệu chính thức khi có khoá API rồi mới cài đặt.
-- Ảnh đầu ra 9:16; lưu `provider_request_id` và chi phí từng lần gọi.
+**Facebook.** Graph API: đăng nhập lấy mã Trang (quyền `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`), đăng Reels (3–90 giây).
 
-### ffmpeg (ghép video)
+**TikTok.** Login Kit (PKCE) + Content Posting API: đăng thẳng (chọn quyền xem, bình luận / duet / stitch, công khai nội dung thương mại, nhãn AI) hoặc gửi vào hộp nháp. App chưa được TikTok kiểm duyệt chỉ đăng được ở chế độ riêng tư.
 
-- Đầu ra: H.264 + AAC, 1080×1920, 30 fps, `-movflags +faststart`.
-- Mỗi cảnh: ảnh → clip bằng `zoompan` (zoom chậm hoặc lướt), chuyển cảnh `xfade` ngắn.
-- Chữ trên màn và phụ đề: tạo file `.ass` từ `scenes` (đã biết thời lượng từng cảnh), không cần nhận dạng giọng nói. Font hỗ trợ tiếng Việt đặt trong `resources/fonts` (ví dụ Be Vietnam Pro, giấy phép OFL).
-- Nhạc nền chọn từ thư viện có bản quyền dùng thương mại, giảm âm lượng.
-- Cảnh cuối cố định: bảng size + CTA giỏ hàng.
-
-### Chế độ bản web (nhánh `muse-web`)
-
-Không cần khoá API. Claude: app tạo prompt đầy đủ (quy tắc + thông tin sản phẩm + mẫu JSON), người dùng dán vào claude.ai, rồi dán câu trả lời về (`POST /projects/{id}/script/import`). Muse: mỗi cảnh hiện prompt + ảnh tham chiếu; người dùng tạo ảnh trên meta.ai và tải lên (`POST /scenes/{id}/upload`). Không tự động hoá trình duyệt vì cần đăng nhập tài khoản và dễ vỡ khi giao diện meta.ai/claude.ai thay đổi.
+**Trang công khai** `/privacy`, `/terms`, `/data-deletion` cho Meta / TikTok duyệt app.
 
 ## 8. Cấu hình (`.env`)
 
 | Biến | Ý nghĩa |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | Khoá Claude API |
-| `CLAUDE_MODEL` | Mặc định `claude-opus-5-5` |
-| `SCRIPT_DRIVER` | `web` (mặc định khi không có khoá), `claude`, `fake` |
-| `MUSE_DRIVER` | `web` (mặc định khi không có khoá), `fal`, `fake` |
-| `META_API_KEY` / `FAL_KEY` | Khoá theo driver |
-| `FILESYSTEM_DISK` | `public` (local) hoặc `s3` |
-| `QUEUE_CONNECTION` | `database` |
+| `SCRIPT_DRIVER`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_MODEL`, `CLAUDE_CLI_MODEL` | Claude |
+| `MUSE_DRIVER`, `MUSE_BROWSER_URL`, `MUSE_BROWSER_TOKEN`, `MUSE_BROWSER_TIMEOUT`, `MUSE_CLIP_TIMEOUT` | muse.ai |
+| `AUDIO_ANALYZER_URL`, `AUDIO_ANALYZER_TOKEN` | Dịch vụ `audio` |
+| `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | Đăng Facebook |
+| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Đăng TikTok (Sandbox: mã bắt đầu `sb`) |
+| `APP_URL`, `CONTACT_EMAIL` | Địa chỉ công khai (https khi đăng nhập TikTok), email trên trang chính sách |
+| `MEDIA_DISK`, `QUEUE_CONNECTION` | Lưu file, hàng đợi |
 
-Khoá chỉ nằm trong `.env` hoặc biến môi trường của máy chủ, không commit.
+Khoá chỉ nằm trong `.env`, không commit. Mã truy cập mạng xã hội lưu mã hoá trong DB.
 
-## 9. Màn hình (Inertia pages)
+## 9. Quy định và an toàn
 
-| Route | Page | Việc |
-| --- | --- | --- |
-| `GET /products` | `products/index` | Danh sách sản phẩm |
-| `GET /products/create` | `products/create` | Nhập link, ảnh, thông tin |
-| `GET /models` | `models/index` | Thư viện người mẫu, tải ảnh + xác nhận đồng ý |
-| `GET /projects/{id}` | `projects/show` | Kịch bản → ảnh → duyệt → xuất, theo trạng thái |
-| `POST /projects/{id}/script` | | Đưa `GenerateScriptJob` vào hàng đợi |
-| `POST /scenes/{id}/image` | | Tạo hoặc tạo lại ảnh một cảnh |
-| `POST /scene-images/{id}/approve` | | Duyệt ảnh |
-| `POST /projects/{id}/render` | | Đưa `RenderVideoJob` vào hàng đợi |
-
-Mọi route nằm sau `auth`; người dùng chỉ thấy dữ liệu của mình (policy theo `user_id`).
-
-## 10. Quy định và an toàn
-
-- Hiện nhắc **bật nhãn AI** ở bước tải video.
-- Không cho dùng ảnh người mẫu chưa có `consent_at`.
-- Khuyến khích chèn 1–2 clip quay sản phẩm thật (Shopee không khuyến khích video toàn ảnh tĩnh). Giai đoạn 2 cho tải clip thật lên làm cảnh.
-- Ghi chi phí mỗi lần gọi API để theo dõi chi tiêu.
-
-## 11. Lộ trình
-
-1. **Giai đoạn 0:** thử Muse bằng tay trên meta.ai với 3–5 sản phẩm. Chỉ làm tiếp nếu Muse giữ đúng sản phẩm.
-2. **Giai đoạn 1 (MVP):** mục 2 bước 1–7, theo thứ tự: models + migrations → sản phẩm, người mẫu → kịch bản (Claude) → ảnh (Muse) → render (ffmpeg).
-3. **Giai đoạn 2:** giọng đọc tiếng Việt (TTS), clip thật của người dùng, clip chuyển động AI (Kling/Seedance qua fal), 3 bản hook để thử A/B, tiện ích trình duyệt lấy ảnh từ trang Shopee.
-
-## 12. Câu hỏi mở
-
-- Dùng Muse qua Meta Model API hay qua fal?
-- Triển khai ở đâu: VPS (cần chạy ffmpeg và queue) hay chỉ chạy trên máy cá nhân?
-- Có cần nhiều người dùng không, hay chỉ một tài khoản?
+- Không xoá dữ liệu người dùng khi sửa lỗi; sao lưu DB trước mỗi migration (`storage/backups`).
+- Người mẫu phải có `consent_at`. Mọi cảnh quay toàn thân, lịch sự, không gợi cảm.
+- Không bịa thông tin sản phẩm, không nhắc giá / khuyến mãi; caption không bịa trải nghiệm.
+- Video có người do AI tạo: bật nhãn AI khi đăng (TikTok gắn tự động khi đăng thẳng).
+- Thao tác tốn Credits (tạo ảnh, clip, phân tích) chỉ chạy khi người dùng bấm hoặc bật chạy ngầm.

@@ -123,7 +123,8 @@ const usd = (value: number) => `$${value.toLocaleString('en-US', { minimumFracti
 export default function AdminUserShow({ user, stats, tab, list, usdVnd, methods }: Props) {
     const { auth } = usePage<SharedData>().props;
     const isMe = user.id === auth.user.id;
-    const [creditOpen, setCreditOpen] = useState(false);
+    // ?credit=1 (từ trang Nạp tiền): mở sẵn hộp cộng Credits.
+    const [creditOpen, setCreditOpen] = useState(() => new URLSearchParams(window.location.search).has('credit'));
 
     const update = (data: Record<string, boolean>, message: string) => {
         if (confirm(message)) {

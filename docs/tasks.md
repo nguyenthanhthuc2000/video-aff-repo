@@ -1,22 +1,36 @@
-# Danh sách việc MVP
+# Danh sách việc
 
-Theo [thiet-ke.md](thiet-ke.md). Làm theo thứ tự; mỗi task xong là một commit lên `main`, có test.
+Cập nhật: 2026-10-12. Thiết kế: [thiet-ke.md](thiet-ke.md) (hệ thống hiện tại), [phim-hoat-hinh.md](phim-hoat-hinh.md) (phim hoạt hình).
 
-**Trạng thái (2026-10-09):** T1–T9 đã xong. Cả luồng đã chạy thử trên trình duyệt với driver giả (kịch bản mẫu, ảnh người mẫu) và ffmpeg thật. Chưa chạy với khoá Claude và fal thật.
+Quy ước: mỗi task có test; sao lưu DB trước mỗi migration; không xoá dữ liệu người dùng; commit / push khi được yêu cầu.
+
+## Đã xong (video affiliate)
+
+- Sản phẩm từ Shopee (bookmark), người mẫu, bối cảnh, video mẫu, nhạc.
+- Claude qua Claude Code CLI (gói Pro/Max) hoặc API; Muse qua trình duyệt ngầm (ảnh, clip, phân tích).
+- Phân cảnh Muse từ video mẫu + nhạc; shot dài 10–30 giây; quay toàn thân; 3 kiểu tiếng (nhạc nền / review / hát nhép).
+- Chạy ngầm cả dự án; Credits, chi phí AI, trang admin.
+- Đề xuất caption đăng bài; kho phân tích Muse (`muse:export`).
+- Đăng Trang Facebook (Reels) và TikTok (đăng thẳng / hộp nháp); trang chính sách công khai.
+
+## Phim hoạt hình
 
 | # | Task | Phụ thuộc | Cần từ bạn |
 | --- | --- | --- | --- |
-| T1 | Nền tảng dữ liệu: migrations, models, factories, policy theo `user_id` | | |
-| T2 | Sản phẩm: danh sách, tạo/sửa, tải 2–5 ảnh, chọn ảnh chính | T1 | |
-| T3 | Thư viện người mẫu: tải ảnh, xác nhận đồng ý (`consent_at`) | T1 | |
-| T4 | Dự án video: tạo từ sản phẩm + người mẫu, trang chi tiết theo trạng thái (tự làm mới) | T2, T3 | |
-| T5 | Kịch bản: `ScriptWriter` (Claude SDK, JSON có cấu trúc), `GenerateScriptJob`, sửa hook/cảnh trên giao diện | T4 | Khoá Claude API để chạy thật |
-| T6 | Ảnh cảnh: `ImageGenerator` (driver Muse qua fal + driver giả để dev), `GenerateSceneImageJob`, duyệt / tạo lại ảnh | T5 | Khoá fal (hoặc Meta) để chạy thật |
-| T7 | Ghép video: `FfmpegVideoRenderer` (zoom, chữ + phụ đề `.ass`, font tiếng Việt, cảnh CTA, nhạc nền), `RenderVideoJob`, tải MP4 | T6 | Nhạc nền có bản quyền (tuỳ chọn) |
-| T8 | Vận hành: cấu hình `.env`, ghi chi phí từng lần gọi API, retry/lỗi, README | xuyên suốt | |
-| T9 | Test + CI: feature test dùng service giả, CI xanh | xuyên suốt | |
+| F0 | Thử nghiệm: 1 nhân vật 2D anime × 10 shot trên Muse (độ giống), thử giọng Kokoro tiếng Anh (chất lượng, giấy phép), đo thời gian clip | | Đồng ý tốn Credits / lượt Muse; chọn ngân sách mỗi tập (mục 9) |
+| F1 | Dữ liệu: `series`, `series_characters`, `series_locations`, `episodes`, `shots`, `shot_images`; policy theo `user_id` | F0 | |
+| F2 | Tạo phim từ ý tưởng: form (có độ tuổi từ … đến …, mặc định 6–12), `PlanSeriesJob` (bible + dàn ý các tập, quy tắc theo nhóm tuổi), sửa bible | F1 | |
+| F3 | Thiết kế nhân vật / bối cảnh: `DesignCharacterJob`, `DesignLocationJob`, tạo lại, chốt | F2 | |
+| F4 | Viết tập: `WriteEpisodeJob` + `WriteSequenceJob` (chia nhỏ theo phân đoạn, kèm sổ liên tục), sửa shot | F2 | |
+| F5 | Keyframe: `GenerateShotImageJob` gửi kèm ảnh nhân vật + bối cảnh đã chốt; tách phần chung với `GenerateSceneImageJob` | F3, F4 | |
+| F6 | Tiếng: Kokoro TTS tiếng Anh trong dịch vụ `audio`, mỗi nhân vật một giọng; `SynthesizeDialogueJob`; chỉnh thời lượng shot theo lời thoại; xuất phụ đề `.srt` | F4 | Chọn giọng |
+| F7 | Animatic: `RenderAnimaticJob` (ảnh tĩnh + tiếng + phụ đề, 16:9 / 9:16); màn hình storyboard + phát thử | F5, F6 | |
+| F8 | Clip: `AnimateShotJob` (nối khung shot liền, shot dài nhiều đoạn); hàng đợi `film` + worker riêng, giới hạn song song | F7 | |
+| F9 | Ghép tập: `RenderEpisodeJob` (clip, thoại, nhạc, phụ đề, tiêu đề, 16:9); điều phối `Episode::advance()` chạy ngầm cả tập | F8 | Nhạc có quyền dùng |
+| F10 | Dự toán Credits và thời gian trước khi chạy; trừ Credits theo bước | F5–F9 | Giá Credits cho phim (admin) |
+| F11 | YouTube: kết nối kênh (OAuth Google), đăng tập "dành cho trẻ em", ảnh bìa, phụ đề, tiêu đề / mô tả / thẻ tiếng Anh (Claude), playlist; theo dõi hạn mức API | F9 | Tạo project Google Cloud, bật YouTube Data API, gửi kiểm duyệt API |
+| F12 | Facebook video dài: đăng tập 5 phút lên Trang dạng video thường (tải theo đoạn) | F9 | |
+| F13 | Phát hành thêm: trailer / Shorts 9:16, video tổng hợp 30–60 phút, mở đầu / kết thúc kênh, `SummarizeEpisodeJob` (sổ liên tục) | F9 | Nhạc hiệu có quyền dùng |
+| F14 | Đa ngôn ngữ: Claude dịch tiêu đề, mô tả, phụ đề sang các thứ tiếng chọn khi tạo phim; tải lên YouTube cùng video | F11 | Chọn thứ tiếng |
 
-Ghi chú:
-- T5–T7 code và test được bằng service giả, không cần khoá. Khoá chỉ cần khi chạy thật.
-- Mặc định dùng Muse qua fal (một khoá, trả theo lượt); đổi sang Meta Model API bằng `MUSE_DRIVER`.
-- Chưa làm (giai đoạn 2): giọng đọc TTS, clip quay thật, clip chuyển động AI, A/B nhiều hook, tiện ích lấy ảnh Shopee.
+Thứ tự đề xuất: F0 → F1–F3 (bộ phim) → F4–F7 (xem được animatic) → F8–F10 (tập hoàn chỉnh) → F11–F13 (phát hành). Nên gửi Google kiểm duyệt YouTube API sớm (song song F1), vì chờ duyệt lâu.

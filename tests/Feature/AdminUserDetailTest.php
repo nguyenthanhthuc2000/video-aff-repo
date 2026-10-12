@@ -87,6 +87,18 @@ class AdminUserDetailTest extends TestCase
         $this->assertSame(1000, $user->fresh()->credit_balance);
     }
 
+    public function test_admin_adds_credits_to_own_account()
+    {
+        $admin = User::factory()->admin()->broke()->create();
+
+        $this->actingAs($admin)->post(route('admin.users.credits.store', $admin), [
+            'type' => 'adjustment', 'credits' => 50000, 'description' => 'Admin tự cộng để dùng thử',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(50000, $admin->fresh()->credit_balance);
+        $this->assertSame($admin->id, $admin->creditTransactions()->sole()->created_by);
+    }
+
     public function test_user_sees_own_balance_and_history_on_billing()
     {
         $user = User::factory()->broke()->create();
