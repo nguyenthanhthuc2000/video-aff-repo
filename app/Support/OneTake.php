@@ -17,7 +17,7 @@ final class OneTake
 {
     public static function prompt(Scene $scene, ?MotionStyle $style = null): string
     {
-        $first = $scene->videoProject->firstScene()?->is($scene) ?? true;
+        $first = $scene->videoProject->startsTake($scene);
 
         return 'Animate this photo into a '.VideoProject::ONE_TAKE_BEAT_SECONDS.'-second vertical 9:16 video that is one part of a single continuous take (one shot, no cuts). '
             .($first
@@ -63,9 +63,11 @@ final class OneTake
             }
 
             $next = $project->scenes()->where('position', '>', $scene->position)->orderBy('position')->first();
-            if ($next === null) {
+            // Hết video, hoặc cảnh sau mở đầu đoạn của bộ đồ khác (có ảnh riêng, cắt cảnh đổi đồ): không nối khung.
+            if ($next === null || $project->startsTake($next)) {
                 return;
             }
+            $nextTake = $project->takeStarts()->first(fn (Scene $start) => $start->position > $next->position)?->position;
             if (! $probe->lastFrame($clip, $frame)) {
                 Log::warning('one-take: không lấy được khung cuối', ['scene' => $scene->id]);
 
@@ -85,6 +87,7 @@ final class OneTake
 
             // Khung mở đầu đổi thì clip các nhịp sau không còn khớp: bỏ để tạo lại lần lượt.
             $project->scenes()->where('position', '>', $scene->position)
+                ->when($nextTake, fn ($query) => $query->where('position', '<', $nextTake))
                 ->update(['clip_path' => null, 'clip_status' => null, 'clip_error' => null, 'clip_request_id' => null]);
             $next->refresh()->queueClip();
         } finally {

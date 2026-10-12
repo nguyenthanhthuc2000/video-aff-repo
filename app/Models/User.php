@@ -97,6 +97,11 @@ class User extends Authenticatable
         return $this->hasMany(VideoProject::class);
     }
 
+    public function series(): HasMany
+    {
+        return $this->hasMany(Series::class);
+    }
+
     public function isAdmin(): bool
     {
         return (bool) $this->is_admin;

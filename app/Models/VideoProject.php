@@ -150,10 +150,50 @@ class VideoProject extends Model
         return $this->scenes()->orderBy('position')->first();
     }
 
-    /** Đủ ảnh để sang bước clip: mọi cảnh có ảnh duyệt, hoặc (một cảnh quay liền) cảnh đầu có ảnh duyệt. */
+    /**
+     * Một cảnh quay liền nhiều bộ đồ: mỗi bộ là một đoạn quay liền riêng, giữa các đoạn cắt cảnh đổi đồ.
+     * Cảnh mở đầu đoạn tạo ảnh riêng; các nhịp sau trong đoạn lấy khung cuối clip trước.
+     *
+     * @return Collection<int, Scene>
+     */
+    public function takeStarts(): Collection
+    {
+        $previous = null;
+
+        return $this->scenes()->orderBy('position')->get()->filter(function (Scene $scene) use (&$previous) {
+            $starts = $previous === null || ! $scene->sameOutfitAs($previous);
+            $previous = $scene;
+
+            return $starts;
+        })->values();
+    }
+
+    /** Cảnh mở đầu một đoạn quay liền (cảnh 1, hoặc cảnh đổi sang bộ đồ khác). */
+    public function startsTake(Scene $scene): bool
+    {
+        return $this->takeStarts()->contains('id', $scene->id);
+    }
+
+    /**
+     * Cảnh thứ $index (0..$count-1) mặc bộ nào trong danh sách bộ đồ. Quay liền: chia thành các khối liền nhau (mỗi bộ một đoạn);
+     * còn lại cùng shot video mẫu thì cùng bộ, không có shot thì lần lượt từng bộ.
+     */
+    public function outfitSlot(int $index, int $count, ?array $piece = null): int
+    {
+        $outfits = max(1, count($this->outfitList()));
+        if ($this->one_take) {
+            return min($outfits - 1, intdiv($index * $outfits, max(1, $count)));
+        }
+
+        return ($piece !== null ? $piece['shot'] : $index) % $outfits;
+    }
+
+    /** Đủ ảnh để sang bước clip: mọi cảnh có ảnh duyệt, hoặc (quay liền) cảnh mở đầu mỗi đoạn có ảnh duyệt. */
     public function imagesReady(): bool
     {
-        return $this->one_take ? (bool) $this->firstScene()?->approvedImage()->exists() : $this->allScenesApproved();
+        return $this->one_take
+            ? $this->takeStarts()->isNotEmpty() && $this->takeStarts()->every(fn (Scene $scene) => $scene->approvedImage()->exists())
+            : $this->allScenesApproved();
     }
 
     public function scenes(): HasMany
@@ -264,8 +304,7 @@ class VideoProject extends Model
                 $piece = $pieces[$i] ?? null;
                 $outfit = null;
                 if ($outfits !== [] && $phase !== 'before') {
-                    // Cùng shot thì cùng bộ đồ; không có shot thì mỗi cảnh mặc sản phẩm một bộ kế tiếp.
-                    $outfit = $outfits[($piece !== null ? $piece['shot'] : $worn) % count($outfits)];
+                    $outfit = $outfits[$this->outfitSlot($worn, count($script['scenes']), $piece)];
                     $worn++;
                 }
                 $shot = $plan !== null && count($plan['shots']) === count($script['scenes']) ? $plan['shots'][$i] : null;
@@ -424,8 +463,8 @@ class VideoProject extends Model
     public function scenesMissingImages(): Collection
     {
         return $this->scenes()->with('latestImage')->orderBy('position')->get()
-            // Một cảnh quay liền: chỉ cảnh đầu tạo ảnh, các cảnh sau lấy khung cuối clip trước.
-            ->when($this->one_take, fn ($scenes) => $scenes->take(1))
+            // Một cảnh quay liền: chỉ cảnh mở đầu mỗi đoạn tạo ảnh, các nhịp sau lấy khung cuối clip trước.
+            ->when($this->one_take, fn ($scenes) => $scenes->whereIn('id', $this->takeStarts()->pluck('id')))
             ->filter(fn (Scene $scene) => in_array($scene->latestImage?->status, [null, SceneImageStatus::Failed, SceneImageStatus::Rejected], true))
             ->values();
     }
@@ -472,12 +511,17 @@ class VideoProject extends Model
         // Video mẫu nhiều shot: số cảnh và độ dài theo các shot (mỗi shot dài được chia thành vài cảnh).
         if ($this->one_take) {
             $beats = max(2, min(6, (int) round($settings['seconds'] / self::ONE_TAKE_BEAT_SECONDS)));
+            // Nhiều bộ đồ: mỗi bộ một đoạn quay liền, ít nhất 2 nhịp mỗi bộ.
+            $takes = max(1, count($this->outfitList()));
+            $beats = $takes > 1 ? min(12, max($beats, 2 * $takes)) : $beats;
 
             return [
                 ...$settings,
                 'scenes' => $beats,
                 'seconds' => $beats * self::ONE_TAKE_BEAT_SECONDS,
-                'reason' => "Một cảnh quay liền: {$beats} nhịp nối tiếp, mỗi nhịp khoảng ".self::ONE_TAKE_BEAT_SECONDS.' giây.',
+                'reason' => $takes > 1
+                    ? "Quay liền {$takes} bộ đồ: mỗi bộ một đoạn quay liền, cắt cảnh đổi đồ giữa các đoạn; tổng {$beats} nhịp, mỗi nhịp khoảng ".self::ONE_TAKE_BEAT_SECONDS.' giây.'
+                    : "Một cảnh quay liền: {$beats} nhịp nối tiếp, mỗi nhịp khoảng ".self::ONE_TAKE_BEAT_SECONDS.' giây.',
             ];
         }
 
@@ -503,8 +547,7 @@ class VideoProject extends Model
      */
     public function outfitList(): array
     {
-        // Một cảnh quay liền không đổi đồ được (không có lúc cắt cảnh): chỉ bộ đầu.
-        $items = is_array($this->outfits) ? ($this->one_take ? array_slice($this->outfits, 0, 1) : $this->outfits) : [];
+        $items = is_array($this->outfits) ? $this->outfits : [];
         if ($items === []) {
             return [];
         }
@@ -577,13 +620,17 @@ class VideoProject extends Model
     /** @return \Illuminate\Database\Eloquent\Collection<int, Scene> Cảnh có ảnh duyệt mà chưa có clip. */
     public function scenesMissingClips(bool $retryFailed = false): \Illuminate\Database\Eloquent\Collection
     {
-        // Một cảnh quay liền: tạo lần lượt, chỉ nhịp đầu tiên chưa có clip (nhịp sau cần khung cuối của nhịp này).
+        // Một cảnh quay liền: trong mỗi đoạn tạo lần lượt, chỉ nhịp đầu tiên chưa có clip (nhịp sau cần khung cuối của nhịp này);
+        // các đoạn (mỗi bộ đồ một đoạn) chạy song song.
         if ($this->one_take) {
-            $next = $this->scenes()->with('approvedImage')->orderBy('position')->whereNull('clip_path')->first();
+            $starts = $this->takeStarts()->pluck('position')->all();
+            $next = $this->scenes()->with('approvedImage')->orderBy('position')->whereNull('clip_path')->get()
+                ->groupBy(fn (Scene $scene) => max(array_filter($starts, fn ($start) => $start <= $scene->position)))
+                ->map->first()
+                ->filter(fn (Scene $scene) => $scene->approvedImage && ($scene->clip_status === null || ($retryFailed && $scene->clip_status === SceneClipStatus::Failed)))
+                ->values();
 
-            return new \Illuminate\Database\Eloquent\Collection(
-                $next && $next->approvedImage && ($next->clip_status === null || ($retryFailed && $next->clip_status === SceneClipStatus::Failed)) ? [$next] : []
-            );
+            return new \Illuminate\Database\Eloquent\Collection($next->all());
         }
 
         return $this->scenes()

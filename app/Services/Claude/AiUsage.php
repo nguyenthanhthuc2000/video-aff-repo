@@ -6,6 +6,7 @@ use App\Models\AiUsageLog;
 use App\Models\AppSetting;
 use App\Models\Product;
 use App\Models\SampleVideo;
+use App\Models\Series;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\ProjectCredits;
@@ -205,6 +206,7 @@ class AiUsage
         return match ($type) {
             'product' => Product::find($id)?->name,
             'sample_video' => SampleVideo::find($id)?->name,
+            'series' => ($title = Series::find($id)?->title) ? "Phim: {$title}" : null,
             default => null,
         };
     }

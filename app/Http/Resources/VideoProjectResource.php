@@ -68,7 +68,6 @@ class VideoProjectResource extends JsonResource
                 ['label' => 'Ảnh 1: người mẫu', 'url' => Media::url($this->fashionModel->photo_path)],
                 ...$this->product->images()
                     ->orderByDesc('is_primary')->orderBy('id')
-                    ->limit(config('videoaff.image_product_refs'))
                     ->get()
                     ->values()
                     ->map(fn ($image, $i) => ['label' => 'Ảnh '.($i + 2).': sản phẩm', 'url' => Media::url($image->path)])
@@ -170,13 +169,12 @@ class VideoProjectResource extends JsonResource
     private function videoProducts(): array
     {
         $outfits = $this->outfitList() ?: [['product_id' => $this->product_id, 'product_image_id' => null, 'color' => null, 'product' => $this->product]];
-        $limit = config('videoaff.image_product_refs');
 
-        return collect($outfits)->groupBy('product_id', true)->map(function ($items) use ($limit) {
+        return collect($outfits)->groupBy('product_id', true)->map(function ($items) {
             $product = $items->first()['product'];
             $images = $product->images()->orderByDesc('is_primary')->orderBy('id')->get();
             $chosen = $items->pluck('product_image_id')->filter()->all();
-            // Không chọn ảnh riêng thì AI xem vài ảnh đầu (ảnh chính trước).
+            // Không chọn ảnh riêng thì AI xem mọi ảnh (ảnh vượt số suất của Muse được ghép thành ảnh lưới).
             $usesAll = $items->contains(fn ($item) => $item['product_image_id'] === null);
             $scenes = $this->scenes
                 ->filter(fn ($scene) => $scene->phase?->value !== 'before' && ($scene->product_id ?? $this->product_id) === $product->id)
@@ -191,10 +189,10 @@ class VideoProjectResource extends JsonResource
                 'outfit_numbers' => $items->keys()->map(fn ($key) => $key + 1)->values()->all(),
                 'colors' => $items->pluck('color')->filter()->unique()->values()->all(),
                 'scenes' => $scenes,
-                'images' => $images->values()->map(fn ($image, $i) => [
+                'images' => $images->values()->map(fn ($image) => [
                     'id' => $image->id,
                     'url' => Media::url($image->path),
-                    'used' => in_array($image->id, $chosen, true) || ($usesAll && $i < $limit),
+                    'used' => $usesAll || in_array($image->id, $chosen, true),
                 ])->all(),
             ];
         })->values()->all();

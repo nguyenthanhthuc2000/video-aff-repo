@@ -108,14 +108,69 @@ class OneTakeTest extends TestCase
         $model = FashionModel::factory()->for($user)->create();
         $base = ['product_id' => $product->id, 'fashion_model_id' => $model->id, 'one_take' => true];
 
-        $this->actingAs($user)->post(route('projects.store'), [...$base, 'outfits' => [['product_id' => $product->id], ['product_id' => $second->id]]])
-            ->assertSessionHasErrors('one_take');
-
         config(['videoaff.image_driver' => 'fake']);
         $this->actingAs($user)->post(route('projects.store'), $base)->assertSessionHasErrors('one_take');
 
         config(['videoaff.image_driver' => 'browser']);
         $this->actingAs($user)->post(route('projects.store'), $base)->assertSessionHasNoErrors();
         $this->assertTrue($user->videoProjects()->sole()->one_take);
+    }
+
+    public function test_one_take_with_several_outfits_films_one_take_per_outfit()
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $product = Product::factory()->for($user)->create();
+        [$white, $black] = [$product->images()->create(['path' => 'products/white.jpg', 'is_primary' => true]), $product->images()->create(['path' => 'products/black.jpg'])];
+        $model = FashionModel::factory()->for($user)->create();
+
+        $this->actingAs($user)->post(route('projects.store'), [
+            'product_id' => $product->id, 'fashion_model_id' => $model->id, 'one_take' => true,
+            'outfits' => [['product_id' => $product->id, 'product_image_id' => $white->id], ['product_id' => $product->id, 'product_image_id' => $black->id]],
+        ])->assertSessionHasNoErrors();
+        $project = $user->videoProjects()->sole();
+        $this->assertCount(2, $project->outfitList());
+        $this->assertGreaterThanOrEqual(4, $project->videoSettings()['scenes']);
+        $this->assertStringContainsString('Quay liền 2 bộ đồ', $project->videoSettings()['reason']);
+
+        $prompt = ScriptPrompt::userText($project);
+        $this->assertStringContainsString('MỖI BỘ LÀ MỘT ĐOẠN QUAY LIỀN', $prompt);
+        $this->assertStringContainsString('Cảnh 1: Bộ 1', $prompt);
+        $this->assertMatchesRegularExpression('/Cảnh \d+: Bộ 2/u', $prompt);
+
+        $scene = fn ($i) => ['visual' => "Nhịp {$i}", 'on_screen_text' => null, 'voiceover' => 'x', 'image_prompt' => "p{$i}", 'duration_ms' => 5000];
+        $project->applyScript(['hooks' => ['h'], 'caption' => 'c', 'hashtags' => [], 'scenes' => array_map($scene, [1, 2, 3, 4])]);
+        $scenes = $project->scenes()->orderBy('position')->get();
+
+        // Khối liền nhau: cảnh 1–2 mặc bộ trắng, 3–4 bộ đen; mỗi bộ một đoạn quay liền.
+        $this->assertSame([$white->id, $white->id, $black->id, $black->id], $scenes->pluck('product_image_id')->all());
+        $this->assertSame([1, 3], $project->takeStarts()->pluck('position')->all());
+        $this->assertSame([1, 3], $project->scenesMissingImages()->pluck('position')->all());
+        $this->assertStringContainsString('beginning of the shot', OneTake::prompt($scenes[2]));
+        $this->assertStringContainsString('exact last frame', OneTake::prompt($scenes[1]));
+
+        SceneImage::factory()->for($scenes[0])->create(['status' => SceneImageStatus::Approved]);
+        $this->assertFalse($project->imagesReady());
+        SceneImage::factory()->for($scenes[2])->create(['status' => SceneImageStatus::Approved]);
+        $this->assertTrue($project->imagesReady());
+        // Hai đoạn làm clip song song.
+        $this->assertSame([1, 3], $project->scenesMissingClips()->pluck('position')->all());
+
+        // Ảnh cảnh mở đầu đoạn 2 tạo lại được; đổi ảnh đoạn 1 không xoá clip đoạn 2.
+        $scenes[3]->update(['clip_path' => 'clips/d.mp4', 'clip_status' => SceneClipStatus::Ready]);
+        $scenes[1]->update(['clip_path' => 'clips/b.mp4', 'clip_status' => SceneClipStatus::Ready]);
+        $scenes[0]->discardClip();
+        $this->assertNull($scenes[1]->fresh()->clip_path);
+        $this->assertSame('clips/d.mp4', $scenes[3]->fresh()->clip_path);
+        // Clip cuối đoạn 1 xong: không ghi đè ảnh mở đầu đoạn 2, không bỏ clip đoạn 2.
+        Storage::disk('public')->put('clips/b.mp4', file_get_contents(base_path('tests/Fixtures/tiny.mp4')));
+        $scenes[1]->update(['clip_path' => 'clips/b.mp4', 'clip_status' => SceneClipStatus::Ready, 'clip_request_id' => 'VA-BBBBBB']);
+        OneTake::continueAfter($scenes[1]->fresh());
+        $this->assertNotSame('one_take', $scenes[2]->fresh()->approvedImage->provider);
+        $this->assertSame('clips/d.mp4', $scenes[3]->fresh()->clip_path);
+
+        $project->update(['status' => VideoProjectStatus::Reviewing]);
+        $this->actingAs($user)->post(route('scenes.image.regenerate', $scenes[2]))
+            ->assertSessionHas('status', fn ($status) => ! str_contains($status, 'khung cuối clip cảnh trước'));
     }
 }

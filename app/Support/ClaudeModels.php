@@ -31,6 +31,14 @@ class ClaudeModels
             'hint' => 'Viết lại prompt khi bấm Tạo lại ảnh hoặc bị từ chối. Câu ngắn, gọi nhiều lần.',
             'recommended' => 'claude-haiku-5-5',
         ],
+        'film_plan' => [
+            'hint' => 'Phim hoạt hình: lên kế hoạch bộ phim (nhân vật, bối cảnh, dàn ý các tập) từ ý tưởng. Viết dài, cần sáng tạo.',
+            'recommended' => 'claude-sonnet-5-5',
+        ],
+        'film_episode' => [
+            'hint' => 'Phim hoạt hình: viết tập thành phân đoạn và shot (góc máy, hành động, lời thoại). Gọi nhiều lượt mỗi tập.',
+            'recommended' => 'claude-sonnet-5-5',
+        ],
         'motion_analysis' => [
             'hint' => 'Xem khung hình video mẫu và mô tả từng nhịp chuyển động. Cần đọc ảnh tốt.',
             'recommended' => 'claude-sonnet-5-5',

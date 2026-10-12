@@ -23,6 +23,7 @@ use App\Support\Media;
 use App\Support\ProductCoverage;
 use App\Support\ProductFidelity;
 use App\Support\Realism;
+use App\Support\ReferenceSheet;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -146,16 +147,15 @@ class GenerateSceneImageJob implements ShouldQueue
             return [$project->fashionModel->photo_path, ...array_filter([$background]), $scene->productImage->path];
         }
 
+        // Mọi ảnh sản phẩm: Muse nhận tối đa 4 ảnh, ảnh vượt số suất được ghép thành một ảnh lưới.
+        $people = [$project->fashionModel->photo_path, ...array_filter([$background])];
+
         return [
-            $project->fashionModel->photo_path,
-            ...array_filter([$background]),
-            ...$scene->outfitProduct()->images()
-                ->orderByDesc('is_primary')
-                ->orderBy('id')
-                // Muse nhận tối đa 4 ảnh: có ảnh nền thì bớt một ảnh sản phẩm.
-                ->limit(min(config('videoaff.image_product_refs'), $background ? 2 : 3))
-                ->pluck('path')
-                ->all(),
+            ...$people,
+            ...ReferenceSheet::fit(
+                $scene->outfitProduct()->images()->orderByDesc('is_primary')->orderBy('id')->pluck('path')->all(),
+                ReferenceSheet::MAX_ATTACHMENTS - count($people),
+            ),
         ];
     }
 
@@ -163,7 +163,7 @@ class GenerateSceneImageJob implements ShouldQueue
     private function runSync(ImageGenerator $generator, array $references): ?GeneratedImage
     {
         try {
-            $prompt = self::scenePrompt($this->image->scene);
+            $prompt = self::withSheetNote(self::scenePrompt($this->image->scene), $references);
             $this->image->update(['prompt' => $prompt]);
 
             return $generator->generate($references, $prompt);
@@ -190,7 +190,7 @@ class GenerateSceneImageJob implements ShouldQueue
 
         try {
             if (! MuseTask::isCode($image->provider_request_id)) {
-                $prompt = self::scenePrompt($image->scene);
+                $prompt = self::withSheetNote(self::scenePrompt($image->scene), $references);
                 $image->update(['provider_request_id' => $generator->start($references, $prompt), 'prompt' => $prompt]);
                 $this->release(15);
 
@@ -272,7 +272,12 @@ class GenerateSceneImageJob implements ShouldQueue
         }
     }
 
-    /** Prompt gửi Muse: prompt của cảnh + yêu cầu giữ đúng người mẫu và sản phẩm. */
+    /** Có ảnh lưới (gộp nhiều ảnh sản phẩm): dặn Muse dùng hết các ảnh trong lưới, không vẽ thành nhiều khung. */
+    public static function withSheetNote(string $prompt, array $references): string
+    {
+        return collect($references)->contains(fn ($path) => ReferenceSheet::isSheet((string) $path)) ? $prompt.' '.ReferenceSheet::NOTE : $prompt;
+    }
+
     /** Prompt đầy đủ của cảnh (theo pha, loại sản phẩm, có ảnh nền bối cảnh hay không). */
     public static function scenePrompt(Scene $scene): string
     {

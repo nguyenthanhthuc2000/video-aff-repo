@@ -36,7 +36,7 @@ class MuseBrowserImageGenerator implements AsyncImageGenerator, ImageGenerator
         self::call(fn () => $this->client->startTask(
             $code,
             'image',
-            self::message($code, $prompt),
+            static::message($code, $prompt),
             $images,
             (int) config('videoaff.muse_browser.timeout') * 1000,
         ));

@@ -6,6 +6,7 @@ use App\Http\Controllers\BackgroundController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\ClaudeAuthController;
 use App\Http\Controllers\CreditHistoryController;
+use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\MuseAuthController;
 use App\Http\Controllers\ProductController;
@@ -19,6 +20,8 @@ use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\SceneOrderController;
 use App\Http\Controllers\SceneOutfitController;
 use App\Http\Controllers\ScriptController;
+use App\Http\Controllers\SeriesCharacterController;
+use App\Http\Controllers\SeriesController;
 use App\Http\Controllers\SocialAccountController;
 use App\Http\Controllers\SocialPostController;
 use App\Http\Controllers\VideoProjectController;
@@ -80,6 +83,33 @@ Route::middleware(['auth'])->group(function () {
     Route::post('scene-images/{image}/approve', [SceneImageController::class, 'approve'])->name('scene-images.approve');
     Route::post('projects/{project}/renders', [RenderController::class, 'store'])->name('projects.renders.store');
     Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');
+
+    // Phim hoạt hình nhiều tập (docs/phim-hoat-hinh.md).
+    Route::get('series', [SeriesController::class, 'index'])->name('series.index');
+    Route::get('series/create', [SeriesController::class, 'create'])->name('series.create');
+    Route::post('series', [SeriesController::class, 'store'])->name('series.store');
+    Route::get('series/{series}', [SeriesController::class, 'show'])->name('series.show');
+    Route::put('series/{series}', [SeriesController::class, 'update'])->name('series.update');
+    Route::delete('series/{series}', [SeriesController::class, 'destroy'])->name('series.destroy');
+    Route::post('series/{series}/plan', [SeriesController::class, 'plan'])->name('series.plan');
+    // Tập và nhân vật thuộc đúng bộ phim trong URL (scopeBindings).
+    Route::scopeBindings()->group(function () {
+        Route::get('series/{series}/episodes/{episode}', [EpisodeController::class, 'show'])->name('series.episodes.show');
+        Route::put('series/{series}/episodes/{episode}', [EpisodeController::class, 'update'])->name('series.episodes.update');
+        Route::post('series/{series}/episodes/{episode}/write', [EpisodeController::class, 'write'])->name('series.episodes.write');
+        Route::post('series/{series}/episodes/{episode}/keyframes', [EpisodeController::class, 'keyframes'])->name('series.episodes.keyframes');
+        Route::put('series/{series}/episodes/{episode}/shots/{shot}', [EpisodeController::class, 'updateShot'])->name('series.episodes.shots.update');
+        Route::post('series/{series}/episodes/{episode}/shots/{shot}/image', [EpisodeController::class, 'regenerateShot'])->name('series.episodes.shots.image');
+        Route::post('series/{series}/characters', [SeriesCharacterController::class, 'store'])->name('series.characters.store');
+        Route::get('series/{series}/characters/{character}', [SeriesCharacterController::class, 'show'])->name('series.characters.show');
+        Route::put('series/{series}/characters/{character}', [SeriesCharacterController::class, 'update'])->name('series.characters.update');
+        Route::delete('series/{series}/characters/{character}', [SeriesCharacterController::class, 'destroy'])->name('series.characters.destroy');
+        Route::post('series/{series}/characters/{character}/generate', [SeriesCharacterController::class, 'generate'])->name('series.characters.generate');
+        Route::post('series/{series}/characters/{character}/upload', [SeriesCharacterController::class, 'upload'])->name('series.characters.upload');
+        Route::put('series/{series}/characters/{character}/lock', [SeriesCharacterController::class, 'lock'])->name('series.characters.lock');
+        Route::put('series/{series}/characters/{character}/images/{image}/main', [SeriesCharacterController::class, 'setMain'])->name('series.characters.images.main');
+        Route::delete('series/{series}/characters/{character}/images/{image}', [SeriesCharacterController::class, 'destroyImage'])->name('series.characters.images.destroy');
+    });
 
     Route::get('billing', [BillingController::class, 'index'])->name('billing.index');
     Route::get('credits', [CreditHistoryController::class, 'index'])->name('credits.index');

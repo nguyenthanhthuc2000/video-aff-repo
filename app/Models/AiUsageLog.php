@@ -19,6 +19,8 @@ class AiUsageLog extends Model
         'product_import' => 'Đọc trang sản phẩm',
         'scene_prompt_rewrite' => 'Viết lại prompt phân cảnh (tạo lại ảnh)',
         'motion_analysis' => 'Phân tích video mẫu',
+        'film_plan' => 'Phim: lên kế hoạch bộ phim',
+        'film_episode' => 'Phim: viết tập (dàn ý, shot)',
         'auth_test' => 'Kiểm tra kết nối',
     ];
 

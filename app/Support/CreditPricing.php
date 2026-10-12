@@ -87,13 +87,13 @@ class CreditPricing
     /**
      * Credits ước tính cho các bước AI viết chữ (theo trung bình 100 lượt gần nhất, chưa có thì theo token mẫu với Sonnet).
      *
-     * @return array{script: int, product_import: int, motion_analysis: int, scene_prompt_rewrite: int}
+     * @return array{script: int, product_import: int, motion_analysis: int, scene_prompt_rewrite: int, film_plan: int, film_episode: int}
      */
     public static function aiEstimates(): array
     {
         $settings = self::settings();
         $usdVnd = AiUsage::settings()['usd_vnd'];
-        $sample = ['script' => [5000, 2500], 'product_import' => [6000, 600], 'motion_analysis' => [15000, 1500], 'scene_prompt_rewrite' => [900, 250]];
+        $sample = ['script' => [5000, 2500], 'product_import' => [6000, 600], 'motion_analysis' => [15000, 1500], 'scene_prompt_rewrite' => [900, 250], 'film_plan' => [2500, 6000], 'film_episode' => [3500, 3000]];
 
         return collect($sample)->map(function (array $tokens, string $action) use ($settings, $usdVnd) {
             $recent = AiUsageLog::where('action', $action)->where('success', true)->latest('id')->limit(100)->get(['cost_usd', 'model']);

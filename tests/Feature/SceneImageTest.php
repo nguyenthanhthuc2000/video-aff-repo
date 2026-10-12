@@ -106,6 +106,51 @@ class SceneImageTest extends TestCase
         $this->assertSame('0.0100', $image->cost_usd);
     }
 
+    public function test_all_product_images_reach_muse_with_extra_ones_in_a_grid()
+    {
+        $project = $this->projectWithScenes(1);
+        $disk = Storage::disk('public');
+        $png = function () {
+            $image = imagecreatetruecolor(40, 60);
+            ob_start();
+            imagepng($image);
+
+            return (string) ob_get_clean();
+        };
+        $disk->put('products/a.jpg', $png());
+        foreach (['b', 'c', 'd', 'e'] as $name) {
+            $disk->put("products/{$name}.jpg", $png());
+            $project->product->images()->create(['path' => "products/{$name}.jpg", 'is_primary' => false]);
+        }
+        $spy = new class implements ImageGenerator
+        {
+            public array $calls = [];
+
+            public function generate(array $referencePaths, string $prompt): GeneratedImage
+            {
+                $this->calls[] = [$referencePaths, $prompt];
+
+                return new GeneratedImage('img', 'jpg', 'spy', 'req-1', 0.01);
+            }
+        };
+        $this->app->instance(ImageGenerator::class, $spy);
+
+        $this->actingAs($project->user)->post(route('projects.images.store', $project));
+
+        // 4 suất: người mẫu, ảnh chính, ảnh b, ảnh lưới của c, d, e.
+        [$refs, $prompt] = $spy->calls[0];
+        $this->assertCount(4, $refs);
+        $this->assertSame([$project->fashionModel->photo_path, 'products/a.jpg', 'products/b.jpg'], array_slice($refs, 0, 3));
+        $this->assertStringStartsWith('reference-sheets/', $refs[3]);
+        [$width, $height] = getimagesizefromstring($disk->get($refs[3]));
+        $this->assertSame([1584, 1584], [$width, $height]);
+        $this->assertStringContainsString('grid of several photos of the same product', $prompt);
+
+        // Trang dự án: mọi ảnh sản phẩm đều được đánh dấu là AI dùng.
+        $this->actingAs($project->user)->get(route('projects.show', $project))
+            ->assertInertia(fn ($page) => $page->where('project.video_products.0.images', fn ($images) => collect($images)->every(fn ($image) => $image['used'])));
+    }
+
     public function test_failed_generation_marks_image_failed_and_project_reviewing()
     {
         $this->app->bind(ImageGenerator::class, fn () => new class implements ImageGenerator

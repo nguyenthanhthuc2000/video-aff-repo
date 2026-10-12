@@ -168,7 +168,8 @@ class OutfitShotTest extends TestCase
             ->where('project.video_products.0.colors', ['Đen'])
             ->where('project.video_products.0.shopee_url', $project->product->shopee_url)
             ->has('project.video_products.0.images', 4)
-            ->where('project.video_products.0.images.3.used', false)
+            // Không chọn ảnh riêng: AI dùng mọi ảnh (ảnh vượt suất của Muse ghép thành ảnh lưới).
+            ->where('project.video_products.0.images.3.used', true)
             ->where('project.video_products.1.outfit_numbers', [2])
             ->where('project.video_products.1.url', route('products.edit', $other))
             ->where('project.video_products.1.images.0.used', false)

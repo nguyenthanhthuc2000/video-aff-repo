@@ -5,6 +5,8 @@ namespace App\Providers;
 use Anthropic\Client;
 use App\Services\Audio\MusicAnalyzer;
 use App\Services\Claude\ClaudeCli;
+use App\Services\Film\FakeFilmImageGenerator;
+use App\Services\Film\FilmMuseImageGenerator;
 use App\Services\Image\FakeImageGenerator;
 use App\Services\Image\FalMuseImageGenerator;
 use App\Services\Image\ImageGenerator;
@@ -97,6 +99,12 @@ class AppServiceProvider extends ServiceProvider
                 default => throw new \InvalidArgumentException('MUSE_DRIVER không hợp lệ: '.config('videoaff.image_driver')),
             };
         });
+
+        // Ảnh phim hoạt hình: Muse với lời nhắn riêng cho phim; driver khác dùng ảnh giả.
+        $this->app->bind(FilmMuseImageGenerator::class, fn () => new FilmMuseImageGenerator($this->app->make(MuseBrowserClient::class)));
+        $this->app->bind('film.image', fn () => config('videoaff.image_driver') === 'browser'
+            ? $this->app->make(FilmMuseImageGenerator::class)
+            : new FakeFilmImageGenerator);
 
         // Clip chuyển động tự động chỉ có khi tạo ảnh bằng muse.ai qua trình duyệt ngầm.
         $this->app->bind(ClipGenerator::class, fn () => match (config('videoaff.image_driver')) {

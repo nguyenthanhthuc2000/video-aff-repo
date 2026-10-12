@@ -98,7 +98,7 @@ class ScriptPrompt
             .self::piecesText($project)
             .MusePlan::scriptText($project)
             .($project->isTransformation() ? "\n\n".self::TRANSFORMATION : '')
-            .($project->one_take ? "\n\n".self::ONE_TAKE : '')
+            .($project->one_take ? "\n\n".self::ONE_TAKE.(count($project->outfitList()) > 1 ? "\n".self::ONE_TAKE_OUTFITS : '') : '')
             ."\n\n".self::voiceText($project);
     }
 
@@ -173,7 +173,7 @@ class ScriptPrompt
     private static function outfitsText(VideoProject $project, int $sceneCount): string
     {
         $outfits = $project->outfitList();
-        if ($outfits === [] || $project->one_take) {
+        if ($outfits === [] || ($project->one_take && count($outfits) < 2)) {
             return '';
         }
 
@@ -188,7 +188,7 @@ class ScriptPrompt
             $pieces = $project->shotPieces();
             $rows = [];
             for ($i = 0; $i < $sceneCount; $i++) {
-                $rows[] = 'Cảnh '.($i + 1).': Bộ '.((($pieces[$i]['shot'] ?? $i) % count($outfits)) + 1);
+                $rows[] = 'Cảnh '.($i + 1).': Bộ '.($project->outfitSlot($i, $sceneCount, $pieces[$i] ?? null) + 1);
             }
             $mapping = "Cảnh mặc bộ nào:\n".implode("\n", $rows)."\n";
         }
@@ -243,6 +243,13 @@ class ScriptPrompt
       các cảnh sau image_prompt chỉ cần tóm tắt nhịp đó.
     - visual tả rõ hành động trong nhịp (AI làm clip theo visual), ví dụ "Bước chậm về phía camera, tay vuốt nhẹ tà váy".
     - Lời đọc nối liền như một người nói liên tục, không ngắt theo cảnh.
+    PROMPT;
+
+    /** Quay liền nhiều bộ đồ: mỗi bộ một đoạn quay liền, cắt cảnh đổi đồ giữa các đoạn (thay cho quy tắc "cùng bộ đồ từ đầu đến cuối"). */
+    public const ONE_TAKE_OUTFITS = <<<'PROMPT'
+    Video có nhiều bộ đồ (xem "Cảnh mặc bộ nào"): MỖI BỘ LÀ MỘT ĐOẠN QUAY LIỀN riêng theo các quy tắc trên, giữa hai đoạn là một lần cắt cảnh đổi đồ.
+    - Cảnh đầu tiên của mỗi bộ được tạo ảnh riêng: image_prompt của cảnh đó tả bối cảnh và tư thế mở đầu như cảnh 1 (cùng địa điểm, cùng ánh sáng với các đoạn khác).
+    - Nhịp cuối của một bộ kết thúc bằng động tác chuyển (xoay người, che camera, búng tay); nhịp đầu bộ sau mở bằng động tác tiếp nối đó trong bộ mới.
     PROMPT;
 
     /** Hướng dẫn thêm cho video biến hình (glow-up), kiểu video hay chạy trên Shopee Video / TikTok. */

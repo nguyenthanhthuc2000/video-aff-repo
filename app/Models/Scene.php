@@ -82,6 +82,14 @@ class Scene extends Model
         return $this->product ?? $this->videoProject->product;
     }
 
+    /** Cùng bộ đồ với cảnh kia (cùng sản phẩm, cùng ảnh / màu): trong một cảnh quay liền thì cùng một đoạn. */
+    public function sameOutfitAs(self $other): bool
+    {
+        return $this->product_id === $other->product_id
+            && $this->product_image_id === $other->product_image_id
+            && $this->outfit_color === $other->outfit_color;
+    }
+
     /** Câu tả sản phẩm trong prompt ảnh / clip, kèm màu đã chọn. */
     public function productLine(): string
     {
@@ -146,8 +154,10 @@ class Scene extends Model
     public function discardClip(): void
     {
         $project = $this->videoProject;
+        // Quay liền: các nhịp sau trong cùng đoạn (đến cảnh mở đầu đoạn kế tiếp, tức bộ đồ kế tiếp).
+        $nextTake = $project->one_take ? $project->takeStarts()->first(fn (Scene $scene) => $scene->position > $this->position)?->position : null;
         $scenes = $project->one_take
-            ? $project->scenes()->where('position', '>=', $this->position)->get()
+            ? $project->scenes()->where('position', '>=', $this->position)->when($nextTake, fn ($q) => $q->where('position', '<', $nextTake))->get()
             : collect([$this]);
 
         foreach ($scenes as $scene) {

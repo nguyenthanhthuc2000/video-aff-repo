@@ -119,7 +119,6 @@ class VideoProjectController extends Controller
             $message = match (true) {
                 ! VideoProject::clipsAvailable() => 'Một cảnh quay liền cần hệ thống tự tạo clip. Liên hệ quản trị viên.',
                 ($validated['video_type'] ?? null) === VideoType::Transformation->value => 'Video biến hình cần cắt cảnh trước / sau, chọn "Nhiều cảnh".',
-                count($validated['outfits'] ?? []) > 1 => 'Một cảnh quay liền chỉ mặc một bộ đồ. Bỏ "Gộp nhiều sản phẩm" hoặc chọn "Nhiều cảnh".',
                 default => null,
             };
             if ($message) {

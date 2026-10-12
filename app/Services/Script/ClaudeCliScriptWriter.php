@@ -17,7 +17,7 @@ class ClaudeCliScriptWriter implements ScriptWriter
         $product = $project->product;
 
         $content = [];
-        foreach ($product->images()->orderByDesc('is_primary')->limit(3)->get() as $image) {
+        foreach ($product->images()->orderByDesc('is_primary')->orderBy('id')->limit(8)->get() as $image) {
             $block = ClaudeCli::imageBlock(Media::disk()->get($image->path), Media::disk()->mimeType($image->path) ?: null);
             if ($block) {
                 $content[] = $block;

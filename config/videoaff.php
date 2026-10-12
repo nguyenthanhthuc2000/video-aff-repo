@@ -100,7 +100,4 @@ return [
     'audio_max_kb' => 20480,
     'sample_video_recommended_seconds' => 30,
 
-    // Số ảnh sản phẩm tối đa gửi kèm ảnh người mẫu khi tạo ảnh cảnh.
-    'image_product_refs' => 3,
-
 ];

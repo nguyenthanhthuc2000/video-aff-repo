@@ -241,7 +241,14 @@ export default function CreateProjectForm({
         setMultiOutfit(on);
         // Bật lần đầu: bộ 1 là sản phẩm hiện tại, bấm thêm sản phẩm khác ở lưới bên dưới.
         if (on && data.outfits.length === 0 && outfitProducts.some((product) => product.id === productId)) {
-            setData('outfits', [{ product_id: productId, product_image_id: null, color: null }]);
+            const images = outfitProducts.find((product) => product.id === productId)?.images ?? [];
+            // Sản phẩm nhiều ảnh (thường là nhiều màu / mẫu): mỗi ảnh một bộ, bỏ bớt được ở danh sách bên dưới.
+            setData(
+                'outfits',
+                images.length > 1
+                    ? images.slice(0, 12).map((image) => ({ product_id: productId, product_image_id: image.id, color: null }))
+                    : [{ product_id: productId, product_image_id: null, color: null }],
+            );
         }
     };
 
@@ -264,8 +271,7 @@ export default function CreateProjectForm({
         transform((form) => ({
             ...form,
             background_ids: customBackgrounds ? form.background_ids : [],
-            // Một cảnh quay liền chỉ mặc một bộ.
-            outfits: multiOutfit ? (form.one_take ? form.outfits.slice(0, 1) : form.outfits) : [],
+            outfits: multiOutfit ? form.outfits : [],
         }));
         post(route('projects.store'));
     };
@@ -452,8 +458,8 @@ export default function CreateProjectForm({
                     {multiOutfit && (
                         <div className="pl-7">
                             {data.one_take && (
-                                <p className="mb-2 text-xs text-amber-700 dark:text-amber-400">
-                                    Một cảnh quay liền chỉ mặc bộ 1 (không có lúc cắt cảnh để đổi đồ).
+                                <p className="text-muted-foreground mb-2 text-xs">
+                                    Một cảnh quay liền nhiều bộ: mỗi bộ quay liền một đoạn, giữa các đoạn cắt cảnh đổi đồ.
                                 </p>
                             )}
                             <OutfitPicker

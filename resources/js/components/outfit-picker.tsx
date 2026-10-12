@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { type Outfit, type OutfitProduct } from '@/types/models';
-import { ArrowDown, ArrowUp, Check, Copy, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Copy, Images, X } from 'lucide-react';
 
 function Chip({ active, onClick, children, title }: { active: boolean; onClick: () => void; children: React.ReactNode; title?: string }) {
     return (
@@ -233,6 +233,26 @@ export default function OutfitPicker({
                                                 <Copy />
                                             </Button>
                                         )}
+                                        {product.images.length > 1 && outfit.product_image_id === null && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-6"
+                                                onClick={() =>
+                                                    onChange(
+                                                        [
+                                                            ...value.slice(0, i),
+                                                            ...product.images.map((image) => ({ ...outfit, product_image_id: image.id })),
+                                                            ...value.slice(i + 1),
+                                                        ].slice(0, 12),
+                                                    )
+                                                }
+                                                title={`Mỗi ảnh một bộ (${product.images.length} ảnh: các màu / mẫu khác nhau)`}
+                                            >
+                                                <Images />
+                                            </Button>
+                                        )}
                                         <Button
                                             type="button"
                                             variant="ghost"
@@ -256,7 +276,8 @@ export default function OutfitPicker({
                 {shotCount && shotCount > 1
                     ? `Video mẫu có ${shotCount} shot: shot 1 mặc bộ 1, shot 2 mặc bộ 2... (hết bộ thì quay lại bộ 1).`
                     : 'Cảnh 1 mặc bộ 1, cảnh 2 mặc bộ 2... (hết bộ thì quay lại bộ 1).'}{' '}
-                Muốn một sản phẩm nhiều màu: bấm <Copy className="inline size-3" /> rồi chọn màu khác. Đổi bộ đồ từng cảnh được ở bước Ảnh cảnh.
+                Muốn một sản phẩm nhiều màu: bấm <Images className="inline size-3" /> để mỗi ảnh thành một bộ, hoặc <Copy className="inline size-3" />{' '}
+                rồi chọn màu khác. Đổi bộ đồ từng cảnh được ở bước Ảnh cảnh.
             </p>
         </div>
     );

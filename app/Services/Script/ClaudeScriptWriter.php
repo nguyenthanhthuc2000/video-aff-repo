@@ -85,7 +85,7 @@ class ClaudeScriptWriter implements ScriptWriter
         $text = ScriptPrompt::userText($project)."\nẢnh đính kèm là ảnh sản phẩm. Viết kịch bản theo đúng định dạng.";
 
         $content = [];
-        foreach ($product->images()->orderByDesc('is_primary')->limit(3)->get() as $image) {
+        foreach ($product->images()->orderByDesc('is_primary')->orderBy('id')->limit(8)->get() as $image) {
             $mime = Media::disk()->mimeType($image->path);
             $data = Media::disk()->get($image->path);
             if ($data === null || ! in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) {
