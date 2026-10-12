@@ -13,7 +13,7 @@ import { formatNumber } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { ImageOff, Loader2, Lock, LockOpen, Save, Sparkles, Star, Trash2, Upload, UserRound } from 'lucide-react';
+import { ImageOff, Loader2, Lock, LockOpen, Save, Sparkles, Star, Trash2, Upload, UserRound, Volume2 } from 'lucide-react';
 import { type FormEvent, useRef, useState } from 'react';
 import CharacterFields, { type CharacterFormData } from './character-form';
 
@@ -38,6 +38,8 @@ interface Character {
     personality: string | null;
     appearance: string;
     voice_type: string | null;
+    voice: string | null;
+    voice_sample_url: string | null;
     main_image_url: string | null;
     locked: boolean;
     images: CharacterImage[];
@@ -50,6 +52,8 @@ export default function SeriesCharacterPage({
     kinds,
     roles,
     voiceTypes,
+    voices,
+    usedVoices,
     imageCredits,
 }: {
     series: { id: number; title: string; style: string };
@@ -58,6 +62,8 @@ export default function SeriesCharacterPage({
     kinds: Record<string, string>;
     roles: Record<string, string>;
     voiceTypes: Record<string, string>;
+    voices: VoiceOption[];
+    usedVoices: Record<string, string>;
     imageCredits: number;
 }) {
     usePoll(
@@ -141,7 +147,9 @@ export default function SeriesCharacterPage({
                         <p className="text-muted-foreground text-xs">
                             Ảnh chính được gửi kèm mọi khung hình có {character.name} để Muse vẽ giống nhau. Chốt nhân vật khi ảnh chính đã ưng.
                         </p>
-                        <CharacterEditor character={character} base={base} roles={roles} voiceTypes={voiceTypes} />
+                        <VoicePanel character={character} base={base} voices={voices} usedVoices={usedVoices} />
+                        {/* Đổi giọng ở trên thì dựng lại form để loại giọng trong form khớp giọng mới. */}
+                        <CharacterEditor key={character.voice ?? ''} character={character} base={base} roles={roles} voiceTypes={voiceTypes} />
                     </div>
 
                     <div className="space-y-6">
@@ -193,6 +201,92 @@ function Avatar({ url, className }: { url: string | null; className?: string }) 
         <span className={cn('bg-muted flex items-center justify-center rounded-full', className)}>
             <UserRound className="text-muted-foreground size-4" />
         </span>
+    );
+}
+
+interface VoiceOption {
+    value: string;
+    type: string;
+    label: string;
+}
+
+/** Giọng cố định của nhân vật (đọc mọi lời thoại ở mọi shot, mọi tập): chọn giọng, nghe thử (miễn phí). */
+function VoicePanel({
+    character,
+    base,
+    voices,
+    usedVoices,
+}: {
+    character: Character;
+    base: { series: number; character: number };
+    voices: VoiceOption[];
+    usedVoices: Record<string, string>;
+}) {
+    const [sampling, setSampling] = useState(false);
+    const current = voices.find((voice) => voice.value === character.voice);
+    const choose = (value: string) => {
+        const option = voices.find((voice) => voice.value === value);
+        if (!option) {
+            return;
+        }
+        router.put(
+            route('series.characters.update', base),
+            {
+                name: character.name,
+                role: character.role,
+                age: character.age === null ? '' : String(character.age),
+                personality: character.personality ?? '',
+                appearance: character.appearance,
+                voice_type: option.type,
+                voice: option.value,
+            },
+            { preserveScroll: true },
+        );
+    };
+    const sample = () =>
+        router.post(
+            route('series.characters.voice-sample', base),
+            {},
+            { preserveScroll: true, onStart: () => setSampling(true), onFinish: () => setSampling(false) },
+        );
+
+    return (
+        <div className="space-y-2 rounded-xl border p-4">
+            <p className="flex items-center gap-2 text-sm font-medium">
+                <Volume2 className="size-4" /> Giọng của {character.name}
+            </p>
+            <select
+                aria-label="Giọng"
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                value={character.voice ?? ''}
+                onChange={(e) => choose(e.target.value)}
+            >
+                {!current && <option value="">Chưa có giọng</option>}
+                {voices.map((voice) => (
+                    <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                        {usedVoices[voice.value] ? ` (đang dùng cho ${usedVoices[voice.value]})` : ''}
+                    </option>
+                ))}
+            </select>
+            {character.voice && usedVoices[character.voice] && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Trùng giọng với {usedVoices[character.voice]}: khán giả khó phân biệt hai nhân vật, nên chọn giọng khác.
+                </p>
+            )}
+            <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={sample} disabled={sampling || !character.voice}>
+                    {sampling ? <Loader2 className="animate-spin" /> : <Volume2 />} Nghe thử
+                </Button>
+                {character.voice_sample_url && (
+                    <audio key={character.voice_sample_url} src={character.voice_sample_url} controls autoPlay className="h-8 min-w-0 flex-1" />
+                )}
+            </div>
+            <p className="text-muted-foreground text-xs">
+                Mọi lời thoại của {character.name} ở mọi shot, mọi tập đều đọc bằng đúng giọng này (miễn phí). Đổi giọng thì các shot đã đọc sẽ đọc
+                lại.
+            </p>
+        </div>
     );
 }
 

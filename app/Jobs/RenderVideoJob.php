@@ -32,6 +32,9 @@ class RenderVideoJob implements ShouldQueue
     /** Đoạn đứng hình đầu clip AI bỏ đi khi ghép (chỉ khi clip dài hơn cảnh). */
     public const CLIP_LEAD_IN_MS = 400;
 
+    /** Mờ chuyển ở chỗ đổi bộ đồ khi quay liền. */
+    public const OUTFIT_CHANGE_MS = 300;
+
     public function __construct(public Render $render) {}
 
     public function handle(VideoRenderer $renderer): void
@@ -56,9 +59,12 @@ class RenderVideoJob implements ShouldQueue
             $voice = $project->voice_mode;
             // Chỉ nhạc nền và không quay liền: bỏ đoạn đứng hình đầu clip (nói / hát nhép cần giữ đúng từ đầu clip).
             $trimStart = $voice === VoiceMode::Music && ! $project->one_take;
-            $renderScenes = $scenes->map(function (Scene $scene) use ($workDir, $voice, $trimStart) {
+            $clipFps = [];
+            $renderScenes = $scenes->map(function (Scene $scene) use ($workDir, $voice, $trimStart, $project, &$clipFps) {
                 $clip = $scene->clip_path ? $this->copyLocal($scene->clip_path, $workDir, "clip-{$scene->position}") : null;
-                $clipMs = $clip && $trimStart ? (app(VideoProbe::class)->probe($clip)['duration_ms'] ?? 0) : 0;
+                $info = $clip ? app(VideoProbe::class)->probe($clip) : null;
+                $clipMs = $trimStart ? ($info['duration_ms'] ?? 0) : 0;
+                $clip && $clipFps[] = $info['fps'] ?? null;
 
                 return new RenderScene(
                     imagePath: $this->copyLocal($scene->approvedImage->path, $workDir, "scene-{$scene->position}"),
@@ -68,6 +74,8 @@ class RenderVideoJob implements ShouldQueue
                     clipPath: $clip,
                     clipHasAudio: $clip !== null && $voice === VoiceMode::Speak && app(VideoProbe::class)->hasAudio($clip) === true,
                     clipOffsetMs: max(0, min(self::CLIP_LEAD_IN_MS, $clipMs - $scene->duration_ms)),
+                    // Quay liền nhiều bộ: chỗ đổi bộ là clip mới (khác dáng, mở đầu đứng hình) nên mờ chuyển nhanh thay vì cắt cụt.
+                    transitionInMs: $project->one_take && $scene->position > 1 && $project->startsTake($scene) ? self::OUTFIT_CHANGE_MS : 0,
                 );
             })->all();
 
@@ -84,6 +92,7 @@ class RenderVideoJob implements ShouldQueue
                 clipAudio: $voice === VoiceMode::Speak,
                 musicVolume: $voice === VoiceMode::Sing ? 1.0 : null,
                 musicStartMs: $voice === VoiceMode::Sing ? (int) $project->music_start_ms : 0,
+                fps: self::outputFps($clipFps),
             );
 
             // Ghi tiến độ tối đa mỗi 5% để không ghi DB quá nhiều.
@@ -117,6 +126,18 @@ class RenderVideoJob implements ShouldQueue
         } finally {
             File::deleteDirectory($workDir);
         }
+    }
+
+    /**
+     * Mọi clip cùng fps (clip Muse 24 khung/giây) thì xuất đúng fps đó: đổi 24 → 30 phải lặp 1 khung mỗi 4 khung, chuyển động bị khựng.
+     *
+     * @param  list<?float>  $clipFps
+     */
+    public static function outputFps(array $clipFps): ?int
+    {
+        $rates = array_unique(array_map(fn ($fps) => $fps ? (int) round($fps) : 0, $clipFps));
+
+        return count($rates) === 1 && $rates[0] >= 20 && $rates[0] <= 60 ? $rates[0] : null;
     }
 
     /** Giá xuất video theo độ dài (trên 30 giây đắt hơn). */

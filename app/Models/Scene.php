@@ -82,6 +82,24 @@ class Scene extends Model
         return $this->product ?? $this->videoProject->product;
     }
 
+    /**
+     * Ảnh bối cảnh gửi kèm khi tạo ảnh: bối cảnh người dùng chọn; quay liền nhiều bộ đồ thì cảnh mở đầu các bộ sau
+     * lấy ảnh cảnh 1 làm bối cảnh (cùng địa điểm, ánh sáng; chỉ đổi bộ đồ).
+     */
+    public function backgroundPath(): ?string
+    {
+        if ($this->background?->photo_path) {
+            return $this->background->photo_path;
+        }
+        $project = $this->videoProject;
+        $first = $project->one_take ? $project->firstScene() : null;
+        if ($first === null || $first->is($this) || ! $project->startsTake($this)) {
+            return null;
+        }
+
+        return $first->approvedImage?->path;
+    }
+
     /** Cùng bộ đồ với cảnh kia (cùng sản phẩm, cùng ảnh / màu): trong một cảnh quay liền thì cùng một đoạn. */
     public function sameOutfitAs(self $other): bool
     {

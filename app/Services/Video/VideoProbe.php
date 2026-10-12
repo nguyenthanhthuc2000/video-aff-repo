@@ -15,12 +15,12 @@ class VideoProbe
         return new self(config('videoaff.ffmpeg'), config('videoaff.ffprobe'));
     }
 
-    /** @return array{duration_ms: ?int, width: ?int, height: ?int}|null */
+    /** @return array{duration_ms: ?int, width: ?int, height: ?int, fps: ?float}|null */
     public function probe(string $path): ?array
     {
         $result = Process::timeout(30)->run([
             $this->ffprobe, '-v', 'error', '-select_streams', 'v:0',
-            '-show_entries', 'stream=width,height:format=duration', '-of', 'json', $path,
+            '-show_entries', 'stream=width,height,r_frame_rate:format=duration', '-of', 'json', $path,
         ]);
         if ($result->failed()) {
             Log::warning('video_probe.failed', ['error' => mb_substr($result->errorOutput(), 0, 300)]);
@@ -31,11 +31,13 @@ class VideoProbe
         $data = json_decode($result->output(), true) ?? [];
         $stream = $data['streams'][0] ?? [];
         $duration = (float) ($data['format']['duration'] ?? 0);
+        [$num, $den] = array_map('floatval', explode('/', (string) ($stream['r_frame_rate'] ?? '0/1')) + [1 => 1]);
 
         return [
             'duration_ms' => $duration > 0 ? (int) round($duration * 1000) : null,
             'width' => isset($stream['width']) ? (int) $stream['width'] : null,
             'height' => isset($stream['height']) ? (int) $stream['height'] : null,
+            'fps' => $num > 0 && $den > 0 ? round($num / $den, 3) : null,
         ];
     }
 

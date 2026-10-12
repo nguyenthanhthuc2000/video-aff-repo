@@ -82,7 +82,7 @@ class FfmpegVideoRenderer implements VideoRenderer
             ...$cmd,
             '-filter_complex_script', $filterPath,
             '-map', '[vout]', '-map', '[aout]',
-            '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', (string) $this->fps,
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', (string) $this->fps($spec),
             '-c:a', 'aac', '-b:a', '128k',
             '-t', $seconds,
             '-movflags', '+faststart',
@@ -97,7 +97,8 @@ class FfmpegVideoRenderer implements VideoRenderer
         // Phóng ảnh 1,5 lần trước khi zoompan để chuyển động mượt hơn.
         $bigW = (int) round($w * 1.5);
         $bigH = (int) round($h * 1.5);
-        $t = $spec->transitionMs;
+        $fps = $this->fps($spec);
+        $transitions = $spec->transitions();
 
         $durations = array_map(fn (RenderScene $s) => $s->durationMs, $spec->scenes);
         if ($spec->hasEndCard()) {
@@ -107,9 +108,9 @@ class FfmpegVideoRenderer implements VideoRenderer
         $graph = [];
 
         foreach ($durations as $i => $ms) {
-            // Mỗi clip (trừ clip cuối) dài thêm một đoạn chuyển cảnh để xfade chồng lên (cắt thẳng thì không).
-            $clipMs = $t > 0 && $i < $count - 1 ? $ms + $t : $ms;
-            $frames = max(1, (int) round($clipMs / 1000 * $this->fps));
+            // Cảnh dài thêm đoạn chuyển sang cảnh sau để xfade chồng lên (cắt thẳng thì không).
+            $clipMs = $ms + ($transitions[$i + 1] ?? 0);
+            $frames = max(1, (int) round($clipMs / 1000 * $fps));
             $isEndCard = $spec->hasEndCard() && $i === $count - 1;
 
             $zoom = match (true) {
@@ -124,9 +125,9 @@ class FfmpegVideoRenderer implements VideoRenderer
             $chain = $clip
                 ? "[{$i}:v]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},"
                     .'trim='.($spec->scenes[$i]->clipOffsetMs > 0 ? 'start='.$this->seconds($spec->scenes[$i]->clipOffsetMs).':' : '')
-                    .'duration='.$this->seconds($clipMs).",setpts=PTS-STARTPTS,fps={$this->fps},setsar=1,format=yuv420p"
+                    .'duration='.$this->seconds($clipMs).",setpts=PTS-STARTPTS,fps={$fps},setsar=1,format=yuv420p"
                 : "[{$i}:v]scale={$bigW}:{$bigH}:force_original_aspect_ratio=increase,crop={$bigW}:{$bigH},"
-                    ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps={$this->fps},"
+                    ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps={$fps},"
                     .'setsar=1,format=yuv420p';
             if ($isEndCard) {
                 $chain .= ',boxblur=30:2,eq=brightness=-0.25';
@@ -134,19 +135,16 @@ class FfmpegVideoRenderer implements VideoRenderer
             $graph[] = $chain."[v{$i}]";
         }
 
+        // Nối từng cảnh: có chuyển cảnh thì xfade (offset = tổng thời lượng các cảnh trước), không thì cắt thẳng.
         $prev = 'v0';
-        if ($t > 0) {
-            $offsetMs = 0;
-            for ($i = 1; $i < $count; $i++) {
-                $offsetMs += $durations[$i - 1];
-                $out = "x{$i}";
-                $graph[] = "[{$prev}][v{$i}]xfade=transition=fade:duration=".$this->seconds($t).':offset='.$this->seconds($offsetMs)."[{$out}]";
-                $prev = $out;
-            }
-        } elseif ($count > 1) {
-            // Cắt thẳng: nối các cảnh liền nhau.
-            $graph[] = implode('', array_map(fn (int $i) => "[v{$i}]", range(0, $count - 1)))."concat=n={$count}:v=1:a=0[vcat]";
-            $prev = 'vcat';
+        $offsetMs = 0;
+        for ($i = 1; $i < $count; $i++) {
+            $offsetMs += $durations[$i - 1];
+            $out = "x{$i}";
+            $graph[] = $transitions[$i] > 0
+                ? "[{$prev}][v{$i}]xfade=transition=fade:duration=".$this->seconds($transitions[$i]).':offset='.$this->seconds($offsetMs)."[{$out}]"
+                : "[{$prev}][v{$i}]concat=n=2:v=1:a=0,settb=1/{$fps}[{$out}]"; // concat đổi timebase, xfade sau đó cần khớp.
+            $prev = $out;
         }
         if ($spec->grain) {
             $graph[] = "[{$prev}]noise=alls=5:allf=t,eq=saturation=0.96[vgrain]";
@@ -185,6 +183,11 @@ class FfmpegVideoRenderer implements VideoRenderer
         $graph[] = '[voice][music]amix=inputs=2:duration=first:normalize=0[aout]';
 
         return implode(";\n", $graph);
+    }
+
+    private function fps(RenderSpec $spec): int
+    {
+        return $spec->fps ?? $this->fps;
     }
 
     private function seconds(int $ms): string

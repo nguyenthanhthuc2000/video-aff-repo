@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\AnimateShotJob;
 use App\Jobs\GenerateShotImageJob;
+use App\Jobs\RewriteShotJob;
+use App\Jobs\SynthesizeShotAudioJob;
 use App\Jobs\WriteEpisodeJob;
 use App\Jobs\WriteSequenceJob;
 use App\Models\Episode;
@@ -10,7 +13,9 @@ use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Models\Shot;
 use App\Services\Film\EpisodeWriter;
+use App\Services\Film\ShotAudio;
 use App\Services\Film\ShotPrompt;
+use App\Services\Film\ShotRewriter;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
@@ -31,6 +36,7 @@ class EpisodeController extends Controller
         $index = $episodes->search(fn (Episode $e) => $e->id === $episode->id);
         $nav = fn (?Episode $e) => $e ? ['id' => $e->id, 'number' => $e->number, 'title' => $e->title] : null;
         $shots = $episode->shots()->with('location:id,name')->get();
+        $characterMap = $series->characters()->get()->keyBy('id');
         $outline = $episode->outline ?? [];
         $sequenceCount = count($outline['sequences'] ?? []) ?: max(2, (int) round($series->episode_seconds / EpisodeWriter::SEQUENCE_SECONDS));
 
@@ -75,6 +81,14 @@ class EpisodeController extends Controller
                     'image_url' => Media::url($shot->image_path),
                     'image_status' => $shot->image_status,
                     'error' => $shot->error,
+                    'rejected' => ShotRewriter::rejection($shot) !== null,
+                    'audio_url' => Media::url($shot->audio_path),
+                    // Lời / giọng đã đổi sau khi đọc: tiếng (và video) là bản cũ.
+                    'audio_current' => ShotAudio::isCurrent($shot, $characterMap),
+                    'has_dialogue' => ShotAudio::key($shot, $characterMap) !== null,
+                    'clip_status' => $shot->clip_status,
+                    'clip_error' => $shot->clip_error,
+                    'video_url' => Media::url($shot->video_path),
                 ]),
             ],
             'characters' => $series->characters()->get()->map(fn (SeriesCharacter $c) => [
@@ -88,6 +102,8 @@ class EpisodeController extends Controller
             'pricing' => [
                 'write' => CreditPricing::aiEstimates()['film_episode'] * ($sequenceCount + 1),
                 'image' => CreditPricing::settings()['steps']['image'],
+                'rewrite' => CreditPricing::aiEstimates()['film_episode'],
+                'clip' => AnimateShotJob::price(),
             ],
             'previous' => $nav($index > 0 ? $episodes[$index - 1] : null),
             'next' => $nav($episodes[$index + 1] ?? null),
@@ -114,8 +130,8 @@ class EpisodeController extends Controller
     public function write(Request $request, Series $series, Episode $episode): RedirectResponse
     {
         $this->authorize('update', $series);
-        if ($episode->status === 'writing' || $episode->shots()->where('image_status', 'pending')->exists()) {
-            return back()->with('status', 'Tập đang được viết hoặc đang vẽ khung hình, đợi xong đã.');
+        if ($episode->status === 'writing' || $episode->shots()->where(fn ($q) => $q->where('image_status', 'pending')->orWhere('clip_status', 'pending'))->exists()) {
+            return back()->with('status', 'Tập đang được viết, đang vẽ khung hình hoặc đang làm clip, đợi xong đã.');
         }
         if ($series->characters()->doesntExist()) {
             return back()->with('status', 'Bộ phim chưa có nhân vật.');
@@ -172,6 +188,9 @@ class EpisodeController extends Controller
     public function updateShot(Request $request, Series $series, Episode $episode, Shot $shot): RedirectResponse
     {
         $this->authorize('update', $series);
+        if ($shot->clip_status === 'pending') {
+            return back()->with('status', 'Shot đang làm video, đợi xong rồi sửa.');
+        }
         $validated = $request->validate([
             'camera' => ['required', Rule::in(EpisodeWriter::CAMERAS)],
             'action' => ['required', 'string', 'max:1500'],
@@ -220,6 +239,99 @@ class EpisodeController extends Controller
         $episode->update(['status' => 'keyframing']);
 
         return back()->with('status', 'Muse đang vẽ lại khung hình shot này...');
+    }
+
+    /** Muse từ chối: Claude viết lại cảnh của shot (bố cục khác, theo lý do từ chối) rồi Muse vẽ lại. */
+    public function rewriteShot(Request $request, Series $series, Episode $episode, Shot $shot): RedirectResponse
+    {
+        $this->authorize('update', $series);
+        $validated = $request->validate(['notes' => ['nullable', 'string', 'max:500']]);
+        if ($shot->image_status === 'pending' || $episode->status === 'writing') {
+            return back()->with('status', 'Shot đang vẽ hoặc tập đang được viết.');
+        }
+        $missing = ShotPrompt::characters($shot)->whereNull('main_image_path')->pluck('name');
+        if ($missing->isNotEmpty()) {
+            return back()->with('status', 'Chưa có ảnh chính cho: '.$missing->implode(', ').'.');
+        }
+        $price = CreditPricing::settings()['steps']['image'] + CreditPricing::aiEstimates()['film_episode'];
+        if ($message = Credits::shortfall($request->user(), $price, 'viết lại và vẽ khung hình')) {
+            return back()->with('status', $message);
+        }
+
+        $reason = ShotRewriter::rejection($shot);
+        $shot->update(['image_status' => 'pending', 'request_id' => null, 'error' => null]);
+        RewriteShotJob::dispatch($shot, $reason, $validated['notes'] ?? null);
+        $episode->update(['status' => 'keyframing']);
+
+        return back()->with('status', 'Claude đang viết lại cảnh của shot, xong thì Muse vẽ lại...');
+    }
+
+    /** Đọc lời thoại mọi shot bằng giọng cố định của từng nhân vật (Kokoro chạy trên máy, không tốn Credits) để nghe thử. */
+    public function voices(Series $series, Episode $episode): RedirectResponse
+    {
+        $this->authorize('update', $series);
+        $characters = $series->characters()->get()->keyBy('id');
+        $shots = $episode->shots()->where('clip_status', '!=', 'pending')->get()->reject(fn (Shot $shot) => ShotAudio::isCurrent($shot, $characters));
+        if ($shots->isEmpty()) {
+            return back()->with('status', 'Lời thoại mọi shot đã được đọc theo giọng hiện tại.');
+        }
+        foreach ($shots as $shot) {
+            SynthesizeShotAudioJob::dispatch($shot);
+        }
+
+        return back()->with('status', "Đang đọc lời thoại {$shots->count()} shot (miễn phí, vài giây mỗi shot)...");
+    }
+
+    /** Muse làm clip cho mọi shot đã có khung hình mà chưa có video (hoặc lỗi), mỗi shot ghép với lời thoại thành video. */
+    public function clips(Request $request, Series $series, Episode $episode): RedirectResponse
+    {
+        $this->authorize('update', $series);
+        if ($episode->status === 'writing') {
+            return back()->with('status', 'Tập đang được viết, đợi xong đã.');
+        }
+        $shots = $episode->shots()->where('image_status', 'ready')->whereIn('clip_status', ['none', 'failed'])->get();
+        if ($shots->isEmpty()) {
+            return back()->with('status', $episode->shots()->where('image_status', '!=', 'ready')->exists()
+                ? 'Shot cần có khung hình trước khi làm video. Bấm "Vẽ khung hình" trước.'
+                : 'Mọi shot đã có video (hoặc đang làm).');
+        }
+        if ($message = Credits::shortfall($request->user(), AnimateShotJob::price() * $shots->count(), "làm {$shots->count()} clip")) {
+            return back()->with('status', $message);
+        }
+
+        foreach ($shots as $shot) {
+            self::queueClip($shot);
+        }
+        $episode->update(['status' => 'animating', 'error' => null]);
+
+        return back()->with('status', "Muse đang làm video {$shots->count()} shot (đọc lời thoại trước, rồi làm clip khớp môi; vài phút mỗi shot, chạy song song vài shot).");
+    }
+
+    /** Làm lại video một shot (có thể kèm ghi chú chuyển động). */
+    public function clip(Request $request, Series $series, Episode $episode, Shot $shot): RedirectResponse
+    {
+        $this->authorize('update', $series);
+        $validated = $request->validate(['notes' => ['nullable', 'string', 'max:500']]);
+        if ($shot->clip_status === 'pending' || $episode->status === 'writing') {
+            return back()->with('status', 'Shot đang làm video hoặc tập đang được viết.');
+        }
+        if ($shot->image_status !== 'ready') {
+            return back()->with('status', 'Shot cần có khung hình trước.');
+        }
+        if ($message = Credits::shortfall($request->user(), AnimateShotJob::price(), 'làm clip shot')) {
+            return back()->with('status', $message);
+        }
+
+        self::queueClip($shot, $validated['notes'] ?? null);
+        $episode->update(['status' => 'animating']);
+
+        return back()->with('status', 'Muse đang làm video shot này...');
+    }
+
+    private static function queueClip(Shot $shot, ?string $notes = null): void
+    {
+        $shot->update(['clip_status' => 'pending', 'clip_request_id' => null, 'clip_error' => null]);
+        AnimateShotJob::dispatch($shot, $notes);
     }
 
     private static function queueImage(Shot $shot, ?string $notes = null): void

@@ -42,7 +42,7 @@ class MuseBrowserClipGenerator implements ClipGenerator
         MuseBrowserImageGenerator::call(fn () => $this->client->startTask(
             $code,
             'video',
-            self::message($code, $prompt),
+            static::message($code, $prompt),
             $attachments,
             (int) config('videoaff.muse_browser.clip_timeout') * 1000,
         ));

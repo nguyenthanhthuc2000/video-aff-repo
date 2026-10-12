@@ -29,6 +29,7 @@ class VideoProjectResource extends JsonResource
         // Câu tả sản phẩm cho prompt đầy đủ của từng cảnh (tính một lần).
         // Prompt chỉ hiện cho admin, hoặc khi người dùng phải tự dán prompt (chế độ thủ công: tạo ảnh trên muse.ai, tự làm clip).
         $isAdmin = (bool) $request->user()?->isAdmin();
+        $takeStarts = $this->one_take && $this->relationLoaded('scenes') ? $this->takeStarts()->pluck('id') : collect();
         $showImagePrompt = $isAdmin || SceneImageController::webMode();
         $showMotionPrompt = $isAdmin || ! VideoProject::clipsAvailable();
 
@@ -107,6 +108,8 @@ class VideoProjectResource extends JsonResource
             'scenes' => $this->whenLoaded('scenes', fn () => $this->scenes->map(fn ($scene) => [
                 'id' => $scene->id,
                 'position' => $scene->position,
+                // Quay liền: cảnh mở đầu mỗi đoạn (cảnh 1 và mỗi chỗ đổi bộ) tự tạo ảnh, cảnh khác lấy khung cuối clip trước.
+                'starts_take' => ! $this->one_take || $takeStarts->contains($scene->id),
                 'phase' => $scene->phase?->value,
                 'angle' => $scene->angle,
                 'angle_label' => ProductCoverage::label($scene->angle),

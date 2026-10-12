@@ -18,5 +18,7 @@ final class RenderScene
         public readonly bool $clipHasAudio = false,
         /** Bỏ đoạn đầu clip (ms): clip AI hay mở bằng vài khung đứng hình, cắt đi thì chỗ nối giữa các cảnh rơi vào lúc đang chuyển động. */
         public readonly int $clipOffsetMs = 0,
+        /** Mờ dần từ cảnh trước sang cảnh này (ms), thay cho cắt thẳng; 0 = theo RenderSpec::transitionMs. Dùng ở chỗ đổi bộ đồ khi quay liền. */
+        public readonly int $transitionInMs = 0,
     ) {}
 }

@@ -1,4 +1,8 @@
-"""Phân tích giọng hát của một bài nhạc (gọi nội bộ từ app/queue).
+"""Phân tích giọng hát của một bài nhạc, và đọc lời thoại phim hoạt hình bằng Kokoro TTS (gọi nội bộ từ app/queue).
+
+POST /tts {"lines": [{"text", "voice", "speed", "pitch"}], "lead": giây, "gap": giây, "tail": giây}
+    -> {"base64": WAV 24 kHz mono, "duration": giây, "lines": [{"start", "end"}]}
+    Cùng giọng + cùng thông số luôn ra cùng một chất giọng (Kokoro không ngẫu nhiên), nên mỗi nhân vật giữ một giọng ở mọi cảnh.
 
 POST /analyze {"base64": "...", "name": "song.mp3", "language": "vi"} -> {"id": "..."} (chạy nền, mỗi lần một bài)
 GET /analyze/<id> -> {"state": "pending"} | {"state": "failed", "error"} |
@@ -147,6 +151,59 @@ def run(task_id, data, name, language):
         TASKS[task_id] = {"state": "failed", "error": str(e)[:300]}
 
 
+TTS_RATE = 24000
+TTS_LOCK = threading.Lock()
+_pipelines = {}
+
+
+def pipeline(voice):
+    """Kokoro theo giọng: a = Anh-Mỹ (af_, am_), b = Anh-Anh (bf_, bm_)."""
+    from kokoro import KPipeline
+
+    lang = "b" if voice.startswith("b") else "a"
+    if lang not in _pipelines:
+        _pipelines[lang] = KPipeline(lang_code=lang, repo_id="hexgrad/Kokoro-82M")
+    return _pipelines[lang]
+
+
+def shift_pitch(audio, pitch):
+    """Nâng / hạ cao độ, giữ nguyên tốc độ (asetrate rồi atempo bù lại), như bản nghe thử F0."""
+    if abs(pitch - 1.0) < 0.001:
+        return audio
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out = os.path.join(tmp, "in.wav"), os.path.join(tmp, "out.wav")
+        sf.write(src, audio, TTS_RATE)
+        af = f"asetrate={int(TTS_RATE * pitch)},aresample={TTS_RATE},atempo={1 / pitch:.4f}"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-af", af, "-ac", "1", out], check=True)
+        shifted, _ = sf.read(out, dtype="float32")
+        return shifted
+
+
+def tts(body):
+    lead, gap, tail = float(body.get("lead", 0.3)), float(body.get("gap", 0.35)), float(body.get("tail", 0.3))
+    pieces, lines, cursor = [np.zeros(int(lead * TTS_RATE), dtype=np.float32)], [], lead
+    with TTS_LOCK:
+        for i, line in enumerate(body.get("lines", [])):
+            voice = str(line["voice"])
+            chunks = [np.asarray(audio, dtype=np.float32) for _, _, audio in pipeline(voice)(str(line["text"]), voice=voice, speed=float(line.get("speed", 1.0)))]
+            audio = shift_pitch(np.concatenate(chunks) if chunks else np.zeros(1, dtype=np.float32), float(line.get("pitch", 1.0)))
+            if i > 0:
+                pieces.append(np.zeros(int(gap * TTS_RATE), dtype=np.float32))
+                cursor += gap
+            seconds = len(audio) / TTS_RATE
+            lines.append({"start": round(cursor, 3), "end": round(cursor + seconds, 3)})
+            pieces.append(audio)
+            cursor += seconds
+    pieces.append(np.zeros(int(tail * TTS_RATE), dtype=np.float32))
+    mix = np.concatenate(pieces)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "line.wav")
+        sf.write(path, mix, TTS_RATE, subtype="PCM_16")
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+    return {"base64": data, "duration": round(len(mix) / TTS_RATE, 3), "lines": lines}
+
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, body):
         payload = json.dumps(body, ensure_ascii=False).encode()
@@ -174,10 +231,16 @@ class Handler(BaseHTTPRequestHandler):
             TASKS.pop(self.path.rsplit("/", 1)[-1], None)
 
     def do_POST(self):
-        if self.path != "/analyze":
+        if self.path not in ("/analyze", "/tts"):
             return self.reply(404, {"error": "not found"})
         if not self.authorized():
             return self.reply(401, {"error": "unauthorized"})
+        if self.path == "/tts":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                return self.reply(200, tts(body))
+            except Exception as e:  # noqa: BLE001
+                return self.reply(500, {"error": "Đọc lời thoại thất bại: " + str(e)[:300]})
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
             data = base64.b64decode(body["base64"])

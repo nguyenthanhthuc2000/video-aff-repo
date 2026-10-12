@@ -6,6 +6,7 @@ use App\Enums\SceneClipStatus;
 use App\Enums\SceneImageStatus;
 use App\Enums\VideoProjectStatus;
 use App\Jobs\GenerateSceneClipJob;
+use App\Jobs\GenerateSceneImageJob;
 use App\Models\FashionModel;
 use App\Models\Product;
 use App\Models\Scene;
@@ -146,11 +147,19 @@ class OneTakeTest extends TestCase
         $this->assertSame([$white->id, $white->id, $black->id, $black->id], $scenes->pluck('product_image_id')->all());
         $this->assertSame([1, 3], $project->takeStarts()->pluck('position')->all());
         $this->assertSame([1, 3], $project->scenesMissingImages()->pluck('position')->all());
+        // Trang dự án biết cảnh nào tự tạo ảnh (để hiện nút tạo ảnh cho cảnh mở đầu bộ 2).
+        $this->actingAs($user)->get(route('projects.show', $project))
+            ->assertInertia(fn ($page) => $page->where('project.scenes.0.starts_take', true)->where('project.scenes.1.starts_take', false)->where('project.scenes.2.starts_take', true));
         $this->assertStringContainsString('beginning of the shot', OneTake::prompt($scenes[2]));
         $this->assertStringContainsString('exact last frame', OneTake::prompt($scenes[1]));
 
-        SceneImage::factory()->for($scenes[0])->create(['status' => SceneImageStatus::Approved]);
+        $opening = SceneImage::factory()->for($scenes[0])->create(['status' => SceneImageStatus::Approved]);
         $this->assertFalse($project->imagesReady());
+        // Ảnh mở đầu bộ 2 lấy ảnh cảnh 1 làm bối cảnh (cùng địa điểm, chỉ đổi đồ); cảnh 1 và nhịp nối tiếp thì không.
+        $this->assertSame($opening->path, $scenes[2]->fresh()->backgroundPath());
+        $this->assertNull($scenes[0]->fresh()->backgroundPath());
+        $this->assertNull($scenes[1]->fresh()->backgroundPath());
+        $this->assertStringContainsString('second attached image is the background location', GenerateSceneImageJob::scenePrompt($scenes[2]->fresh()));
         SceneImage::factory()->for($scenes[2])->create(['status' => SceneImageStatus::Approved]);
         $this->assertTrue($project->imagesReady());
         // Hai đoạn làm clip song song.

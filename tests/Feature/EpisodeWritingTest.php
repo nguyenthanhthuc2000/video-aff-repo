@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Jobs\GenerateShotImageJob;
+use App\Jobs\RewriteShotJob;
 use App\Jobs\WriteSequenceJob;
 use App\Models\Episode;
 use App\Models\Series;
 use App\Models\Shot;
 use App\Models\User;
 use App\Services\Film\ShotPrompt;
+use App\Services\Film\ShotRewriter;
+use App\Services\Image\MuseBrowserImageGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -180,6 +183,33 @@ class EpisodeWritingTest extends TestCase
         $this->actingAs($this->user)->post(route('series.episodes.shots.image', $this->params(['shot' => $shot->id])), ['notes' => 'at night']);
         Queue::assertPushed(GenerateShotImageJob::class, fn ($job) => str_contains($job->prompt, 'at night') && $job->shot->is($shot));
         $this->assertSame('pending', $shot->fresh()->image_status);
+    }
+
+    public function test_rejected_shot_is_rewritten_by_claude_then_redrawn()
+    {
+        $this->write();
+        $shot = $this->episode->shots()->first();
+        foreach ($this->series->characters as $character) {
+            Storage::disk(config('videoaff.disk'))->put("c/{$character->id}.png", 'x');
+            $character->update(['main_image_path' => "c/{$character->id}.png"]);
+        }
+        $shot->update(['image_status' => 'failed', 'error' => MuseBrowserImageGenerator::REJECTED.' Bấm Tạo lại... AI trả lời: same scene as VA-AAAAAA, do-not-retry.']);
+        $this->assertSame('same scene as VA-AAAAAA, do-not-retry.', ShotRewriter::rejection($shot));
+        $this->actingAs($this->user)->get(route('series.episodes.show', $this->params()))
+            ->assertInertia(fn (Assert $page) => $page->where('episode.shots.0.rejected', true)->where('episode.shots.1.rejected', false));
+
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('series.episodes.shots.rewrite', $this->params(['shot' => $shot->id])), ['notes' => 'sunny'])
+            ->assertSessionHas('status');
+        Queue::assertPushed(RewriteShotJob::class, fn ($job) => $job->reason === 'same scene as VA-AAAAAA, do-not-retry.');
+        $this->assertSame('pending', $shot->fresh()->image_status);
+
+        $old = $shot->only(['action', 'camera']);
+        (new RewriteShotJob($shot, 'x', 'sunny'))->handle();
+        $shot->refresh();
+        $this->assertNotSame($old['action'], $shot->action);
+        $this->assertNotSame($old['camera'], $shot->camera);
+        Queue::assertPushed(GenerateShotImageJob::class, fn ($job) => str_contains($job->prompt, $shot->action) && str_contains($job->prompt, 'sunny'));
     }
 
     public function test_other_users_cannot_write_or_draw()

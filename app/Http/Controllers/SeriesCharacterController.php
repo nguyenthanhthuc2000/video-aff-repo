@@ -6,6 +6,7 @@ use App\Jobs\GenerateCharacterImageJob;
 use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Models\SeriesCharacterImage;
+use App\Services\Audio\Tts;
 use App\Services\Film\CharacterPrompt;
 use App\Services\Film\Voices;
 use App\Support\CreditPricing;
@@ -16,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
 
 /** Nhân vật của bộ phim: thêm / xoá, thư viện ảnh (Muse vẽ hoặc tải lên), chọn ảnh chính, chốt nhân vật. */
 class SeriesCharacterController extends Controller
@@ -35,6 +37,8 @@ class SeriesCharacterController extends Controller
                 'personality' => $character->personality,
                 'appearance' => $character->appearance,
                 'voice_type' => $character->voice['type'] ?? null,
+                'voice' => $character->voice['voice'] ?? null,
+                'voice_sample_url' => Media::url(self::samplePath($character)),
                 'main_image_path' => $character->main_image_path,
                 'main_image_url' => Media::url($character->main_image_path),
                 'locked' => $character->locked_at !== null,
@@ -55,6 +59,9 @@ class SeriesCharacterController extends Controller
             'kinds' => SeriesCharacterImage::KINDS,
             'roles' => SeriesCharacter::ROLES,
             'voiceTypes' => collect(Voices::TYPES)->map(fn ($voice) => $voice['label']),
+            'voices' => Voices::options(),
+            // Giọng các nhân vật khác đang dùng (báo trùng giọng).
+            'usedVoices' => $series->characters()->whereKeyNot($character->id)->get(['name', 'voice'])->mapWithKeys(fn (SeriesCharacter $c) => [$c->voice['voice'] ?? '' => $c->name])->filter(),
             'imageCredits' => CreditPricing::settings()['steps']['image'],
         ]);
     }
@@ -66,7 +73,7 @@ class SeriesCharacterController extends Controller
 
         $character = $series->characters()->create([
             ...collect($validated)->except('voice_type')->all(),
-            'voice' => Voices::forType($validated['voice_type']),
+            'voice' => Voices::assign($series, $validated['voice_type']),
             'position' => (int) $series->characters()->max('position') + 1,
         ]);
 
@@ -79,10 +86,15 @@ class SeriesCharacterController extends Controller
         $validated = $request->validate(self::rules(), [], self::attributes());
 
         $character->update([
-            ...collect($validated)->except(['voice_type', 'appearance'])->all(),
+            ...collect($validated)->except(['voice_type', 'voice', 'appearance'])->all(),
             // Đã chốt: giữ ngoại hình (ảnh chính đã vẽ theo mô tả đó).
             ...($character->locked_at === null ? ['appearance' => $validated['appearance']] : []),
-            'voice' => ($character->voice['type'] ?? null) === $validated['voice_type'] ? $character->voice : Voices::forType($validated['voice_type']),
+            // Chọn đúng giọng thì dùng giọng đó; chỉ đổi loại giọng thì tự chọn giọng chưa ai dùng; không đổi gì thì giữ nguyên.
+            'voice' => match (true) {
+                filled($validated['voice'] ?? null) && $validated['voice'] !== ($character->voice['voice'] ?? null) => Voices::option($validated['voice']),
+                ($character->voice['type'] ?? null) === $validated['voice_type'] => $character->voice,
+                default => Voices::assign($series, $validated['voice_type'], $character),
+            },
         ]);
 
         return back()->with('status', 'Đã lưu nhân vật.');
@@ -196,6 +208,39 @@ class SeriesCharacterController extends Controller
         return back()->with('status', $lock ? "Đã chốt {$character->name}." : "Đã bỏ chốt {$character->name}.");
     }
 
+    /** Nghe thử giọng của nhân vật (Kokoro chạy trên máy, không tốn Credits); cùng giọng thì dùng lại bản đã đọc. */
+    public function voiceSample(Series $series, SeriesCharacter $character, Tts $tts): RedirectResponse
+    {
+        $this->authorize('view', $series);
+        $path = self::samplePath($character, exists: false);
+        if ($path === null) {
+            return back()->with('status', 'Nhân vật chưa có giọng.');
+        }
+        if (! Media::disk()->exists($path)) {
+            try {
+                $voice = $character->voice;
+                $result = $tts->speak([['text' => Voices::sample($character), 'voice' => $voice['voice'], 'pitch' => (float) $voice['pitch'], 'speed' => (float) $voice['speed']]]);
+            } catch (RuntimeException $e) {
+                return back()->with('status', $e->getMessage());
+            }
+            Media::disk()->put($path, $result['contents']);
+        }
+
+        return back()->with('status', 'Đã đọc câu nghe thử, bấm phát để nghe.');
+    }
+
+    /** File nghe thử theo đúng giọng + thông số hiện tại (đổi giọng thì đọc bản mới). */
+    private static function samplePath(SeriesCharacter $character, bool $exists = true): ?string
+    {
+        $voice = $character->voice;
+        if (empty($voice['voice'])) {
+            return null;
+        }
+        $path = "series/{$character->series_id}/voices/{$character->id}-{$voice['voice']}-".substr(sha1(json_encode([$voice, Voices::sample($character)])), 0, 8).'.wav';
+
+        return ! $exists || Media::disk()->exists($path) ? $path : null;
+    }
+
     private static function rules(): array
     {
         return [
@@ -205,6 +250,7 @@ class SeriesCharacterController extends Controller
             'personality' => ['nullable', 'string', 'max:1000'],
             'appearance' => ['required', 'string', 'max:1500'],
             'voice_type' => ['required', Rule::in(array_keys(Voices::TYPES))],
+            'voice' => ['nullable', Rule::in(array_column(Voices::options(), 'value'))],
         ];
     }
 

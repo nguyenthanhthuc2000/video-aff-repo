@@ -56,11 +56,18 @@ export default function SeriesEpisode({
     episode: EpisodeDetail;
     characters: CharacterItem[];
     cameras: string[];
-    pricing: { write: number; image: number };
+    pricing: { write: number; image: number; rewrite: number; clip: number };
     previous: EpisodeNav;
     next: EpisodeNav;
 }) {
-    usePoll(episode.status === 'writing' || episode.shots.some((shot) => shot.image_status === 'pending'), ['episode'], 5000);
+    usePoll(
+        episode.status === 'writing' ||
+            episode.shots.some(
+                (shot) => shot.image_status === 'pending' || shot.clip_status === 'pending' || (shot.has_dialogue && !shot.audio_current),
+            ),
+        ['episode'],
+        5000,
+    );
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Phim hoạt hình', href: '/series' },
         { title: series.title, href: route('series.show', series.id) },

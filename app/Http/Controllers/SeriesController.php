@@ -200,7 +200,7 @@ class SeriesController extends Controller
                 'age' => $data['age'] ?? null,
                 'personality' => $data['personality'] ?? null,
                 ...($character->locked_at === null ? ['appearance' => $data['appearance']] : []),
-                'voice' => ($character->voice['type'] ?? null) === $data['voice_type'] ? $character->voice : Voices::forType($data['voice_type']),
+                'voice' => ($character->voice['type'] ?? null) === $data['voice_type'] ? $character->voice : Voices::assign($series, $data['voice_type'], $character),
             ]);
         }
         foreach ($validated['locations'] ?? [] as $data) {

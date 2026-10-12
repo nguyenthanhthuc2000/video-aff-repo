@@ -55,7 +55,9 @@ class SeriesCharacterTest extends TestCase
 
         $ruby = $this->series->characters()->where('name', 'Ruby')->sole();
         $this->assertSame(3, $ruby->position);
-        $this->assertSame('af_bella', $ruby->voice['voice']);
+        // Bé gái thứ hai: giọng bé gái khác, không trùng nhân vật đã có.
+        $this->assertSame('kid_girl', $ruby->voice['type']);
+        $this->assertNotContains($ruby->voice['voice'], $this->series->characters()->whereKeyNot($ruby->id)->get()->pluck('voice.voice'));
 
         $this->actingAs($this->user)->delete(route('series.characters.destroy', $this->params($ruby)))->assertRedirect(route('series.show', $this->series));
         $this->assertSame(3, $this->series->characters()->count());

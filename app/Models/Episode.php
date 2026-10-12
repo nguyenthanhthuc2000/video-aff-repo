@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Episode extends Model
 {
     public const STATUSES = [
-        'draft' => 'Chưa viết', 'writing' => 'Đang viết', 'storyboard' => 'Có kịch bản', 'keyframing' => 'Đang vẽ khung hình', 'keyframed' => 'Có khung hình',
+        'draft' => 'Chưa viết', 'writing' => 'Đang viết', 'storyboard' => 'Có kịch bản', 'keyframing' => 'Đang vẽ khung hình', 'keyframed' => 'Có khung hình', 'animated' => 'Có video từng shot',
         'animatic_ready' => 'Có bản xem trước', 'animating' => 'Đang làm clip', 'mixing' => 'Đang ghép', 'done' => 'Xong', 'failed' => 'Lỗi',
     ];
 
@@ -32,10 +32,26 @@ class Episode extends Model
     /** Hết shot đang vẽ: đủ khung hình thì "Có khung hình", còn shot lỗi / chưa vẽ thì về "Có kịch bản". */
     public function syncKeyframeStatus(): void
     {
-        if (! in_array($this->fresh()->status, ['keyframing', 'storyboard', 'keyframed'], true) || $this->shots()->where('image_status', 'pending')->exists()) {
+        $this->syncStatus();
+    }
+
+    /**
+     * Trạng thái tập theo các shot (chỉ ở các bước khung hình / video): còn vẽ → đang vẽ, còn làm clip → đang làm clip,
+     * shot nào cũng có video → có video từng shot, thiếu khung hình → có kịch bản, còn lại → có khung hình.
+     */
+    public function syncStatus(): void
+    {
+        if (! in_array($this->fresh()->status, ['storyboard', 'keyframing', 'keyframed', 'animating', 'animated'], true)) {
             return;
         }
-        $this->update(['status' => $this->shots()->where('image_status', '!=', 'ready')->exists() ? 'storyboard' : 'keyframed']);
+        $shots = $this->shots()->get(['id', 'image_status', 'clip_status', 'video_path']);
+        $this->update(['status' => match (true) {
+            $shots->contains('image_status', 'pending') => 'keyframing',
+            $shots->contains('clip_status', 'pending') => 'animating',
+            $shots->isNotEmpty() && $shots->every(fn (Shot $shot) => $shot->video_path !== null) => 'animated',
+            $shots->contains(fn (Shot $shot) => $shot->image_status !== 'ready') => 'storyboard',
+            default => 'keyframed',
+        }]);
     }
 
     public function shots(): HasMany

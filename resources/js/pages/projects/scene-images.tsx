@@ -24,8 +24,8 @@ export default function SceneImages({
 }) {
     const scenes = project.scenes ?? [];
     const canGenerate = ['script_ready', 'imaging', 'reviewing', 'done', 'failed'].includes(project.status) && scenes.length > 0;
-    // Một cảnh quay liền: cảnh sau lấy khung cuối clip cảnh trước, chỉ cảnh đầu tạo ảnh.
-    const linked = (index: number) => project.one_take === true && index > 0;
+    // Một cảnh quay liền: cảnh mở đầu mỗi bộ đồ tạo ảnh, cảnh sau trong cùng bộ lấy khung cuối clip cảnh trước.
+    const linked = (index: number) => project.one_take === true && index > 0 && scenes[index].starts_take !== true;
     const missing = scenes.filter((scene, i) => !linked(i) && (!scene.image || ['rejected', 'failed'].includes(scene.image.status))).length;
 
     const generateAll = () => router.post(route('projects.images.store', project.id), {}, { preserveScroll: true });
@@ -56,13 +56,14 @@ export default function SceneImages({
             )}
             <p className="text-muted-foreground text-sm">
                 {project.one_take
-                    ? 'Một cảnh quay liền: chỉ cảnh 1 tạo ảnh. Các cảnh sau tự lấy khung cuối của clip cảnh trước để nối liền, không cắt cảnh.'
+                    ? 'Một cảnh quay liền: cảnh mở đầu mỗi bộ đồ tạo ảnh (bộ sau dùng bối cảnh cảnh 1). Các cảnh sau trong cùng bộ tự lấy khung cuối của clip cảnh trước để nối liền.'
                     : 'AI mặc sản phẩm lên ảnh người mẫu cho từng cảnh. Chỉ duyệt ảnh giữ đúng màu, hoạ tiết và kiểu dáng sản phẩm.'}
             </p>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {scenes.map((scene, index) => {
-                    const image = scene.image;
                     const fromClip = linked(index);
+                    // Khung lấy từ clip đã bỏ (clip cảnh trước làm lại): không hiện ảnh cũ, chờ khung mới từ clip.
+                    const image = fromClip && scene.image && ['rejected', 'failed'].includes(scene.image.status) ? null : scene.image;
 
                     return (
                         <div key={scene.id} className="space-y-2">

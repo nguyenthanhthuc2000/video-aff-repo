@@ -27,6 +27,8 @@ final class RenderSpec
         public readonly ?float $musicVolume = null,
         /** Bắt đầu nhạc từ đoạn này (hát nhép theo đoạn đã chọn). */
         public readonly int $musicStartMs = 0,
+        /** Khung hình/giây khi xuất; null = mặc định của renderer. Đặt bằng fps của clip để khỏi lặp khung (24 → 30 bị khựng). */
+        public readonly ?int $fps = null,
     ) {}
 
     public function musicVolume(): float
@@ -38,6 +40,21 @@ final class RenderSpec
     public function durationMs(): int
     {
         return array_sum(array_map(fn (RenderScene $scene) => $scene->durationMs, $this->scenes)) + ($this->hasEndCard() ? $this->endCardMs : 0);
+    }
+
+    /**
+     * Thời lượng chuyển cảnh trước mỗi cảnh (ms), theo thứ tự cảnh + cảnh kết; phần tử đầu luôn 0.
+     *
+     * @return list<int>
+     */
+    public function transitions(): array
+    {
+        $list = array_map(fn (RenderScene $scene, int $i) => $i === 0 ? 0 : ($scene->transitionInMs ?: $this->transitionMs), $this->scenes, array_keys($this->scenes));
+        if ($this->hasEndCard()) {
+            $list[] = $this->transitionMs;
+        }
+
+        return $list;
     }
 
     /** Cảnh kết là chữ kêu gọi mua trên nền ảnh mờ, nên không chèn chữ thì bỏ luôn. */

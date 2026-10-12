@@ -81,6 +81,8 @@ export interface Scene {
     background: Background | null;
     outfit?: SceneOutfit | null;
     position: number;
+    /** Tự tạo ảnh (không quay liền, hoặc cảnh mở đầu mỗi bộ đồ khi quay liền); false = lấy khung cuối clip cảnh trước. */
+    starts_take?: boolean;
     /** Video biến hình: cảnh trước / sau. Video thường: null. */
     phase: 'before' | 'after' | null;
     /** Góc quay sản phẩm của cảnh (toàn thân, cận chất vải, mặt sau...). */

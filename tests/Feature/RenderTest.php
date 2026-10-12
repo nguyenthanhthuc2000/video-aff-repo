@@ -185,6 +185,29 @@ class RenderTest extends TestCase
         $this->assertSame(2, collect($renderer->command($spec, '/tmp/f.txt'))->filter(fn ($arg) => $arg === '-i')->count() - 1);
     }
 
+    public function test_outfit_change_fades_while_same_take_cuts_and_fps_follows_clips()
+    {
+        $spec = new RenderSpec([
+            new RenderScene('a.jpg', 5000, clipPath: 'a.mp4'),
+            new RenderScene('b.jpg', 5000, clipPath: 'b.mp4'),
+            new RenderScene('c.jpg', 5000, clipPath: 'c.mp4', transitionInMs: 300),
+        ], 'Hook', '/tmp/out.mp4', withText: false, fps: 24);
+        $renderer = new FfmpegVideoRenderer('ffmpeg', resource_path('fonts'));
+        $graph = $renderer->filterGraph($spec, '/tmp/subs.ass');
+
+        $this->assertSame([0, 0, 300], $spec->transitions());
+        $this->assertStringContainsString('[v0][v1]concat=n=2:v=1:a=0,settb=1/24[x1]', $graph);
+        $this->assertStringContainsString('[x1][v2]xfade=transition=fade:duration=0.3:offset=10[x2]', $graph);
+        // Cảnh trước chỗ đổi bộ dài thêm đoạn mờ; clip giữ 24 fps.
+        $this->assertStringContainsString('trim=duration=5.3,setpts=PTS-STARTPTS,fps=24', $graph);
+        $this->assertContains('24', $renderer->command($spec, '/tmp/f.txt'));
+        $this->assertSame(15000, $spec->durationMs());
+
+        $this->assertSame(24, RenderVideoJob::outputFps([24.0, 23.976, 24.0]));
+        $this->assertNull(RenderVideoJob::outputFps([24.0, 30.0]));
+        $this->assertNull(RenderVideoJob::outputFps([]));
+    }
+
     public function test_render_request_remembers_text_choice()
     {
         Queue::fake();

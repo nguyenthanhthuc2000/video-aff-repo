@@ -100,6 +100,11 @@ Route::middleware(['auth'])->group(function () {
         Route::post('series/{series}/episodes/{episode}/keyframes', [EpisodeController::class, 'keyframes'])->name('series.episodes.keyframes');
         Route::put('series/{series}/episodes/{episode}/shots/{shot}', [EpisodeController::class, 'updateShot'])->name('series.episodes.shots.update');
         Route::post('series/{series}/episodes/{episode}/shots/{shot}/image', [EpisodeController::class, 'regenerateShot'])->name('series.episodes.shots.image');
+        Route::post('series/{series}/characters/{character}/voice-sample', [SeriesCharacterController::class, 'voiceSample'])->name('series.characters.voice-sample');
+        Route::post('series/{series}/episodes/{episode}/voices', [EpisodeController::class, 'voices'])->name('series.episodes.voices');
+        Route::post('series/{series}/episodes/{episode}/clips', [EpisodeController::class, 'clips'])->name('series.episodes.clips');
+        Route::post('series/{series}/episodes/{episode}/shots/{shot}/clip', [EpisodeController::class, 'clip'])->name('series.episodes.shots.clip');
+        Route::post('series/{series}/episodes/{episode}/shots/{shot}/rewrite', [EpisodeController::class, 'rewriteShot'])->name('series.episodes.shots.rewrite');
         Route::post('series/{series}/characters', [SeriesCharacterController::class, 'store'])->name('series.characters.store');
         Route::get('series/{series}/characters/{character}', [SeriesCharacterController::class, 'show'])->name('series.characters.show');
         Route::put('series/{series}/characters/{character}', [SeriesCharacterController::class, 'update'])->name('series.characters.update');

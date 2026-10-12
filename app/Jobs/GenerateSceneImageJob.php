@@ -136,7 +136,7 @@ class GenerateSceneImageJob implements ShouldQueue
         $project = $scene->videoProject;
 
         // Bối cảnh người dùng cung cấp: ảnh nền đứng thứ hai (sau ảnh người mẫu).
-        $background = $scene->background?->photo_path;
+        $background = $scene->backgroundPath();
 
         if ($scene->phase === ScenePhase::Before && $project->beforeFashionModel) {
             return array_values(array_filter([$project->beforeFashionModel->photo_path, $background]));
@@ -281,7 +281,7 @@ class GenerateSceneImageJob implements ShouldQueue
     /** Prompt đầy đủ của cảnh (theo pha, loại sản phẩm, có ảnh nền bối cảnh hay không). */
     public static function scenePrompt(Scene $scene): string
     {
-        return self::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->background_id !== null, $scene->angle);
+        return self::prompt($scene->image_prompt, $scene->phase, $scene->productLine(), $scene->backgroundPath() !== null, $scene->angle);
     }
 
     /** Ảnh nền bối cảnh của người dùng: đặt người vào đúng nơi đó, không lấy người / đồ trong ảnh nền. */

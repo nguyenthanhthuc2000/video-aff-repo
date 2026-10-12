@@ -199,6 +199,12 @@ export default function CreateProjectForm({
     autopilotAvailable: boolean;
 }) {
     const { workflow } = usePage<{ workflow: 'auto' | 'manual' | null }>().props;
+    // Sản phẩm nhiều màu, mỗi màu một ảnh (thường gặp ở TikTok Shop / Shopee): mặc định mỗi ảnh một bộ đồ để video có đủ các màu.
+    const current = outfitProducts.find((product) => product.id === productId);
+    const colorOutfits: Outfit[] =
+        defaultOutfits.length === 0 && current && current.colors.length > 1 && current.images.length > 1
+            ? current.images.slice(0, 12).map((image) => ({ product_id: productId, product_image_id: image.id, color: null }))
+            : [];
     const { data, setData, post, processing, errors, transform } = useForm<{
         product_id: number;
         fashion_model_id: number;
@@ -225,7 +231,9 @@ export default function CreateProjectForm({
         background_ids: defaultBackgroundIds.filter((id) => backgrounds.some((background) => background.id === id)),
         one_take: false,
         voice_mode: 'music',
-        outfits: defaultOutfits.filter((outfit) => outfitProducts.some((product) => product.id === outfit.product_id)),
+        outfits: (colorOutfits.length > 0 ? colorOutfits : defaultOutfits).filter((outfit) =>
+            outfitProducts.some((product) => product.id === outfit.product_id),
+        ),
         // Chế độ "Tự động tất cả các bước" (Cài đặt video) thì tick sẵn chạy ngầm.
         autopilot: autopilotAvailable && workflow !== 'manual',
     });
@@ -457,6 +465,12 @@ export default function CreateProjectForm({
                     </div>
                     {multiOutfit && (
                         <div className="pl-7">
+                            {colorOutfits.length > 0 && (
+                                <p className="text-muted-foreground mb-2 text-xs">
+                                    Sản phẩm có {current?.colors.length} màu ({current?.colors.join(', ')}): mỗi ảnh đã chọn thành một bộ để video có
+                                    đủ các màu. Bỏ tick nếu các ảnh chỉ là nhiều góc của cùng một màu.
+                                </p>
+                            )}
                             {data.one_take && (
                                 <p className="text-muted-foreground mb-2 text-xs">
                                     Một cảnh quay liền nhiều bộ: mỗi bộ quay liền một đoạn, giữa các đoạn cắt cảnh đổi đồ.

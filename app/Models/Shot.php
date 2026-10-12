@@ -12,12 +12,12 @@ class Shot extends Model
     protected $fillable = [
         'episode_id', 'sequence', 'position', 'series_location_id', 'character_ids', 'camera', 'action', 'dialogue',
         'duration_ms', 'continues_previous', 'image_status', 'image_path', 'clip_status', 'clip_path', 'clip_parts',
-        'audio_path', 'request_id', 'error',
+        'audio_path', 'audio_key', 'audio_ms', 'audio_lines', 'clip_request_id', 'clip_error', 'video_path', 'request_id', 'error',
     ];
 
     protected function casts(): array
     {
-        return ['character_ids' => 'array', 'dialogue' => 'array', 'clip_parts' => 'array', 'continues_previous' => 'boolean'];
+        return ['character_ids' => 'array', 'dialogue' => 'array', 'clip_parts' => 'array', 'audio_lines' => 'array', 'continues_previous' => 'boolean'];
     }
 
     public function episode(): BelongsTo

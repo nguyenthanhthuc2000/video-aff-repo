@@ -5,7 +5,9 @@ namespace App\Providers;
 use Anthropic\Client;
 use App\Services\Audio\MusicAnalyzer;
 use App\Services\Claude\ClaudeCli;
+use App\Services\Film\FakeFilmClipGenerator;
 use App\Services\Film\FakeFilmImageGenerator;
+use App\Services\Film\FilmMuseClipGenerator;
 use App\Services\Film\FilmMuseImageGenerator;
 use App\Services\Image\FakeImageGenerator;
 use App\Services\Image\FalMuseImageGenerator;
@@ -105,6 +107,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind('film.image', fn () => config('videoaff.image_driver') === 'browser'
             ? $this->app->make(FilmMuseImageGenerator::class)
             : new FakeFilmImageGenerator);
+
+        // Clip phim hoạt hình: Muse giữ nét vẽ 2D, khổ ngang; không có Muse thì clip giả bằng ffmpeg.
+        $this->app->bind('film.clip', fn () => config('videoaff.image_driver') === 'browser'
+            ? new FilmMuseClipGenerator($this->app->make(MuseBrowserClient::class))
+            : new FakeFilmClipGenerator);
 
         // Clip chuyển động tự động chỉ có khi tạo ảnh bằng muse.ai qua trình duyệt ngầm.
         $this->app->bind(ClipGenerator::class, fn () => match (config('videoaff.image_driver')) {

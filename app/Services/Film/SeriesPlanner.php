@@ -32,7 +32,7 @@ final class SeriesPlanner
     - 3–6 recurring characters. "appearance" is a fixed visual description reused in every image prompt: body type and height,
       face, hair (color, shape), eye color, outfit with colors, one or two signature items. 35–70 words, no personality words,
       nothing that changes between scenes. Characters must look clearly different from each other (colors and silhouettes).
-    - voice_type: kid_boy, kid_girl, adult_male, adult_female, elder or creature.
+    - voice_type: kid_boy, kid_girl, adult_male, adult_female, elder (old man), elder_female (old woman) or creature.
     - 3–6 recurring locations, each described visually in 20–50 words (no characters in the description).
     - Episode synopsis: 2–4 sentences with the beginning, the problem and how it is solved. lesson: one short sentence.
     - title: a short catchy series name. logline: one sentence. premise: 2–3 sentences. world: where and when the story happens.
@@ -118,14 +118,21 @@ final class SeriesPlanner
         }
         $text = fn ($value, int $max) => mb_substr(trim((string) $value), 0, $max);
 
-        $characters = collect($data['characters'])->take(8)->map(fn ($c) => [
-            'name' => $text($c['name'] ?? '', 80),
-            'role' => isset(SeriesCharacter::ROLES[$c['role'] ?? '']) ? $c['role'] : 'side',
-            'age' => isset($c['age']) ? max(0, min(120, (int) $c['age'])) : null,
-            'personality' => $text($c['personality'] ?? '', 1000),
-            'appearance' => $text($c['appearance'] ?? '', 1500),
-            'voice' => Voices::forType((string) ($c['voice_type'] ?? '')),
-        ])->filter(fn ($c) => $c['name'] !== '' && $c['appearance'] !== '')->values()->all();
+        // Mỗi nhân vật một giọng riêng (không trùng nhau, không trùng người dẫn chuyện).
+        $used = [Voices::NARRATOR['voice']];
+        $characters = collect($data['characters'])->take(8)->map(function ($c) use (&$used, $text) {
+            $voice = Voices::forType((string) ($c['voice_type'] ?? ''), $used);
+            $used[] = $voice['voice'];
+
+            return [
+                'name' => $text($c['name'] ?? '', 80),
+                'role' => isset(SeriesCharacter::ROLES[$c['role'] ?? '']) ? $c['role'] : 'side',
+                'age' => isset($c['age']) ? max(0, min(120, (int) $c['age'])) : null,
+                'personality' => $text($c['personality'] ?? '', 1000),
+                'appearance' => $text($c['appearance'] ?? '', 1500),
+                'voice' => $voice,
+            ];
+        })->filter(fn ($c) => $c['name'] !== '' && $c['appearance'] !== '')->values()->all();
 
         $locations = collect($data['locations'] ?? [])->take(8)->map(fn ($l) => [
             'name' => $text($l['name'] ?? '', 80),
