@@ -67,8 +67,12 @@ class AnimateShotJob implements ShouldQueue
 
                     return;
                 }
-                // Lời thoại đọc trước (có thể kéo dài shot), Muse khớp môi theo đúng tiếng này.
-                ShotAudio::ensure($shot);
+                // Lời thoại đọc trước (có thể kéo dài shot), Muse khớp môi theo đúng tiếng này. Đọc biểu cảm chạy nền: chờ xong.
+                if (! ShotAudio::advance($shot)) {
+                    $this->release(20);
+
+                    return;
+                }
                 $shot->refresh();
                 $audio = ShotVideo::dialogueAttachment($shot);
                 try {

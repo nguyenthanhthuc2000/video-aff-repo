@@ -23,6 +23,7 @@ interface EpisodeDetail {
     lesson: string | null;
     character_ids: number[];
     status: string;
+    voice_engine: string;
     status_label: string;
     error: string | null;
     summary: string | null;
@@ -48,6 +49,7 @@ export default function SeriesEpisode({
     episode,
     characters,
     cameras,
+    voiceEngines,
     pricing,
     previous,
     next,
@@ -56,15 +58,14 @@ export default function SeriesEpisode({
     episode: EpisodeDetail;
     characters: CharacterItem[];
     cameras: string[];
+    voiceEngines: Record<string, string>;
     pricing: { write: number; image: number; rewrite: number; clip: number };
     previous: EpisodeNav;
     next: EpisodeNav;
 }) {
     usePoll(
         episode.status === 'writing' ||
-            episode.shots.some(
-                (shot) => shot.image_status === 'pending' || shot.clip_status === 'pending' || (shot.has_dialogue && !shot.audio_current),
-            ),
+            episode.shots.some((shot) => shot.image_status === 'pending' || shot.clip_status === 'pending' || shot.audio_pending),
         ['episode'],
         5000,
     );
@@ -107,6 +108,8 @@ export default function SeriesEpisode({
                     shots={episode.shots}
                     characters={characters}
                     cameras={cameras}
+                    voiceEngine={episode.voice_engine}
+                    voiceEngines={voiceEngines}
                     pricing={pricing}
                     episodeSeconds={series.episode_seconds}
                 />

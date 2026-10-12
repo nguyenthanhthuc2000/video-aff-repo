@@ -59,6 +59,12 @@ return [
 
     // MUSE_DRIVER=browser: dịch vụ trình duyệt ngầm (docker service "browser") thao tác muse.ai.
     // Phân tích nhạc cho hát nhép (service docker "audio": Demucs tách giọng + faster-whisper ghi lời), chạy trên CPU.
+    // Giọng đọc biểu cảm cho phim hoạt hình (service docker "expressive": Chatterbox, CPU, khoảng 1 phút mỗi câu).
+    'expressive_tts' => [
+        'url' => env('EXPRESSIVE_TTS_URL', 'http://expressive:3200'),
+        'token' => env('AUDIO_ANALYZER_TOKEN'),
+    ],
+
     'audio_analyzer' => [
         'url' => env('AUDIO_ANALYZER_URL', 'http://audio:3100'),
         'token' => env('AUDIO_ANALYZER_TOKEN'),

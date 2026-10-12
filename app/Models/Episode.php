@@ -15,7 +15,7 @@ class Episode extends Model
     ];
 
     protected $fillable = [
-        'series_id', 'number', 'title', 'synopsis', 'lesson', 'character_ids', 'outline', 'summary', 'status',
+        'series_id', 'number', 'title', 'synopsis', 'lesson', 'character_ids', 'outline', 'summary', 'status', 'voice_engine',
         'animatic_path', 'render_path', 'duration_ms', 'error',
     ];
 

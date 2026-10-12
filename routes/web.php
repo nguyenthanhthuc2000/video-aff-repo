@@ -101,6 +101,8 @@ Route::middleware(['auth'])->group(function () {
         Route::put('series/{series}/episodes/{episode}/shots/{shot}', [EpisodeController::class, 'updateShot'])->name('series.episodes.shots.update');
         Route::post('series/{series}/episodes/{episode}/shots/{shot}/image', [EpisodeController::class, 'regenerateShot'])->name('series.episodes.shots.image');
         Route::post('series/{series}/characters/{character}/voice-sample', [SeriesCharacterController::class, 'voiceSample'])->name('series.characters.voice-sample');
+        Route::get('series/{series}/episodes/{episode}/dialogue', [EpisodeController::class, 'downloadDialogue'])->name('series.episodes.dialogue');
+        Route::get('series/{series}/episodes/{episode}/shots/{shot}/audio', [EpisodeController::class, 'downloadShotAudio'])->name('series.episodes.shots.audio');
         Route::post('series/{series}/episodes/{episode}/voices', [EpisodeController::class, 'voices'])->name('series.episodes.voices');
         Route::post('series/{series}/episodes/{episode}/clips', [EpisodeController::class, 'clips'])->name('series.episodes.clips');
         Route::post('series/{series}/episodes/{episode}/shots/{shot}/clip', [EpisodeController::class, 'clip'])->name('series.episodes.shots.clip');

@@ -8,8 +8,10 @@ use App\Models\Episode;
 use App\Models\Series;
 use App\Models\Shot;
 use App\Models\User;
+use App\Services\Film\EpisodeDialogue;
 use App\Services\Film\ShotAudio;
 use App\Services\Film\ShotClipPrompt;
+use App\Services\Film\VoiceReference;
 use App\Services\Film\Voices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -33,6 +35,11 @@ class ShotVideoTest extends TestCase
     /** @var list<array> Các yêu cầu đọc lời gửi dịch vụ audio. */
     private array $spoken = [];
 
+    /** @var list<array> Các yêu cầu gửi dịch vụ biểu cảm. */
+    private array $expressive = [];
+
+    private int $polls = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -46,7 +53,19 @@ class ShotVideoTest extends TestCase
         $this->episode = $this->series->episodes()->first();
         $this->actingAs($this->user)->post(route('series.episodes.write', $this->params()));
 
-        Http::fake(['*/tts' => function ($request) {
+        Http::fake(['expressive:3200/*' => function ($request) {
+            // Dịch vụ biểu cảm giả: gửi → mã; hỏi lần đầu đang đọc, lần sau xong.
+            if ($request->method() === 'POST') {
+                $this->expressive[] = $request->data();
+
+                return Http::response(['id' => 'task-'.count($this->expressive)], 202);
+            }
+            if (++$this->polls % 2 === 1) {
+                return Http::response(['state' => 'pending', 'done' => 0, 'total' => 1]);
+            }
+
+            return Http::response(['state' => 'done', 'base64' => base64_encode(self::wav(3)), 'duration' => 3.0, 'lines' => [['start' => 0.3, 'end' => 2.5]]]);
+        }, '*/tts' => function ($request) {
             $this->spoken[] = $request->data();
             $count = count($request->data()['lines']);
 
@@ -90,6 +109,17 @@ class ShotVideoTest extends TestCase
 
         $shot = $this->episode->shots()->get()->first(fn (Shot $s) => $s->audio_path !== null);
         $this->assertNotNull($shot);
+
+        // Tải lời thoại: cả tập (.zip: từng shot, cả tập đúng nhịp shot, kịch bản) và từng shot (.wav).
+        $response = $this->actingAs($this->user)->get(route('series.episodes.dialogue', $this->params()))->assertOk();
+        $zip = new \ZipArchive;
+        $zip->open($response->baseResponse->getFile()->getPathname());
+        $this->assertNotFalse($zip->locateName('ca-tap.wav'));
+        $this->assertNotFalse($zip->locateName('shots/shot-'.EpisodeDialogue::shotNumber($shot).'.wav'));
+        $this->assertStringContainsString($this->episode->title, (string) $zip->getFromName('loi-thoai.txt'));
+        $zip->close();
+        $this->actingAs($this->user)->get(route('series.episodes.shots.audio', $this->params(['shot' => $shot->id])))->assertOk()->assertDownload();
+        $this->actingAs(User::factory()->create())->get(route('series.episodes.dialogue', $this->params()))->assertForbidden();
         Storage::disk(config('videoaff.disk'))->assertExists($shot->audio_path);
         $this->assertTrue(ShotAudio::isCurrent($shot));
         $this->assertGreaterThanOrEqual($shot->audio_ms, $shot->duration_ms);
@@ -105,6 +135,61 @@ class ShotVideoTest extends TestCase
         }
         $this->actingAs($this->user)->get(route('series.episodes.show', $this->params()))
             ->assertInertia(fn (Assert $page) => $page->has('episode.shots.0.audio_url')->has('episode.shots.0.video_url')->where('pricing.clip', AnimateShotJob::price()));
+    }
+
+    public function test_page_shows_dialogue_being_read_until_done()
+    {
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('series.episodes.voices', $this->params()));
+        $talking = $this->episode->shots()->get()->filter(fn (Shot $shot) => ShotAudio::key($shot) !== null);
+        Queue::assertPushed(SynthesizeShotAudioJob::class, $talking->count());
+        $this->assertTrue(ShotAudio::isPending($talking->first()));
+        $this->actingAs($this->user)->get(route('series.episodes.show', $this->params()))
+            ->assertInertia(fn (Assert $page) => $page->where('episode.shots.'.$talking->keys()->first().'.audio_pending', true));
+
+        (new SynthesizeShotAudioJob($talking->first()))->handle();
+        $this->assertFalse(ShotAudio::isPending($talking->first()));
+        $this->assertNotNull($talking->first()->fresh()->audio_path);
+    }
+
+    public function test_kokoro_follows_emotion_and_expressive_engine_clones_character_voice()
+    {
+        $shot = $this->episode->shots()->get()->first(fn (Shot $s) => count(ShotAudio::lines($s)) > 0);
+        $shot->update(['dialogue' => [['character_id' => $this->series->characters()->first()->id, 'line' => 'We did it!', 'emotion' => 'excited']]]);
+        $character = $this->series->characters()->first();
+        [$line] = ShotAudio::lines($shot->fresh());
+        // Kokoro: hào hứng thì nhanh và cao hơn giọng gốc của nhân vật.
+        $this->assertGreaterThan($character->voice['speed'], $line['speed']);
+        $this->assertGreaterThan($character->voice['pitch'], $line['pitch']);
+        ShotAudio::ensure($shot->fresh());
+        $kokoroKey = $shot->fresh()->audio_key;
+        $this->assertNotNull($kokoroKey);
+
+        // Đổi sang đọc biểu cảm: tiếng Kokoro thành bản cũ; Chatterbox nhận giọng mẫu Kokoro của nhân vật + độ biểu cảm theo cảm xúc.
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('series.episodes.voices', $this->params()), ['engine' => 'expressive'])
+            ->assertSessionHas('status', fn ($s) => str_contains($s, 'biểu cảm'));
+        $this->assertSame('expressive', $this->episode->fresh()->voice_engine);
+        $shot = $shot->fresh();
+        $this->assertFalse(ShotAudio::isCurrent($shot));
+
+        $job = new SynthesizeShotAudioJob($shot);
+        $job->handle();
+        $this->assertCount(1, $this->expressive);
+        $this->assertSame(0.85, $this->expressive[0]['lines'][0]['exaggeration']);
+        $reference = VoiceReference::path($this->series->id, $character->voice);
+        Storage::disk(config('videoaff.disk'))->assertExists($reference);
+        $this->assertSame(base64_encode(Storage::disk(config('videoaff.disk'))->get($reference)), $this->expressive[0]['lines'][0]['ref']);
+        $this->assertTrue(ShotAudio::isPending($shot));
+        $job->handle(); // đang đọc
+        $this->assertFalse(ShotAudio::isCurrent($shot->fresh()));
+        $job->handle(); // xong
+        $this->assertTrue(ShotAudio::isCurrent($shot->fresh()));
+        $this->assertNotSame($kokoroKey, $shot->fresh()->audio_key);
+        $this->assertFalse(ShotAudio::isPending($shot));
+        $this->assertCount(1, $this->expressive);
+        $this->actingAs($this->user)->get(route('series.episodes.show', $this->params()))
+            ->assertInertia(fn (Assert $page) => $page->where('episode.voice_engine', 'expressive')->has('voiceEngines', 2));
     }
 
     public function test_create_video_needs_keyframes_then_makes_lip_synced_clip_with_character_voices()

@@ -12,10 +12,12 @@ use App\Models\Episode;
 use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Models\Shot;
+use App\Services\Film\EpisodeDialogue;
 use App\Services\Film\EpisodeWriter;
 use App\Services\Film\ShotAudio;
 use App\Services\Film\ShotPrompt;
 use App\Services\Film\ShotRewriter;
+use App\Services\Film\Voices;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
@@ -25,6 +27,8 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /** Trang một tập phim: thông tin tập, nhân vật xuất hiện, Claude viết tập thành shot, Muse vẽ khung hình từng shot. */
 class EpisodeController extends Controller
@@ -35,7 +39,7 @@ class EpisodeController extends Controller
         $episodes = $series->episodes()->get(['id', 'number', 'title']);
         $index = $episodes->search(fn (Episode $e) => $e->id === $episode->id);
         $nav = fn (?Episode $e) => $e ? ['id' => $e->id, 'number' => $e->number, 'title' => $e->title] : null;
-        $shots = $episode->shots()->with('location:id,name')->get();
+        $shots = $episode->shots()->with('location:id,name')->get()->each->setRelation('episode', $episode);
         $characterMap = $series->characters()->get()->keyBy('id');
         $outline = $episode->outline ?? [];
         $sequenceCount = count($outline['sequences'] ?? []) ?: max(2, (int) round($series->episode_seconds / EpisodeWriter::SEQUENCE_SECONDS));
@@ -56,6 +60,7 @@ class EpisodeController extends Controller
                 'character_ids' => $episode->character_ids ?? [],
                 'status' => $episode->status,
                 'status_label' => Episode::STATUSES[$episode->status] ?? $episode->status,
+                'voice_engine' => $episode->voice_engine,
                 'error' => $episode->error,
                 'summary' => $episode->summary,
                 'duration_ms' => (int) $shots->sum('duration_ms'),
@@ -85,8 +90,13 @@ class EpisodeController extends Controller
                     'audio_url' => Media::url($shot->audio_path),
                     // Lời / giọng đã đổi sau khi đọc: tiếng (và video) là bản cũ.
                     'audio_current' => ShotAudio::isCurrent($shot, $characterMap),
+                    // Đang chờ / đang đọc lời (nút "Đọc lời thoại"); làm video thì đọc trong lúc làm clip.
+                    'audio_pending' => ShotAudio::isPending($shot),
+                    'audio_error' => ShotAudio::error($shot),
                     'has_dialogue' => ShotAudio::key($shot, $characterMap) !== null,
                     'clip_status' => $shot->clip_status,
+                    // Đang làm video: chưa gửi Muse thì đang đọc lời / chờ lượt, đã có mã thì Muse đang làm clip.
+                    'clip_stage' => $shot->clip_status === 'pending' ? ($shot->clip_request_id ? 'muse' : 'voice') : null,
                     'clip_error' => $shot->clip_error,
                     'video_url' => Media::url($shot->video_path),
                 ]),
@@ -99,6 +109,7 @@ class EpisodeController extends Controller
                 'locked' => $c->locked_at !== null,
             ]),
             'cameras' => EpisodeWriter::CAMERAS,
+            'voiceEngines' => Voices::ENGINES,
             'pricing' => [
                 'write' => CreditPricing::aiEstimates()['film_episode'] * ($sequenceCount + 1),
                 'image' => CreditPricing::settings()['steps']['image'],
@@ -267,19 +278,52 @@ class EpisodeController extends Controller
     }
 
     /** Đọc lời thoại mọi shot bằng giọng cố định của từng nhân vật (Kokoro chạy trên máy, không tốn Credits) để nghe thử. */
-    public function voices(Series $series, Episode $episode): RedirectResponse
+    public function voices(Request $request, Series $series, Episode $episode): RedirectResponse
     {
         $this->authorize('update', $series);
+        $validated = $request->validate(['engine' => ['nullable', Rule::in(array_keys(Voices::ENGINES))]]);
+        if (filled($validated['engine'] ?? null) && $validated['engine'] !== $episode->voice_engine) {
+            if ($episode->shots()->where('clip_status', 'pending')->exists()) {
+                return back()->with('status', 'Đang làm video, đợi xong rồi đổi cách đọc.');
+            }
+            $episode->update(['voice_engine' => $validated['engine']]);
+        }
         $characters = $series->characters()->get()->keyBy('id');
-        $shots = $episode->shots()->where('clip_status', '!=', 'pending')->get()->reject(fn (Shot $shot) => ShotAudio::isCurrent($shot, $characters));
+        $shots = $episode->shots()->where('clip_status', '!=', 'pending')->get()->each->setRelation('episode', $episode)
+            ->reject(fn (Shot $shot) => ShotAudio::isCurrent($shot, $characters) || ShotAudio::isPending($shot));
         if ($shots->isEmpty()) {
             return back()->with('status', 'Lời thoại mọi shot đã được đọc theo giọng hiện tại.');
         }
         foreach ($shots as $shot) {
+            ShotAudio::markPending($shot);
             SynthesizeShotAudioJob::dispatch($shot);
         }
 
-        return back()->with('status', "Đang đọc lời thoại {$shots->count()} shot (miễn phí, vài giây mỗi shot)...");
+        return back()->with('status', $episode->voice_engine === 'expressive'
+            ? "Đang đọc biểu cảm {$shots->count()} shot bằng Chatterbox (miễn phí, khoảng 1 phút mỗi câu, chạy nền; shot nào xong nghe được ngay)..."
+            : "Đang đọc lời thoại {$shots->count()} shot (miễn phí, vài giây mỗi shot)...");
+    }
+
+    /** Tải lời thoại cả tập (.zip): tiếng từng shot, một file ghép cả tập theo đúng thời lượng shot, kịch bản lời kèm mốc thời gian. */
+    public function downloadDialogue(Series $series, Episode $episode): BinaryFileResponse|RedirectResponse
+    {
+        $this->authorize('view', $series);
+        if ($episode->shots()->whereNotNull('audio_path')->doesntExist()) {
+            return back()->with('status', 'Chưa có lời thoại nào được đọc. Bấm "Đọc lời thoại" trước.');
+        }
+
+        return response()->download(EpisodeDialogue::zip($episode), EpisodeDialogue::fileName($episode).'.zip')->deleteFileAfterSend();
+    }
+
+    /** Tải tiếng thoại của một shot (.wav). */
+    public function downloadShotAudio(Series $series, Episode $episode, Shot $shot): StreamedResponse|RedirectResponse
+    {
+        $this->authorize('view', $series);
+        if ($shot->audio_path === null) {
+            return back()->with('status', 'Shot chưa có lời thoại đã đọc.');
+        }
+
+        return Media::disk()->download($shot->audio_path, EpisodeDialogue::fileName($episode).'-shot-'.EpisodeDialogue::shotNumber($shot).'.wav');
     }
 
     /** Muse làm clip cho mọi shot đã có khung hình mà chưa có video (hoặc lỗi), mỗi shot ghép với lời thoại thành video. */

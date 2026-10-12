@@ -1,7 +1,13 @@
+# Dữ liệu nặng nằm NGOÀI Docker và ngoài repo (mặc định ../video-aff-data, đổi bằng VIDEO_AFF_DATA trong .env):
+#   media/   ảnh, clip, video, âm thanh (storage/app/public của Laravel)
+#   mysql/   dữ liệu MySQL
+#   backups/ bản sao lưu mysqldump
+# Docker hỏng / hết dung lượng cấp cho Docker / xoá volume thì dữ liệu vẫn còn trên ổ máy.
 x-php: &php
   image: video-aff-php
   volumes:
     - ./:/var/www/html
+    - ${VIDEO_AFF_DATA:-../video-aff-data}/media:/var/www/html/storage/app/public
     - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
   environment:
     DB_CONNECTION: mysql
@@ -12,6 +18,7 @@ x-php: &php
     DB_PASSWORD: ${DB_PASSWORD:-secret}
     MUSE_BROWSER_URL: http://browser:3000
     AUDIO_ANALYZER_URL: http://audio:3100
+    EXPRESSIVE_TTS_URL: http://expressive:3200
   depends_on:
     db:
       condition: service_healthy
@@ -47,6 +54,7 @@ services:
       - "${APP_PORT:-8080}:80"
     volumes:
       - ./:/var/www/html:ro
+      - ${VIDEO_AFF_DATA:-../video-aff-data}/media:/var/www/html/storage/app/public:ro
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - app
@@ -65,7 +73,7 @@ services:
       MYSQL_USER: ${DB_USERNAME:-video_aff}
       MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
     volumes:
-      - mysql-data:/var/lib/mysql
+      - ${VIDEO_AFF_DATA:-../video-aff-data}/mysql:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASSWORD:-root}"]
       interval: 5s
@@ -103,6 +111,19 @@ services:
     networks:
       - internal
 
+  # Giọng đọc biểu cảm (Chatterbox, MIT) cho phim hoạt hình, CPU. Nạp mô hình (~4 GB RAM) khi có việc, rảnh 10 phút thì giải phóng.
+  # Cần Docker Desktop cấp khoảng 10–12 GB RAM. Chỉ mạng nội bộ.
+  expressive:
+    container_name: video-aff-expressive
+    image: video-aff-expressive
+    build:
+      context: ./docker/expressive
+    restart: unless-stopped
+    environment:
+      AUDIO_TOKEN: ${AUDIO_ANALYZER_TOKEN:-}
+    networks:
+      - internal
+
   # Vite dev server (hot reload cho React)
   node:
     container_name: video-aff-node
@@ -119,6 +140,7 @@ services:
       - internal
 
 volumes:
+  # Volume MySQL cũ (trước khi chuyển sang video-aff-data/mysql), giữ lại làm bản dự phòng; không còn dùng.
   mysql-data:
   browser-data:
   node-modules:

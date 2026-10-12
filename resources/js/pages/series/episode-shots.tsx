@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatNumber } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
 import { router, useForm } from '@inertiajs/react';
-import { Clapperboard, Film, ImageOff, Images, Link2, Loader2, Pencil, Plus, RefreshCw, Sparkles, Trash2, Volume2 } from 'lucide-react';
+import { Clapperboard, Download, Film, ImageOff, Images, Link2, Loader2, Pencil, Plus, RefreshCw, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 
 export interface DialogueLine {
@@ -38,6 +38,10 @@ export interface Shot {
     audio_url: string | null;
     audio_current: boolean;
     has_dialogue: boolean;
+    /** Đang chờ / đang đọc lời thoại. */
+    audio_pending: boolean;
+    audio_error: string | null;
+    clip_stage: 'voice' | 'muse' | null;
     clip_status: 'none' | 'pending' | 'ready' | 'failed';
     clip_error: string | null;
     /** Video của shot: clip Muse + lời thoại. */
@@ -70,6 +74,8 @@ export default function EpisodeShots({
     shots,
     characters,
     cameras,
+    voiceEngine,
+    voiceEngines,
     pricing,
     episodeSeconds,
 }: {
@@ -81,12 +87,15 @@ export default function EpisodeShots({
     shots: Shot[];
     characters: ShotCharacter[];
     cameras: string[];
+    voiceEngine: string;
+    voiceEngines: Record<string, string>;
     pricing: { write: number; image: number; rewrite: number; clip: number };
     episodeSeconds: number;
 }) {
     const [editing, setEditing] = useState<Shot | null>(null);
     const [redrawing, setRedrawing] = useState<Shot | null>(null);
     const [animating, setAnimating] = useState<Shot | null>(null);
+    const [engine, setEngine] = useState(voiceEngine);
     const writing = status === 'writing';
     const toDraw = shots.filter((shot) => shot.image_status === 'none' || shot.image_status === 'failed').length;
     const drawing = shots.filter((shot) => shot.image_status === 'pending').length;
@@ -94,7 +103,14 @@ export default function EpisodeShots({
     const toAnimate = shots.filter((shot) => shot.image_status === 'ready' && ['none', 'failed'].includes(shot.clip_status)).length;
     const animatingCount = shots.filter((shot) => shot.clip_status === 'pending').length;
     const videos = shots.filter((shot) => shot.video_url).length;
-    const toVoice = shots.filter((shot) => shot.has_dialogue && !shot.audio_current && shot.clip_status !== 'pending').length;
+    const voiced = shots.filter((shot) => shot.audio_url).length;
+    // Đổi cách đọc (chưa lưu) thì mọi shot có lời sẽ được đọc lại.
+    const toVoice = shots.filter(
+        (shot) => shot.has_dialogue && (!shot.audio_current || engine !== voiceEngine) && shot.clip_status !== 'pending' && !shot.audio_pending,
+    ).length;
+    const reading = shots.filter((shot) => shot.audio_pending).length;
+    const readTotal = shots.filter((shot) => shot.has_dialogue).length;
+    const readDone = shots.filter((shot) => shot.has_dialogue && shot.audio_current && shot.audio_url).length;
     const total = shots.reduce((sum, shot) => sum + shot.duration_ms, 0);
     const name = (id: number | null) => (id === null ? 'Dẫn chuyện' : (characters.find((c) => c.id === id)?.name ?? '?'));
 
@@ -104,7 +120,15 @@ export default function EpisodeShots({
         }
         router.post(route('series.episodes.write', base), { resume }, { preserveScroll: true });
     };
-    const voiceAll = () => router.post(route('series.episodes.voices', base), {}, { preserveScroll: true });
+    const voiceAll = () => {
+        if (
+            engine === 'expressive' &&
+            !confirm('Đọc biểu cảm bằng Chatterbox: khoảng 1 phút mỗi câu, cả tập có thể mất cả giờ (chạy nền, miễn phí). Tiếp tục?')
+        ) {
+            return;
+        }
+        router.post(route('series.episodes.voices', base), { engine }, { preserveScroll: true });
+    };
     const animateAll = () => {
         if (
             confirm(
@@ -153,13 +177,40 @@ export default function EpisodeShots({
                         </Button>
                     )}
                     {shots.length > 0 && (
+                        <select
+                            aria-label="Cách đọc lời thoại"
+                            title="Nhanh: Kokoro, ngữ điệu theo cảm xúc từng câu. Biểu cảm: Chatterbox bắt chước giọng của từng nhân vật, diễn cảm hơn nhưng chậm (khoảng 1 phút mỗi câu). Tạo video dùng đúng cách đọc này."
+                            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                            value={engine}
+                            disabled={writing || reading > 0 || animatingCount > 0}
+                            onChange={(e) => setEngine(e.target.value)}
+                        >
+                            {Object.entries(voiceEngines).map(([key, label]) => (
+                                <option key={key} value={key}>
+                                    Giọng: {label}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    {shots.length > 0 && (
                         <Button
                             variant="outline"
                             onClick={voiceAll}
-                            disabled={writing || toVoice === 0}
+                            disabled={writing || toVoice === 0 || reading > 0}
                             title="Đọc lời thoại mọi shot bằng giọng cố định của từng nhân vật (miễn phí) để nghe thử trước khi làm video"
                         >
-                            <Volume2 /> Đọc lời thoại {toVoice > 0 ? `(${toVoice} shot)` : ''}
+                            {reading > 0 ? <Loader2 className="animate-spin" /> : <Volume2 />}
+                            {reading > 0 ? `Đang đọc (còn ${reading} shot)` : `Đọc lời thoại ${toVoice > 0 ? `(${toVoice} shot)` : ''}`}
+                        </Button>
+                    )}
+                    {voiced > 0 && (
+                        <Button variant="outline" asChild>
+                            <a
+                                href={route('series.episodes.dialogue', base)}
+                                title={`Tải .zip: tiếng ${voiced} shot đã đọc, file ghép cả tập theo đúng nhịp shot, kịch bản lời kèm mốc thời gian${toVoice > 0 ? ` (còn ${toVoice} shot chưa đọc / bản cũ)` : ''}`}
+                            >
+                                <Download /> Tải lời thoại
+                            </a>
                         </Button>
                     )}
                     {shots.length > 0 && (
@@ -169,6 +220,24 @@ export default function EpisodeShots({
                     )}
                 </div>
             </div>
+
+            {reading > 0 && (
+                <div className="space-y-2 rounded-xl border border-dashed p-4 text-sm">
+                    <div className="text-muted-foreground flex items-center gap-3">
+                        <Volume2 className="text-primary size-5 shrink-0 animate-pulse" />
+                        <span>
+                            Đang đọc lời thoại bằng giọng của từng nhân vật: xong {readDone}/{readTotal} shot, còn {reading} shot. Trang tự cập nhật,
+                            shot nào xong thì nghe được ngay.
+                        </span>
+                    </div>
+                    <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+                        <div
+                            className="bg-primary h-full transition-all"
+                            style={{ width: `${readTotal ? Math.round((readDone * 100) / readTotal) : 0}%` }}
+                        />
+                    </div>
+                </div>
+            )}
 
             {writing && (
                 <div className="text-muted-foreground flex items-center gap-3 rounded-xl border border-dashed p-4 text-sm">
@@ -214,6 +283,7 @@ export default function EpisodeShots({
                                             onEdit={() => setEditing(shot)}
                                             onRedraw={() => setRedrawing(shot)}
                                             onAnimate={() => setAnimating(shot)}
+                                            base={base}
                                             busy={writing}
                                         />
                                     ))}
@@ -287,8 +357,10 @@ function ShotCard({
     onEdit,
     onRedraw,
     onAnimate,
+    base,
     busy,
 }: {
+    base: { series: number; episode: number };
     shot: Shot;
     number: number;
     characters: ShotCharacter[];
@@ -312,7 +384,10 @@ function ShotCard({
                 ) : shot.clip_status === 'pending' ? (
                     <span className="text-muted-foreground relative flex size-full flex-col items-center justify-center gap-2 text-xs">
                         {shot.image_url && <img src={shot.image_url} alt="" className="absolute inset-0 size-full object-cover opacity-40" />}
-                        <Loader2 className="relative size-5 animate-spin" /> <span className="relative">Đang làm video...</span>
+                        <Loader2 className="relative size-5 animate-spin" />
+                        <span className="relative">
+                            {shot.clip_stage === 'muse' ? 'Muse đang làm clip...' : 'Đang đọc lời thoại, chờ lượt Muse...'}
+                        </span>
                     </span>
                 ) : shot.image_status === 'pending' ? (
                     <span className="text-muted-foreground flex size-full flex-col items-center justify-center gap-2 text-xs">
@@ -361,8 +436,26 @@ function ShotCard({
                 ))}
                 {shot.image_status === 'failed' && shot.image_url && <p className="text-destructive text-xs">{shot.error}</p>}
                 {shot.clip_status === 'failed' && shot.clip_error && <p className="text-destructive text-xs">Video lỗi: {shot.clip_error}</p>}
-                {shot.audio_url && !shot.video_url && <audio src={shot.audio_url} controls preload="none" className="h-8 w-full" />}
-                {shot.has_dialogue && !shot.audio_current && shot.audio_url && (
+                {shot.audio_error && !shot.audio_pending && <p className="text-destructive text-xs">Đọc lời lỗi: {shot.audio_error}</p>}
+                {shot.audio_pending && (
+                    <p className="text-primary flex items-center gap-1.5 text-xs">
+                        <Loader2 className="size-3.5 animate-spin" /> Đang đọc lời thoại...
+                    </p>
+                )}
+                {shot.audio_url && !shot.audio_pending && (
+                    <div className="flex items-center gap-1">
+                        {!shot.video_url && <audio src={shot.audio_url} controls preload="none" className="h-8 min-w-0 flex-1" />}
+                        <a
+                            href={route('series.episodes.shots.audio', { ...base, shot: shot.id })}
+                            title="Tải lời thoại shot này (.wav)"
+                            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 p-1 text-xs"
+                        >
+                            <Download className="size-4" />
+                            {shot.video_url && 'Tải lời thoại'}
+                        </a>
+                    </div>
+                )}
+                {shot.has_dialogue && !shot.audio_current && shot.audio_url && !shot.audio_pending && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
                         Lời thoại hoặc giọng đã đổi{shot.video_url ? ': làm lại video để khớp lời mới.' : ': bấm "Đọc lời thoại" để đọc lại.'}
                     </p>

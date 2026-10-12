@@ -33,6 +33,44 @@ final class Voices
         'creature' => [['af_kore', 1.28, 1.05, 'líu lo'], ['bf_lily', 1.3, 1.08, 'nhỏ, cao'], ['am_eric', 1.32, 1.05, 'tinh nghịch'], ['am_santa', 0.9, 0.95, 'ồm, to lớn']],
     ];
 
+    /** Cách đọc lời thoại của tập. */
+    public const ENGINES = [
+        'kokoro' => 'Nhanh (Kokoro)',
+        'expressive' => 'Biểu cảm (Chatterbox, chậm)',
+    ];
+
+    /**
+     * Ngữ điệu theo cảm xúc của câu (cảm xúc do Claude ghi khi viết shot):
+     * Kokoro: [nhân tốc độ, nhân cao độ]; Chatterbox: [độ biểu cảm, cfg] (cfg thấp hơn khi biểu cảm mạnh để nhịp tự nhiên).
+     */
+    public const EMOTIONS = [
+        'excited' => ['kokoro' => [1.12, 1.05], 'expressive' => [0.85, 0.35]],
+        'surprised' => ['kokoro' => [1.08, 1.06], 'expressive' => [0.8, 0.35]],
+        'laughing' => ['kokoro' => [1.1, 1.06], 'expressive' => [0.9, 0.35]],
+        'scared' => ['kokoro' => [1.06, 1.04], 'expressive' => [0.8, 0.4]],
+        'angry' => ['kokoro' => [1.05, 0.97], 'expressive' => [0.8, 0.4]],
+        'happy' => ['kokoro' => [1.05, 1.03], 'expressive' => [0.65, 0.45]],
+        'proud' => ['kokoro' => [1.0, 1.0], 'expressive' => [0.6, 0.5]],
+        'worried' => ['kokoro' => [0.92, 0.98], 'expressive' => [0.6, 0.5]],
+        'sad' => ['kokoro' => [0.88, 0.96], 'expressive' => [0.6, 0.5]],
+        'curious' => ['kokoro' => [0.97, 1.02], 'expressive' => [0.55, 0.5]],
+        'thinking' => ['kokoro' => [0.9, 1.0], 'expressive' => [0.45, 0.5]],
+        'calm' => ['kokoro' => [0.93, 0.99], 'expressive' => [0.4, 0.5]],
+    ];
+
+    /** Cảm xúc lạ / không ghi: đọc trung tính. */
+    public const NEUTRAL = ['kokoro' => [1.0, 1.0], 'expressive' => [0.5, 0.5]];
+
+    /** @return array{0: float, 1: float} */
+    public static function emotion(?string $emotion, string $engine): array
+    {
+        return (self::EMOTIONS[strtolower(trim((string) $emotion))] ?? self::NEUTRAL)[$engine] ?? self::NEUTRAL['kokoro'];
+    }
+
+    /** Câu mẫu (khoảng 8 giây, nhiều sắc thái) đọc bằng Kokoro làm giọng mẫu cho Chatterbox bắt chước. */
+    public const REFERENCE_TEXT = 'Hello there! I love going on adventures with my friends. Sometimes things get a little bit scary, '
+        .'and sometimes they are really, really funny. But we always find the answer together!';
+
     /** Giọng dẫn chuyện của bộ phim (không nhân vật nào dùng trùng). */
     public const NARRATOR = ['type' => 'narrator', 'voice' => 'bm_george', 'pitch' => 1.0, 'speed' => 0.95];
 
