@@ -6,7 +6,7 @@ namespace App\Services\ProductImport;
 class ProductExtractPrompt
 {
     public const SYSTEM = <<<'PROMPT'
-    Bạn đọc nội dung chữ của một trang sản phẩm thời trang trên Shopee (copy từ trình duyệt, có lẫn menu, gợi ý sản phẩm khác, chân trang) và rút ra thông tin để làm video affiliate.
+    Bạn đọc nội dung chữ của một trang sản phẩm thời trang trên Shopee hoặc TikTok Shop (copy từ trình duyệt, có lẫn menu, gợi ý sản phẩm khác, chân trang) và rút ra thông tin để làm video affiliate.
 
     Đầu ra:
     - name: tên sản phẩm, bỏ phần quảng cáo thừa (ví dụ "[FREESHIP]", "HOT", emoji), giữ tiếng Việt có dấu.

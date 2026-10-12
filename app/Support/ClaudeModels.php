@@ -24,7 +24,7 @@ class ClaudeModels
             'recommended' => 'claude-sonnet-5-5',
         ],
         'product_import' => [
-            'hint' => 'Đọc trang Shopee lấy tên, giá, mô tả. Việc trích xuất đơn giản.',
+            'hint' => 'Đọc trang Shopee / TikTok Shop lấy tên, giá, mô tả. Việc trích xuất đơn giản.',
             'recommended' => 'claude-haiku-5-5',
         ],
         'scene_prompt_rewrite' => [

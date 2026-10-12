@@ -29,7 +29,7 @@ class ProductRequest extends FormRequest
     {
         return [
             'name' => 'tên sản phẩm',
-            'shopee_url' => 'link Shopee',
+            'shopee_url' => 'link sản phẩm',
             'price' => 'giá',
             'images' => 'ảnh sản phẩm',
             'images.*' => 'ảnh sản phẩm',

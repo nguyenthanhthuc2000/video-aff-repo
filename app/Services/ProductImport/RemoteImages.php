@@ -6,7 +6,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-/** Tải ảnh sản phẩm từ CDN Shopee (chỉ host trong config videoaff.import_image_hosts). */
+/** Tải ảnh sản phẩm từ CDN Shopee / TikTok Shop (chỉ host trong config videoaff.import_image_hosts). */
 class RemoteImages
 {
     private const TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
@@ -59,7 +59,7 @@ class RemoteImages
         }
 
         if ($urls !== [] && $images === []) {
-            throw new ProductImportException('Không tải được ảnh nào từ Shopee ('.$lastError.').');
+            throw new ProductImportException('Không tải được ảnh nào từ trang sản phẩm ('.$lastError.').');
         }
 
         return $images;
@@ -69,7 +69,7 @@ class RemoteImages
     private static function fetch(string $url): array
     {
         if (! self::allowed($url)) {
-            throw new ProductImportException('link không nằm trên CDN Shopee');
+            throw new ProductImportException('link không nằm trên CDN Shopee / TikTok Shop');
         }
 
         try {

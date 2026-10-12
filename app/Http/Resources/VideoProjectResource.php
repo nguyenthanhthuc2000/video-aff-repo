@@ -8,6 +8,7 @@ use App\Enums\VoiceMode;
 use App\Http\Controllers\SceneImageController;
 use App\Http\Controllers\ScriptController;
 use App\Jobs\GenerateSceneImageJob;
+use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\SampleVideo;
 use App\Models\VideoProject;
@@ -185,6 +186,7 @@ class VideoProjectResource extends JsonResource
                 'name' => $product->name,
                 'price' => $product->price,
                 'shopee_url' => $product->shopee_url,
+                'shop_name' => $product->shopee_url ? Product::shopName($product->shopee_url) : null,
                 'url' => route('products.edit', $product),
                 'outfit_numbers' => $items->keys()->map(fn ($key) => $key + 1)->values()->all(),
                 'colors' => $items->pluck('color')->filter()->unique()->values()->all(),

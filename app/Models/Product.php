@@ -41,6 +41,18 @@ class Product extends Model
         ];
     }
 
+    /** Tên sàn theo link sản phẩm (cột shopee_url lưu link của mọi sàn). */
+    public static function shopName(?string $url): string
+    {
+        $host = strtolower((string) parse_url((string) $url, PHP_URL_HOST));
+
+        return match (true) {
+            str_ends_with($host, 'tiktok.com') => 'TikTok Shop',
+            str_contains($host, 'shopee.') => 'Shopee',
+            default => 'cửa hàng',
+        };
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

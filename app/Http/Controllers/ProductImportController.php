@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\ProductImportStatus;
 use App\Jobs\ImportProductJob;
 use App\Models\Product;
+use App\Services\ProductImport\PageSnapshot;
 use App\Services\ProductImport\ProductExtractPrompt;
 use App\Services\ProductImport\ProductImportException;
 use App\Services\ProductImport\RemoteImages;
@@ -36,12 +37,12 @@ class ProductImportController extends Controller
 
         $images = array_values(array_filter($validated['images'], RemoteImages::allowed(...)));
         if ($images === []) {
-            throw ValidationException::withMessages(['images' => 'Không có ảnh nào trên CDN Shopee.']);
+            throw ValidationException::withMessages(['images' => 'Không có ảnh nào trên CDN của Shopee / TikTok Shop.']);
         }
 
-        $title = trim(preg_replace('/\s*[|\-–]\s*Shopee.*$/iu', '', $validated['title'] ?? '') ?? '');
+        $title = (new PageSnapshot($validated['url'], $validated['title'] ?? '', ''))->titleName();
         $product = $request->user()->products()->create([
-            'name' => mb_substr($validated['name'] ?: ($title ?: 'Sản phẩm Shopee'), 0, 255),
+            'name' => mb_substr($validated['name'] ?: ($title ?: 'Sản phẩm '.Product::shopName($validated['url'])), 0, 255),
             'shopee_url' => $validated['url'],
             'price' => $validated['price'] ?? null,
             'import_status' => ProductImportStatus::Importing,

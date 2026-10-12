@@ -27,7 +27,7 @@ const steps: { icon: LucideIcon; title: string; text: string }[] = [
     {
         icon: Bookmark,
         title: 'Lấy sản phẩm 1 chạm',
-        text: 'Mở trang Shopee, bấm bookmark "Lấy từ Shopee". Ảnh, giá, size, đánh giá được lấy về, bạn chỉ cần duyệt ảnh.',
+        text: 'Mở trang Shopee hoặc TikTok Shop, bấm bookmark "Lấy sản phẩm". Ảnh, giá, size, đánh giá được lấy về, bạn chỉ cần duyệt ảnh.',
     },
     {
         icon: PenLine,

@@ -15,7 +15,7 @@ export default function ImportStatus({ product }: { product: Product }) {
     if (product.import_status === 'importing') {
         return (
             <div className="bg-muted/50 flex items-center gap-2 rounded-lg border p-3 text-sm">
-                <LoaderCircle className="size-4 animate-spin" /> Đang tải ảnh và phân tích trang Shopee (chạy ngầm, bạn có thể rời trang)...
+                <LoaderCircle className="size-4 animate-spin" /> Đang tải ảnh và phân tích trang sản phẩm (chạy ngầm, bạn có thể rời trang)...
             </div>
         );
     }

@@ -19,6 +19,7 @@ class ProductResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'shopee_url' => $this->shopee_url,
+            'shop_name' => $this->shopee_url ? Product::shopName($this->shopee_url) : null,
             'price' => $this->price,
             'details' => (object) ($this->details ?? []),
             'reviews' => $this->reviews,

@@ -5,7 +5,7 @@ import { router } from '@inertiajs/react';
 import { Bookmark, Check, Copy, ExternalLink, LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-/** Dữ liệu bookmarklet gom từ trang Shopee đã render trong trình duyệt của người dùng. */
+/** Dữ liệu bookmarklet gom từ trang sản phẩm Shopee / TikTok Shop đã render trong trình duyệt của người dùng. */
 export type ShopeeSnapshot = {
     url: string;
     title: string;
@@ -15,13 +15,16 @@ export type ShopeeSnapshot = {
     price: number | null;
 };
 
-// Chạy trên trang Shopee: gom chữ, ảnh sản phẩm và JSON-LD, mở trang này rồi gửi dữ liệu qua postMessage.
-// Ảnh chỉ lấy từ các phần tử slide ảnh sản phẩm (.page-product .qIctnQ): src/srcset/data-src/background của chính
+// Chạy trên trang sản phẩm Shopee hoặc TikTok Shop: gom chữ, ảnh sản phẩm, tên, giá; mở trang này rồi gửi dữ liệu qua postMessage.
+// Shopee: ảnh chỉ lấy từ các phần tử slide ảnh sản phẩm (.page-product .qIctnQ): src/srcset/data-src/background của chính
 // phần tử và ảnh con. Không quét cả trang (lẫn ảnh gợi ý, đánh giá). Shopee đổi tên class (không còn .qIctnQ)
 // thì lấy ảnh chính (JSON-LD, og:image), quá ít thì mới quét khu vực sản phẩm.
+// TikTok Shop: đọc dữ liệu sản phẩm có sẵn trong trang (__MODERN_ROUTER_DATA__ → product_info): ảnh sản phẩm + ảnh từng phân loại
+// (bản gốc JPEG), tên, giá thấp nhất, thông số, mô tả.
 // Viết dạng chuỗi (String.raw) để bundler không biến đổi code.
 const BOOKMARKLET = String.raw`(function(app){
-if(!/(^|\.)shopee\./.test(location.hostname)){alert('Hãy mở trang sản phẩm trên Shopee rồi bấm lại.');return;}
+var host=location.hostname,data;
+if(/(^|\.)shopee\./.test(host)){
 var images=[],seen={},product={};
 function add(u){var m=/^https:\/\/([a-z0-9-]+\.img\.susercontent\.com)\/file\/([A-Za-z0-9-]+)/i.exec(u||'');if(m&&!seen[m[2]]){seen[m[2]]=1;images.push('https://'+m[1]+'/file/'+m[2]);}}
 document.querySelectorAll('script[type="application/ld+json"]').forEach(function(s){try{[].concat(JSON.parse(s.textContent)).forEach(function(d){if(d&&d['@type']==='Product'){product=d;}});}catch(e){}});
@@ -30,16 +33,32 @@ var slides=document.querySelectorAll('.page-product .qIctnQ');
 if(slides.length){slides.forEach(function(n){(n.outerHTML.match(re)||[]).forEach(add);});}
 else{[].concat(product.image||[]).forEach(add);var og=document.querySelector('meta[property="og:image"]');if(og){add(og.content);}
 if(images.length<2){var page=document.querySelector('.page-product')||document.body;(page.innerHTML.match(re)||[]).forEach(add);}}
-console.log('[Lấy từ Shopee] '+slides.length+' phần tử .qIctnQ, '+images.length+' ảnh');
+console.log('[Lấy sản phẩm] Shopee: '+slides.length+' phần tử .qIctnQ, '+images.length+' ảnh');
 var offer=[].concat(product.offers||[])[0]||{};
-var data={type:'videoaff:product',url:location.origin+location.pathname,title:document.title,text:document.body.innerText.slice(0,50000),images:images.slice(0,30),name:product.name||'',price:Number(offer.lowPrice||offer.price)||null};
+data={url:location.origin+location.pathname,title:document.title,text:document.body.innerText.slice(0,50000),images:images.slice(0,30),name:product.name||'',price:Number(offer.lowPrice||offer.price)||null};
+}else if(/(^|\.)tiktok\.com$/.test(host)){
+var info=null;
+try{var raw=JSON.parse(document.getElementById('__MODERN_ROUTER_DATA__').textContent).loaderData;for(var k in raw){var map=raw[k]&&raw[k].page_config&&raw[k].page_config.components_map;for(var c in map||{}){var cd=map[c]&&map[c].component_data;if(cd&&cd.product_info){info=cd.product_info;}}}}catch(e){}
+if(!info){alert('Không đọc được sản phẩm TikTok Shop. Mở đúng trang sản phẩm, đợi tải xong rồi bấm lại.');return;}
+var imgs=[],seenT={};
+function addT(img){var u=img&&img.url_list&&img.url_list[0];if(!u){return;}var m=/^(https:\/\/[^\/]+\/)([^~?]+)~tplv-([a-z0-9]+)-/i.exec(u);var key=m?m[2]:u;if(seenT[key]){return;}seenT[key]=1;imgs.push(m?m[1]+m[2]+'~tplv-'+m[3]+'-origin-jpeg.jpeg':u.split('?')[0]);}
+(info.images||[]).forEach(addT);
+var props=(info.sale_props||[]).map(function(p){(p.sale_prop_values||[]).forEach(function(v){addT(v.image);});return p.prop_name+': '+(p.sale_prop_values||[]).map(function(v){return v.prop_value;}).join(', ');});
+var desc=[];(info.desc_blocks||[]).forEach(function(b){if(b.type==='text'&&b.text){desc.push(b.text);}if(b.type==='ul'){(b.content||[]).forEach(function(t){desc.push('- '+t);});}});
+var specs=(info.specifications||[]).map(function(s){return s.name+': '+s.value;});
+var extra='\n\nPhân loại:\n'+props.join('\n')+'\n\nThông số:\n'+specs.join('\n')+'\n\nMô tả:\n'+desc.join('\n');
+console.log('[Lấy sản phẩm] TikTok Shop: '+imgs.length+' ảnh');
+data={url:location.origin+location.pathname,title:document.title,text:(extra+'\n\nNội dung trang:\n'+document.body.innerText).slice(0,55000),images:imgs.slice(0,30),name:info.title||'',price:Number(String((info.price&&info.price.min_sku_price)||'').replace(/\D/g,''))||null};
+}else{alert('Hãy mở trang sản phẩm trên Shopee hoặc TikTok Shop rồi bấm lại.');return;}
+data.type='videoaff:product';
 var w=window.open(app+'/products/create?import=1','videoaff-import');
 if(!w){alert('Trình duyệt đã chặn cửa sổ mới. Hãy cho phép popup rồi bấm lại.');return;}
 function onMessage(e){if(e.origin===app&&e.data&&e.data.type==='videoaff:ready'){w.postMessage(data,app);window.removeEventListener('message',onMessage);}}
 window.addEventListener('message',onMessage);
 })(`;
 
-const SHOPEE_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*shopee\.[a-z.]+$/;
+// Trang gửi dữ liệu: Shopee (mọi miền shopee.*) hoặc TikTok Shop (*.tiktok.com).
+const SHOP_ORIGIN = /^https:\/\/(([a-z0-9-]+\.)*shopee\.[a-z.]+|([a-z0-9-]+\.)*tiktok\.com)$/;
 
 /** Nhận dữ liệu từ bookmarklet khi trang được mở bằng ?import=1. */
 function useShopeeSnapshot(onSnapshot: (snapshot: ShopeeSnapshot) => void) {
@@ -53,7 +72,7 @@ function useShopeeSnapshot(onSnapshot: (snapshot: ShopeeSnapshot) => void) {
         }
 
         const onMessage = (e: MessageEvent) => {
-            if (!SHOPEE_ORIGIN.test(e.origin) || e.data?.type !== 'videoaff:product') {
+            if (!SHOP_ORIGIN.test(e.origin) || e.data?.type !== 'videoaff:product') {
                 return;
             }
 
@@ -116,16 +135,16 @@ export default function ShopeeImport() {
     return (
         <div className="space-y-4 rounded-lg border p-4">
             <p className="text-muted-foreground text-sm">
-                Shopee chặn máy chủ đọc trang, nên app đọc trang ngay trong trình duyệt của bạn bằng một bookmark. Bấm bookmark là sản phẩm được thêm
-                ngay; ảnh và thông tin (AI phân tích) được lấy ngầm.
+                Shopee và TikTok Shop chặn máy chủ đọc trang, nên app đọc trang ngay trong trình duyệt của bạn bằng một bookmark. Bấm bookmark là sản
+                phẩm được thêm ngay; ảnh và thông tin (AI phân tích) được lấy ngầm.
             </p>
 
             <ol className="text-muted-foreground list-decimal space-y-2 pl-5 text-sm">
                 <li className="space-y-2">
-                    <span>Tạo bookmark "Lấy từ Shopee" (chỉ cần làm một lần):</span>
+                    <span>Tạo bookmark "Lấy sản phẩm" (chỉ cần làm một lần, dùng cho cả Shopee và TikTok Shop):</span>
                     <p className="text-xs text-amber-700 dark:text-amber-400">
-                        Đã cập nhật: bookmark mới chỉ lấy ảnh trong khung slide ảnh sản phẩm. Nếu đã tạo bookmark trước đây, hãy xoá bookmark cũ và
-                        tạo lại.
+                        Đã cập nhật: bookmark mới lấy được cả sản phẩm TikTok Shop. Nếu đã tạo bookmark "Lấy từ Shopee" trước đây, hãy xoá bookmark cũ
+                        và tạo lại.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                         <a
@@ -134,7 +153,7 @@ export default function ShopeeImport() {
                             className="bg-primary text-primary-foreground inline-flex cursor-grab items-center gap-2 rounded-md px-4 py-2 text-sm font-medium shadow-sm active:cursor-grabbing"
                             title="Kéo nút này lên thanh bookmark"
                         >
-                            <Bookmark className="size-4" /> Lấy từ Shopee
+                            <Bookmark className="size-4" /> Lấy sản phẩm
                         </a>
                         <Button type="button" variant="outline" onClick={copyBookmarklet} disabled={!bookmarkletCode}>
                             {copied ? <Check /> : <Copy />} {copied ? 'Đã copy mã' : 'Copy mã bookmark'}
@@ -147,20 +166,25 @@ export default function ShopeeImport() {
                         </li>
                         <li>
                             <span className="text-foreground">Cách 2:</span> bấm "Copy mã bookmark", nhấn Ctrl/⌘+D để thêm bookmark trang này, chọn
-                            "Thêm…"/"Chỉnh sửa", đặt tên "Lấy từ Shopee" và dán mã vào ô URL thay cho địa chỉ cũ.
+                            "Thêm…"/"Chỉnh sửa", đặt tên "Lấy sản phẩm" và dán mã vào ô URL thay cho địa chỉ cũ.
                         </li>
                     </ul>
                 </li>
                 <li>
-                    Dán link sản phẩm và mở trang. Cuộn xuống phần mô tả và đánh giá để Shopee tải hết nội dung.
+                    Dán link sản phẩm Shopee hoặc TikTok Shop và mở trang. Cuộn xuống phần mô tả và đánh giá để trang tải hết nội dung.
                     <div className="mt-2 flex gap-2">
-                        <Input type="url" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://shopee.vn/..." />
+                        <Input
+                            type="url"
+                            value={link}
+                            onChange={(e) => setLink(e.target.value)}
+                            placeholder="https://shopee.vn/... hoặc https://shop.tiktok.com/..."
+                        />
                         <Button type="button" variant="outline" disabled={!/^https?:\/\//.test(link)} onClick={() => window.open(link, '_blank')}>
                             <ExternalLink /> Mở trang
                         </Button>
                     </div>
                 </li>
-                <li>Trên trang Shopee, bấm bookmark "Lấy từ Shopee". Sản phẩm được thêm và mở trang chỉnh sửa.</li>
+                <li>Trên trang sản phẩm, bấm bookmark "Lấy sản phẩm". Sản phẩm được thêm và mở trang chỉnh sửa.</li>
             </ol>
 
             {saving && (

@@ -80,7 +80,7 @@ export default function VideoInputs({ project, backgrounds }: { project: VideoPr
                                                 rel="noreferrer"
                                                 className="inline-flex items-center gap-1 text-orange-600 hover:underline"
                                             >
-                                                Shopee <ExternalLink className="size-3" />
+                                                {product.shop_name ?? 'Shopee'} <ExternalLink className="size-3" />
                                             </a>
                                         )}
                                     </div>

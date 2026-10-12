@@ -63,13 +63,13 @@ export default function ProductForm({ product, maxImages }: { product?: Product;
 
             <div className="grid gap-4 md:grid-cols-2">
                 <div className="grid gap-2">
-                    <Label htmlFor="shopee_url">Link Shopee</Label>
+                    <Label htmlFor="shopee_url">Link sản phẩm (Shopee / TikTok Shop)</Label>
                     <Input
                         id="shopee_url"
                         type="url"
                         value={data.shopee_url}
                         onChange={(e) => setData('shopee_url', e.target.value)}
-                        placeholder="https://shopee.vn/..."
+                        placeholder="https://shopee.vn/... hoặc https://shop.tiktok.com/..."
                     />
                     <InputError message={errors.shopee_url} />
                 </div>

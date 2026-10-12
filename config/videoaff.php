@@ -9,7 +9,8 @@ return [
     'product_images_max' => 30,
 
     // Host được phép tải ảnh khi lấy sản phẩm từ trang Shopee (bookmarklet). Khớp cả subdomain.
-    'import_image_hosts' => ['susercontent.com', 'shopee.vn', 'shopeemobile.com'],
+    // CDN ảnh sản phẩm được tải về: Shopee, TikTok Shop.
+    'import_image_hosts' => ['susercontent.com', 'shopee.vn', 'shopeemobile.com', 'ibyteimg.com', 'tiktokcdn.com'],
 
     // Viết kịch bản:
     // - "web": copy prompt sang claude.ai (tài khoản đăng nhập), dán câu trả lời JSON về. Không cần khoá.

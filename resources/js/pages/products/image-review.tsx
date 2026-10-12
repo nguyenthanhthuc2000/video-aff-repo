@@ -24,7 +24,7 @@ export default function ImageReview({ product }: { product: Product }) {
                 <p className="text-muted-foreground inline-flex items-center gap-2 text-sm">
                     {product.import_status === 'importing' ? (
                         <>
-                            <LoaderCircle className="size-4 animate-spin" /> Đang tải ảnh từ Shopee...
+                            <LoaderCircle className="size-4 animate-spin" /> Đang tải ảnh sản phẩm...
                         </>
                     ) : (
                         'Chưa có ảnh.'
@@ -65,7 +65,7 @@ export default function ImageReview({ product }: { product: Product }) {
         <section className="space-y-3 rounded-lg border border-amber-300 p-4 dark:border-amber-700">
             <HeadingSmall
                 title={`Duyệt ảnh sản phẩm (${selected.length}/${images.length})`}
-                description="Đã tải hết ảnh trên trang Shopee. Bấm vào ảnh để chọn/bỏ, bấm ngôi sao để chọn ảnh chính (dùng để AI mặc lên người mẫu). Duyệt xong mới tạo video và phân cảnh được."
+                description="Đã tải hết ảnh trên trang sản phẩm. Bấm vào ảnh để chọn/bỏ, bấm ngôi sao để chọn ảnh chính (dùng để AI mặc lên người mẫu). Duyệt xong mới tạo video và phân cảnh được."
             />
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
                 {images.map((image) => {

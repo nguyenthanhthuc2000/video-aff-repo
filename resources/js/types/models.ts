@@ -17,6 +17,8 @@ export interface Product {
     id: number;
     name: string;
     shopee_url: string | null;
+    /** Tên sàn của link sản phẩm (Shopee, TikTok Shop). */
+    shop_name?: string | null;
     price: number | null;
     details: ProductDetails;
     reviews: string | null;
@@ -199,6 +201,7 @@ export interface VideoProject {
         name: string;
         price: number | null;
         shopee_url: string | null;
+        shop_name: string | null;
         url: string;
         outfit_numbers: number[];
         colors: string[];

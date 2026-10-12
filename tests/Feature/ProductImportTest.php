@@ -165,7 +165,7 @@ class ProductImportTest extends TestCase
 
         $product->refresh();
         $this->assertSame(ProductImportStatus::Failed, $product->import_status);
-        $this->assertSame('Không tải được ảnh nào từ Shopee (HTTP 403).', $product->import_error);
+        $this->assertSame('Không tải được ảnh nào từ trang sản phẩm (HTTP 403).', $product->import_error);
 
         Queue::fake();
         $this->actingAs($product->user)->post(route('products.import.retry', $product))->assertRedirect();
@@ -250,5 +250,30 @@ class ProductImportTest extends TestCase
         $this->assertFalse(RemoteImages::allowed('https://evil.com/file/x'));
         $this->assertFalse(RemoteImages::allowed('https://susercontent.com.evil.com/x'));
         $this->assertFalse(RemoteImages::allowed('https://down-vn.img.susercontent.com:8443/x'));
+    }
+
+    public function test_import_from_tiktok_shop()
+    {
+        $this->jpegFake();
+        $user = User::factory()->create();
+        $cdn = 'https://p16-oec-sg.ibyteimg.com/tos-alisg-i-aphluv4xwc-sg/';
+
+        $this->actingAs($user)->post(route('products.import'), $this->snapshot([
+            'url' => 'https://shop.tiktok.com/vn/pdp/1735846581249148751',
+            'title' => 'Đầm Dáng Xòe Phối Cổ Nơ Trắng - TikTok Shop Vietnam',
+            'name' => '',
+            'price' => 154000,
+            'images' => [$cdn.'a~tplv-aphluv4xwc-origin-jpeg.jpeg', $cdn.'b~tplv-aphluv4xwc-origin-jpeg.jpeg', 'https://evil.com/x.jpg'],
+        ]))->assertSessionHasNoErrors();
+
+        $product = $user->products()->sole();
+        $this->assertSame('Đầm Dáng Xòe Phối Cổ Nơ Trắng', $product->name);
+        $this->assertSame(154000, $product->price);
+        $this->assertSame('TikTok Shop', Product::shopName($product->shopee_url));
+        $this->assertSame(ProductImportStatus::Done, $product->fresh()->import_status);
+        $this->assertCount(2, $product->images);
+        $this->assertTrue(RemoteImages::allowed('https://p19-oec-va.ibyteimg.com/x'));
+        $this->assertTrue(RemoteImages::allowed('https://p16-common-sign.tiktokcdn.com/x'));
+        $this->assertSame('Shopee', Product::shopName('https://shopee.vn/x'));
     }
 }
