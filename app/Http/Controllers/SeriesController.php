@@ -31,7 +31,8 @@ class SeriesController extends Controller
     public function index(Request $request): Response
     {
         return Inertia::render('series/index', [
-            'series' => $request->user()->series()->withCount('episodes')->latest()->get()->map(fn (Series $series) => [
+            // MV ca nhạc có trang danh sách riêng.
+            'series' => $request->user()->series()->where('format', '!=', 'music_video')->withCount('episodes')->latest()->get()->map(fn (Series $series) => [
                 'id' => $series->id,
                 'title' => $series->title,
                 'logline' => $series->bible['logline'] ?? null,
@@ -337,6 +338,8 @@ class SeriesController extends Controller
         }
         $series->delete();
 
-        return to_route('series.index')->with('status', 'Đã xoá bộ phim.');
+        return $series->musicVideo()
+            ? to_route('music-videos.index')->with('status', 'Đã xoá MV.')
+            : to_route('series.index')->with('status', 'Đã xoá bộ phim.');
     }
 }

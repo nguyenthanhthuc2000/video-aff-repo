@@ -111,7 +111,7 @@ export default function SeriesShow({
     usePoll(series.is_busy, ['series']);
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Phim hoạt hình', href: '/series' },
+        series.format === 'music_video' ? { title: 'MV ca nhạc', href: '/music-videos' } : { title: 'Phim hoạt hình', href: '/series' },
         { title: series.title, href: route('series.show', series.id) },
     ];
 

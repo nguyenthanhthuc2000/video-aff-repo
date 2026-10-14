@@ -101,7 +101,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('english/{lesson}/thumbnail', [EnglishController::class, 'thumbnail'])->name('english.thumbnail');
 
     // MV ca nhạc: tạo ở trang riêng, sau đó dùng chung các trang của phim (kế hoạch, nhân vật, tập, ghép).
+    Route::get('music-videos', [MusicVideoController::class, 'index'])->name('music-videos.index');
     Route::get('music-videos/create', [MusicVideoController::class, 'create'])->name('music-videos.create');
+    Route::put('music-videos/{series}/title', [MusicVideoController::class, 'rename'])->name('music-videos.rename');
+    Route::post('music-videos/{series}/duplicate', [MusicVideoController::class, 'duplicate'])->name('music-videos.duplicate');
+    Route::delete('music-videos/{series}', [MusicVideoController::class, 'destroy'])->name('music-videos.destroy');
     Route::post('music-videos', [MusicVideoController::class, 'store'])->name('music-videos.store');
     Route::post('music-videos/songs/{audioTrack}/analysis', [MusicVideoController::class, 'analyzeSong'])->name('music-videos.songs.analyze');
     Route::put('music-videos/songs/{audioTrack}/analysis', [MusicVideoController::class, 'updateAnalysis'])->name('music-videos.songs.analysis');

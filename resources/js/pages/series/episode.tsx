@@ -77,6 +77,7 @@ export default function SeriesEpisode({
         id: number;
         title: string;
         silent: boolean;
+        music_video: boolean;
         vertical: boolean;
         clip_budget: number | null;
         episode_seconds: number;
@@ -108,7 +109,7 @@ export default function SeriesEpisode({
         5000,
     );
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Phim hoạt hình', href: '/series' },
+        series.music_video ? { title: 'MV ca nhạc', href: '/music-videos' } : { title: 'Phim hoạt hình', href: '/series' },
         { title: series.title, href: route('series.show', series.id) },
         { title: `Tập ${episode.number}`, href: route('series.episodes.show', { series: series.id, episode: episode.id }) },
     ];

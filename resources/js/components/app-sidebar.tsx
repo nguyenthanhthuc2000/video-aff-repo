@@ -35,8 +35,8 @@ const mainNavItems: NavItem[] = [
         icon: Tv,
     },
     {
-        title: 'Tạo MV ca nhạc',
-        url: '/music-videos/create',
+        title: 'MV ca nhạc',
+        url: '/music-videos',
         icon: Mic2,
     },
     {

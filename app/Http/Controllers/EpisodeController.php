@@ -63,6 +63,7 @@ class EpisodeController extends Controller
                 'id' => $series->id,
                 'title' => $series->title,
                 'silent' => $series->silent(),
+                'music_video' => $series->musicVideo(),
                 'vertical' => $series->vertical(),
                 'clip_budget' => $series->silent() ? $series->clipBudget() : null,
                 'episode_seconds' => $series->episode_seconds,

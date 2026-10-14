@@ -16,7 +16,10 @@ import SongAnalysisCard, { type Analysis } from './song-analysis';
 import SongDrafts, { type Draft, type MusicProvider } from './song-drafts';
 import SongPreview, { type TimedLine } from './song-preview';
 
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Tạo MV ca nhạc', href: '/music-videos/create' }];
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'MV ca nhạc', href: '/music-videos' },
+    { title: 'Tạo MV', href: '/music-videos/create' },
+];
 
 type Idea = { title: string; message: string; story: string; mood: string; singer: string; locations: string[] };
 
@@ -75,6 +78,7 @@ export default function MusicVideoCreate({
     sections,
     drafts,
     musicProviders,
+    openDraft,
     stylePresets,
     lipSyncModes,
     drivers,
@@ -86,6 +90,7 @@ export default function MusicVideoCreate({
     sections: string[];
     drafts: Draft[];
     musicProviders: Record<string, MusicProvider>;
+    openDraft: number | null;
     stylePresets: Record<string, { label: string; style: string }>;
     lipSyncModes: Record<string, string>;
     drivers: Record<string, Driver>;
@@ -94,7 +99,7 @@ export default function MusicVideoCreate({
     estimate: number;
 }) {
     const { data, setData, post, processing, errors, transform } = useForm<Form>({
-        source: songs.length > 0 ? 'library' : 'upload',
+        source: openDraft ? 'inspire' : songs.length > 0 ? 'library' : 'upload',
         song: null,
         audio_track_id: songs[0] ? String(songs[0].id) : '',
         rights: false,
@@ -277,6 +282,7 @@ export default function MusicVideoCreate({
                     {data.source === 'inspire' ? (
                         <SongDrafts
                             drafts={drafts}
+                            initialOpen={openDraft}
                             providers={musicProviders}
                             maxMb={maxMb}
                             onUse={(trackId) =>

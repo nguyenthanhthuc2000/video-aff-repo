@@ -9,6 +9,7 @@ use App\Jobs\SuggestMusicVideoIdeasJob;
 use App\Models\AudioTrack;
 use App\Models\Series;
 use App\Models\SongDraft;
+use App\Services\Film\MusicVideoStage;
 use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\SongAnalysis;
@@ -31,6 +32,103 @@ use Inertia\Response;
  */
 class MusicVideoController extends Controller
 {
+    /** Danh sách MV: bước đang làm, tiến độ, ảnh đại diện, video đã ghép; bài mới Claude sáng tác. Lọc / tìm / sắp xếp ở giao diện. */
+    public function index(Request $request): Response
+    {
+        $series = $request->user()->series()->where('format', 'music_video')->with([
+            'song:id,name,duration_ms',
+            'characters' => fn ($q) => $q->select('id', 'series_id', 'position', 'name', 'main_image_path', 'locked_at'),
+            'episodes' => fn ($q) => $q->withCount([
+                'shots',
+                'shots as images_ready_count' => fn ($q) => $q->where('image_status', 'ready'),
+                'shots as videos_ready_count' => fn ($q) => $q->whereNotNull('video_path'),
+            ]),
+        ])->latest('updated_at')->get();
+
+        return Inertia::render('music-videos/index', [
+            'musicVideos' => $series->map(function (Series $mv) {
+                $stage = MusicVideoStage::of($mv);
+                $episode = $mv->episodes->first();
+                $thumbnail = $episode?->shots()->where('image_status', 'ready')->whereNotNull('image_path')->value('image_path')
+                    ?? $mv->characters->first()?->main_image_path;
+                $preset = $mv->mv_options['style_preset'] ?? null;
+
+                return [
+                    'id' => $mv->id,
+                    'title' => $mv->title,
+                    'song' => $mv->song?->name,
+                    'seconds' => (int) round(($mv->songRange()[1] - $mv->songRange()[0]) / 1000),
+                    'style_preset' => $preset,
+                    'style_label' => Series::MV_STYLE_PRESETS[$preset]['label'] ?? 'Phong cách riêng',
+                    'aspect_ratio' => $mv->aspect_ratio,
+                    'lip_sync_label' => Series::LIP_SYNC_MODES[$mv->lipSyncMode()],
+                    'stage' => $stage,
+                    'error' => $mv->error ?? $episode?->error ?? $episode?->render_error,
+                    'thumbnail_url' => Media::url($thumbnail),
+                    'video_url' => Media::url($episode?->render_status === 'done' ? $episode->render_path : null),
+                    'continue_url' => $stage['episode_id'] ? route('series.episodes.show', ['series' => $mv->id, 'episode' => $stage['episode_id']]) : route('series.show', $mv),
+                    'download_url' => $episode?->render_path ? route('series.episodes.render.download', ['series' => $mv->id, 'episode' => $episode->id]) : null,
+                    'updated_at' => $mv->updated_at,
+                    'created_at' => $mv->created_at,
+                ];
+            }),
+            'groups' => MusicVideoStage::GROUPS,
+            'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => $p['label']),
+            'drafts' => $request->user()->songDrafts()->with('audioTrack:id,name')->latest('updated_at')->get()->map(fn (SongDraft $d) => [
+                'id' => $d->id,
+                'title' => $d->song['title'] ?? null,
+                'reference' => $d->reference['title'] ?? $d->source_url,
+                'status' => $d->status,
+                'is_busy' => $d->isBusy(),
+                'has_music' => $d->audio_track_id !== null,
+                'too_similar' => (bool) ($d->overlap['too_similar'] ?? false),
+                'updated_at' => $d->updated_at,
+            ]),
+        ]);
+    }
+
+    /** Đổi tên MV. */
+    public function rename(Request $request, Series $series): RedirectResponse
+    {
+        $this->authorizeMusicVideo($series);
+        $validated = $request->validate(['title' => ['required', 'string', 'max:200']], [], ['title' => 'tên MV']);
+        $series->update(['title' => trim($validated['title'])]);
+
+        return back()->with('status', 'Đã đổi tên MV.');
+    }
+
+    /** Nhân bản MV: chép lựa chọn (bài hát, đoạn bài, lời, phong cách, khung, hát nhép, ý tưởng, ảnh ca sĩ có sẵn), không chép ảnh / clip đã tạo; Claude lên ý tưởng lại. */
+    public function duplicate(Request $request, Series $series): RedirectResponse
+    {
+        $this->authorizeMusicVideo($series);
+        if ($message = Credits::shortfall($request->user(), CreditPricing::aiEstimates()['film_plan'], 'lên kế hoạch MV')) {
+            return back()->with('status', $message);
+        }
+        $copy = $series->replicate(['bible', 'status', 'error', 'autopilot']);
+        $copy->fill(['title' => Str::limit("{$series->title} (bản sao)", 200, ''), 'status' => SeriesStatus::Planning])->save();
+        PlanSeriesJob::dispatch($copy);
+
+        return to_route('series.show', $copy)->with('status', 'Đã nhân bản MV (giữ bài hát và lựa chọn). Claude đang lên ý tưởng mới...');
+    }
+
+    /** Xoá MV (bài hát vẫn ở thư viện Âm thanh). */
+    public function destroy(Series $series): RedirectResponse
+    {
+        $this->authorizeMusicVideo($series);
+        if ($series->isBusy()) {
+            return back()->with('status', 'MV đang lên ý tưởng, đợi xong rồi xoá.');
+        }
+        $series->delete();
+
+        return to_route('music-videos.index')->with('status', "Đã xoá MV \"{$series->title}\".");
+    }
+
+    private function authorizeMusicVideo(Series $series): void
+    {
+        $this->authorize('update', $series);
+        abort_unless($series->musicVideo(), 404);
+    }
+
     public function create(Request $request): Response
     {
         $drivers = self::drivers();
@@ -59,6 +157,8 @@ class MusicVideoController extends Controller
                 'music_provider' => $d->music_provider, 'music_status' => $d->music_status, 'music_error' => $d->music_error, 'audio_track_id' => $d->audio_track_id,
             ]),
             'musicProviders' => SongDraftController::providers(),
+            // Mở từ tab "Bài Claude sáng tác" của danh sách MV.
+            'openDraft' => $request->integer('draft') ?: null,
             'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => ['label' => $p['label'], 'style' => $p['style']]),
             'lipSyncModes' => Series::LIP_SYNC_MODES,
             'drivers' => $drivers,

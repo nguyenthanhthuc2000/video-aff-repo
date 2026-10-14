@@ -78,7 +78,8 @@ class PlanSeriesJob implements ShouldQueue
                 $series->episodes()->create([...$episode, 'number' => $i + 1]);
             }
             $series->update([
-                'title' => $plan['bible']['title'] ?: $series->title,
+                // MV: giữ tên đã đặt (tên bài hát, hoặc tên người dùng đổi / bản sao).
+                'title' => $series->musicVideo() ? $series->title : ($plan['bible']['title'] ?: $series->title),
                 'bible' => $plan['bible'],
                 'status' => SeriesStatus::BibleReady,
                 'error' => null,

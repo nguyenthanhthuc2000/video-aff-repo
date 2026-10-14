@@ -16,6 +16,7 @@ use App\Services\Film\FilmMuseClipGenerator;
 use App\Services\Film\FilmMuseImageGenerator;
 use App\Services\Film\LyricsOverlap;
 use App\Services\Film\MusicVideoIdeas;
+use App\Services\Film\MusicVideoStage;
 use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\ShotClipPrompt;
@@ -375,6 +376,73 @@ class MusicVideoTest extends TestCase
         // Cấu trúc tính từ đầu đoạn MV (bắt đầu ở giây 2).
         $this->assertStringContainsString("[0.0–10.0] verse\n[10.0–19.0] chorus", $context);
         $this->assertStringContainsString('Song analysis:', SeriesPlanner::userText($series));
+    }
+
+    public function test_music_video_list_shows_stage_progress_and_actions()
+    {
+        Queue::fake([AnalyzeVocalsJob::class]);
+        $series = $this->createMusicVideo();
+        $episode = $series->episodes()->first();
+        $this->user->series()->create(['title' => 'Phim thường', 'idea' => 'x', 'genre' => 'comedy', 'age_min' => 6, 'age_max' => 12, 'made_for_kids' => true,
+            'style' => 'x', 'episode_count' => 1, 'status' => 'bible_ready']);
+
+        // Kế hoạch xong, ca sĩ chưa có ảnh: chờ bạn duyệt ca sĩ.
+        $this->actingAs($this->user)->get(route('music-videos.index'))->assertInertia(fn (Assert $page) => $page
+            ->component('music-videos/index')
+            ->has('musicVideos', 1)
+            ->where('musicVideos.0.song', 'Neon Rain')
+            ->where('musicVideos.0.stage.key', 'singer')
+            ->where('musicVideos.0.stage.group', 'action')
+            ->where('musicVideos.0.continue_url', route('series.show', $series))
+            ->where('musicVideos.0.style_label', 'Người thật kiểu phim điện ảnh'));
+        // Danh sách phim hoạt hình không còn MV.
+        $this->actingAs($this->user)->get(route('series.index'))->assertInertia(fn (Assert $page) => $page->has('series', 1)->where('series.0.title', 'Phim thường'));
+
+        // Có ảnh ca sĩ, đã cắt shot, vẽ được một nửa khung hình.
+        $series->characters()->first()->update(['main_image_path' => 'series/singer.png']);
+        $this->actingAs($this->user)->post(route('series.episodes.write', ['series' => $series->id, 'episode' => $episode->id]));
+        $shots = $episode->shots()->get();
+        $shots->take(4)->each->update(['image_status' => 'ready', 'image_path' => 'series/frame.png']);
+        $episode->update(['status' => 'storyboard']);
+        $stage = MusicVideoStage::of($series->fresh()->load(['characters', 'episodes' => fn ($q) => $q->withCount(['shots',
+            'shots as images_ready_count' => fn ($q) => $q->where('image_status', 'ready'), 'shots as videos_ready_count' => fn ($q) => $q->whereNotNull('video_path')])]));
+        $this->assertEquals(['key' => 'keyframes', 'label' => 'Chờ vẽ khung hình (4/8)', 'group' => 'action', 'progress' => 38, 'episode_id' => $episode->id], $stage);
+
+        // Đã ghép xong: xem / tải được.
+        $episode->update(['status' => 'animated', 'render_status' => 'done', 'render_path' => 'series/mv.mp4']);
+        $this->actingAs($this->user)->get(route('music-videos.index'))->assertInertia(fn (Assert $page) => $page
+            ->where('musicVideos.0.stage.group', 'done')->where('musicVideos.0.stage.progress', 100)
+            ->where('musicVideos.0.thumbnail_url', Storage::disk(config('videoaff.disk'))->url('series/frame.png'))
+            ->has('musicVideos.0.video_url')->has('musicVideos.0.download_url')
+            ->where('musicVideos.0.continue_url', route('series.episodes.show', ['series' => $series->id, 'episode' => $episode->id])));
+    }
+
+    public function test_music_video_can_be_renamed_duplicated_and_deleted()
+    {
+        $series = $this->createMusicVideo(['lip_sync' => 'full', 'aspect_ratio' => '9:16']);
+
+        $this->actingAs($this->user)->put(route('music-videos.rename', $series), ['title' => 'Neon Rain MV'])->assertSessionHasNoErrors();
+        $this->assertSame('Neon Rain MV', $series->fresh()->title);
+
+        $this->actingAs($this->user)->post(route('music-videos.duplicate', $series))->assertRedirect();
+        $copy = $this->user->series()->latest('id')->first();
+        $this->assertNotSame($series->id, $copy->id);
+        $this->assertSame('Neon Rain MV (bản sao)', $copy->title);
+        $this->assertSame([$series->audio_track_id, $series->song_end_ms, $series->lyrics, '9:16'], [$copy->audio_track_id, $copy->song_end_ms, $copy->lyrics, $copy->aspect_ratio]);
+        $this->assertSame('full', $copy->lipSyncMode());
+        // Kế hoạch chạy lại cho bản sao (hàng đợi sync), không chép khung hình / clip.
+        $this->assertSame('bible_ready', $copy->status->value);
+        $this->assertSame(0, $copy->episodes()->first()->shots()->count());
+
+        $other = User::factory()->create();
+        $this->actingAs($other)->delete(route('music-videos.destroy', $series))->assertForbidden();
+        $this->actingAs($this->user)->delete(route('music-videos.destroy', $series))->assertRedirect(route('music-videos.index'));
+        $this->assertNull($series->fresh());
+        $this->assertNotNull($copy->song->fresh());
+        // Không phải MV thì không xử lý ở đây.
+        $film = $this->user->series()->create(['title' => 'Phim', 'idea' => 'x', 'genre' => 'comedy', 'age_min' => 6, 'age_max' => 12, 'made_for_kids' => true,
+            'style' => 'x', 'episode_count' => 1, 'status' => 'bible_ready']);
+        $this->actingAs($this->user)->delete(route('music-videos.destroy', $film))->assertNotFound();
     }
 
     public function test_writing_cuts_shots_on_the_song_timeline_and_marks_lip_sync()

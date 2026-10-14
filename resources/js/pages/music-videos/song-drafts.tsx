@@ -70,14 +70,16 @@ export default function SongDrafts({
     providers,
     maxMb,
     onUse,
+    initialOpen,
 }: {
     drafts: Draft[];
+    initialOpen?: number | null;
     providers: Record<string, MusicProvider>;
     maxMb: number;
     onUse: (trackId: number) => void;
 }) {
     const form = useForm({ url: '', notes: '' });
-    const [open, setOpen] = useState<number | null>(drafts[0]?.id ?? null);
+    const [open, setOpen] = useState<number | null>(initialOpen ?? drafts[0]?.id ?? null);
     const start = () =>
         form.post(route('song-drafts.store'), {
             preserveScroll: true,
