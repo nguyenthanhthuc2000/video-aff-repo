@@ -5,12 +5,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { formatNumber } from '@/lib/pricing';
 import { type BreadcrumbItem } from '@/types';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { Check, ImagePlus, Info, Lightbulb, Loader2, Music, RefreshCw, Sparkles, X } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
+import SongPreview, { type TimedLine } from './song-preview';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Tạo MV ca nhạc', href: '/music-videos/create' }];
 
@@ -21,7 +23,16 @@ const ideaText = (idea: Idea) => `${idea.title}: ${idea.message}\n${idea.story}\
 
 const xsrf = () => decodeURIComponent(document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/)?.[1] ?? '');
 
-type Song = { id: number; name: string; duration_ms: number | null; lyrics: string | null };
+type Song = {
+    id: number;
+    name: string;
+    duration_ms: number | null;
+    lyrics: string | null;
+    url: string | null;
+    vocal_status: string | null;
+    vocal_error: string | null;
+    lines: TimedLine[];
+};
 type Driver = { label: string; available: boolean; note: string };
 
 type Form = {
@@ -88,6 +99,46 @@ export default function MusicVideoCreate({
     });
     const errorsOf = errors as Record<string, string | undefined>;
     const selected = songs.find((song) => String(song.id) === data.audio_track_id);
+    const library = data.source === 'library';
+    // Đang lấy lời theo thời gian: hỏi lại danh sách bài hát vài giây một lần.
+    usePoll(library && selected?.vocal_status === 'pending', ['songs'], 5000);
+    const [saving, setSaving] = useState(false);
+    const [songNote, setSongNote] = useState<string | null>(null);
+    const seconds = (value: string) => (value.trim() === '' ? null : Number(value));
+    const setSeconds = (key: 'song_start' | 'song_end', value: number | null) => setData(key, value === null ? '' : String(value));
+
+    // Lời theo thời gian (dịch vụ audio, miễn phí): bài tải lên thì lưu vào thư viện trước rồi mới phân tích được.
+    const analyze = () => {
+        if (library && selected) {
+            router.post(route('audio-tracks.vocals', selected.id), {}, { preserveScroll: true, preserveState: true });
+            return;
+        }
+        if (!data.song) {
+            return;
+        }
+        if (!data.rights) {
+            setSongNote('Tick ô xác nhận quyền dùng bài hát (bên dưới) trước khi lưu bài hát.');
+            return;
+        }
+        setSaving(true);
+        setSongNote(null);
+        router.post(
+            route('audio-tracks.store'),
+            { audio: data.song, name: data.song.name.replace(/\.[^.]+$/, ''), rights: 1 },
+            {
+                forceFormData: true,
+                preserveScroll: true,
+                preserveState: true,
+                onSuccess: (page) => {
+                    const saved = (page.props.songs as Song[])[0];
+                    setData((current) => ({ ...current, source: 'library', song: null, audio_track_id: String(saved.id) }));
+                    router.post(route('audio-tracks.vocals', saved.id), {}, { preserveScroll: true, preserveState: true });
+                },
+                onError: (errors) => setSongNote(Object.values(errors)[0] ?? 'Chưa lưu được bài hát.'),
+                onFinish: () => setSaving(false),
+            },
+        );
+    };
 
     const [ideas, setIdeas] = useState<Idea[]>([]);
     const [seen, setSeen] = useState<string[]>([]);
@@ -226,6 +277,47 @@ export default function MusicVideoCreate({
                                 ))}
                             </select>
                             <InputError message={errors.audio_track_id} />
+                        </div>
+                    )}
+
+                    {(library ? selected?.url : data.song) && (
+                        <div className="space-y-2">
+                            <SongPreview
+                                key={library ? `track-${selected?.id}` : `file-${data.song?.name}`}
+                                source={(library ? selected?.url : data.song)!}
+                                lines={library ? (selected?.lines ?? []) : []}
+                                lyrics={data.lyrics}
+                                start={seconds(data.song_start)}
+                                end={seconds(data.song_end)}
+                                onStart={(value) => setSeconds('song_start', value)}
+                                onEnd={(value) => setSeconds('song_end', value)}
+                            />
+                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                {library && selected?.vocal_status === 'ready' ? (
+                                    <span className="text-muted-foreground">
+                                        Đã có lời theo thời gian ({selected.lines.length} câu): câu đang hát sáng lên, bấm một câu để nghe từ đó.
+                                    </span>
+                                ) : library && selected?.vocal_status === 'pending' ? (
+                                    <span className="text-muted-foreground flex items-center gap-1">
+                                        <Loader2 className="size-3 animate-spin" /> Dịch vụ audio đang tách giọng và ghi lời theo thời gian (vài
+                                        phút)...
+                                    </span>
+                                ) : (
+                                    <>
+                                        <Button type="button" variant="outline" size="sm" onClick={analyze} disabled={saving}>
+                                            {saving ? <Loader2 className="animate-spin" /> : <Music />} Lấy lời theo thời gian
+                                        </Button>
+                                        <span className="text-muted-foreground">
+                                            {library && selected?.vocal_status === 'failed'
+                                                ? `Lần trước lỗi: ${selected.vocal_error ?? 'không rõ'}. Kiểm tra dịch vụ audio (docker compose up -d audio) rồi thử lại.`
+                                                : library
+                                                  ? 'Miễn phí, chạy trên máy (dịch vụ audio): tách giọng hát rồi ghi lời kèm mốc thời gian để xem lời chạy theo nhạc.'
+                                                  : 'Lưu bài hát vào thư viện Âm thanh rồi tách lời kèm mốc thời gian (miễn phí, dịch vụ audio).'}
+                                        </span>
+                                    </>
+                                )}
+                                {songNote && <span className="text-destructive">{songNote}</span>}
+                            </div>
                         </div>
                     )}
 

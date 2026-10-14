@@ -7,6 +7,7 @@ use App\Jobs\PlanSeriesJob;
 use App\Jobs\SuggestMusicVideoIdeasJob;
 use App\Models\AudioTrack;
 use App\Models\Series;
+use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Video\VideoProbe;
 use App\Support\CreditPricing;
@@ -32,8 +33,12 @@ class MusicVideoController extends Controller
         $drivers = self::drivers();
 
         return Inertia::render('music-videos/create', [
-            'songs' => $request->user()->audioTracks()->whereNotNull('path')->latest()->get()
-                ->map(fn (AudioTrack $t) => ['id' => $t->id, 'name' => $t->name, 'duration_ms' => $t->duration_ms, 'lyrics' => $t->lyrics]),
+            'songs' => $request->user()->audioTracks()->whereNotNull('path')->latest('id')->get()->map(fn (AudioTrack $t) => [
+                'id' => $t->id, 'name' => $t->name, 'duration_ms' => $t->duration_ms, 'lyrics' => $t->lyrics, 'url' => Media::url($t->path),
+                // Lời theo thời gian (dịch vụ audio): nghe thử thì câu đang hát sáng lên, bấm câu để tua tới.
+                'vocal_status' => $t->vocal_status, 'vocal_error' => $t->vocal_error,
+                'lines' => MusicVideoWriter::lines($t->vocal_analysis['words'] ?? []),
+            ]),
             'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => ['label' => $p['label'], 'style' => $p['style']]),
             'lipSyncModes' => Series::LIP_SYNC_MODES,
             'drivers' => $drivers,

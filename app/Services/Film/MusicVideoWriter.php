@@ -81,15 +81,26 @@ final class MusicVideoWriter
      */
     public static function timedLyrics(Series $series): array
     {
-        $words = $series->song?->vocal_analysis['words'] ?? [];
         [$from, $to] = $series->songRange();
+
+        return self::lines($series->song?->vocal_analysis['words'] ?? [], $from / 1000, ($to - $from) / 1000);
+    }
+
+    /**
+     * Gom từng từ (mốc giây tính từ đầu bài) thành câu theo chỗ ngắt hơi; mốc trả về tính từ giây $from, bỏ từ ngoài đoạn [$from, $from + $length).
+     *
+     * @param  list<array{start: float, end: float, text: string}>  $words
+     * @return list<array{start: float, end: float, text: string}>
+     */
+    public static function lines(array $words, float $from = 0, float $length = INF): array
+    {
         $lines = [];
         $current = null;
         foreach ($words as $word) {
-            $start = (float) ($word['start'] ?? 0) - $from / 1000;
-            $end = (float) ($word['end'] ?? 0) - $from / 1000;
+            $start = (float) ($word['start'] ?? 0) - $from;
+            $end = (float) ($word['end'] ?? 0) - $from;
             $text = trim((string) ($word['text'] ?? ''));
-            if ($text === '' || $start < 0 || $start >= ($to - $from) / 1000) {
+            if ($text === '' || $start < 0 || $start >= $length) {
                 continue;
             }
             if ($current !== null && ($start - $current['end'] > 0.7 || str_word_count($current['text']) >= 12)) {

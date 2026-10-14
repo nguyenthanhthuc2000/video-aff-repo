@@ -88,6 +88,12 @@ class MusicVideoTest extends TestCase
         $this->actingAs($this->user)->get(route('music-videos.create'))->assertInertia(fn (Assert $page) => $page
             ->component('music-videos/create')
             ->where('songs.0.name', 'Neon Rain')
+            ->where('songs.0.vocal_status', 'ready')
+            // Lời theo thời gian của cả bài để nghe thử: câu đang hát sáng lên.
+            ->where('songs.0.lines.0.text', 'Walking alone tonight')
+            ->where('songs.0.lines.0.end', 4.15)
+            ->where('songs.0.lines.2.text', 'Light me up')
+            ->has('songs.0.url')
             ->where('lipSyncModes.chorus', 'Chỉ điệp khúc')
             ->where('drivers.browser.available', false)
             ->where('drivers.fal.available', false)
