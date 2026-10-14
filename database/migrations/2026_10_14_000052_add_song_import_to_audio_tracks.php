@@ -9,9 +9,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Bỏ qua cột đã có (bản trước của migration này đã chạy ở một số máy).
         Schema::table('audio_tracks', function (Blueprint $table) {
-            $table->string('language', 10)->nullable()->after('lyrics');
-            $table->json('song_info')->nullable()->after('language');
+            if (! Schema::hasColumn('audio_tracks', 'language')) {
+                $table->string('language', 10)->nullable()->after('lyrics');
+            }
+            if (! Schema::hasColumn('audio_tracks', 'song_info')) {
+                $table->json('song_info')->nullable()->after('language');
+            }
         });
     }
 

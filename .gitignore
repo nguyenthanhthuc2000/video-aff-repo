@@ -23,3 +23,6 @@ Homestead.json
 Homestead.yaml
 npm-debug.log
 yarn-error.log
+
+# Bản sao lưu database (chứa dữ liệu thật, không commit)
+backup-*.sql
