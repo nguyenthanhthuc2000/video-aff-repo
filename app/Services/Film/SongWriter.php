@@ -4,6 +4,7 @@ namespace App\Services\Film;
 
 use App\Models\SongDraft;
 use App\Services\Script\ScriptWriterException;
+use App\Support\RealArtists;
 
 /**
  * Sáng tác bài mới từ bài tham khảo trên YouTube, hai bước Claude:
@@ -111,8 +112,21 @@ final class SongWriter
     {
         $profile = $draft->profile ?? [];
         $structure = collect($profile['structure'] ?? [])->map(fn ($s) => "{$s['section']} ~".round($s['seconds']).'s')->implode(', ');
+        $band = $draft->band;
+        $bandText = $band ? "This song is by {$band->name}, a FICTIONAL {$band->genre} act ({$band->era}).".($band->lore ? " Lore: {$band->lore}" : '')."\n"
+            .'Members: '.collect($band->members ?? [])->map(fn ($m) => "{$m['name']} ({$m['role']})")->implode(', ')."\n"
+            ."Write it in the band's own sound: typical of {$band->genre} in the {$band->era}, but completely original (no real artist's songs, names or signature riffs).\n"
+            .'Do not mention real artists anywhere.'."\n" : '';
+        $topic = filled($draft->topic) ? "Topic of the song: {$draft->topic}\n" : '';
+        if ($draft->profile === null) {
+            return $bandText.$topic
+                ."There is no reference song: invent the structure (intro, verses, pre-chorus, a big repeated chorus, bridge, outro), a strong title hook,\n"
+                ."and a tempo that fits the genre.\n\n"
+                .(filled($draft->notes) ? "Creator's direction (may be in Vietnamese; follow it):\n{$draft->notes}\n\n" : '')
+                .'Write the new original song.';
+        }
 
-        return "Reference profile (do not copy the reference song itself):\n"
+        return $bandText.$topic."Reference profile (do not copy the reference song itself):\n"
             ."Genre: {$profile['genre']}; tempo: {$profile['tempo_feel']} ~{$profile['tempo_bpm']} BPM; mood: {$profile['mood']}\n"
             ."Vocal: {$profile['vocal']}; instruments: ".implode(', ', $profile['instruments'] ?? [])."\n"
             ."Structure: {$structure}\n"
@@ -181,6 +195,10 @@ final class SongWriter
     {
         foreach (array_filter([$draft->reference['artist'] ?? null, $draft->reference['title'] ?? null, $draft->reference['channel'] ?? null]) as $name) {
             $style = str_ireplace($name, '', $style);
+        }
+        // Tên nghệ sĩ thật (kể cả khi Claude lỡ viết "in the style of ...") cũng bỏ.
+        while ($artist = RealArtists::find($style)) {
+            $style = preg_replace('/(in the style of\s+|like\s+)?'.preg_quote($artist, '/').'/iu', '', $style) ?? $style;
         }
 
         return mb_substr(trim(preg_replace('/\s*,\s*(,\s*)+/u', ', ', $style) ?? $style, ' ,'), 0, 200);

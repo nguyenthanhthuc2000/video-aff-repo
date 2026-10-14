@@ -11,6 +11,7 @@ import {
     Coins,
     Film,
     GraduationCap,
+    Guitar,
     History,
     Image,
     Mic2,
@@ -20,6 +21,7 @@ import {
     Tv,
     Users,
     Wallet,
+    Zap,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -38,6 +40,16 @@ const mainNavItems: NavItem[] = [
         title: 'MV ca nhạc',
         url: '/music-videos',
         icon: Mic2,
+    },
+    {
+        title: 'Nhạc cho Shorts',
+        url: '/music-studio',
+        icon: Guitar,
+    },
+    {
+        title: 'Shorts nhạc',
+        url: '/music-videos/shorts',
+        icon: Zap,
     },
     {
         title: 'Học tiếng Anh',

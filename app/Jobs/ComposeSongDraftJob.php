@@ -43,6 +43,10 @@ class ComposeSongDraftJob implements ShouldQueue
         $key = "song-draft-ref:{$draft->id}";
 
         try {
+            // Bài của ban nhạc ảo không có link tham khảo: viết luôn theo ban nhạc + chủ đề.
+            if ($draft->status === 'fetching' && $draft->source_url === null) {
+                $draft->update(['status' => 'writing']);
+            }
             if ($draft->status === 'fetching') {
                 if (! Cache::has($key)) {
                     Cache::put($key, $youtube->start($draft->source_url), now()->addHour());

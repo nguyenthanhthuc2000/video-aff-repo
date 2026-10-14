@@ -10,6 +10,7 @@ use App\Http\Controllers\EnglishController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\MuseAuthController;
+use App\Http\Controllers\MusicStudioController;
 use App\Http\Controllers\MusicVideoController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
@@ -104,6 +105,15 @@ Route::middleware(['auth'])->group(function () {
     // MV ca nhạc: tạo ở trang riêng, sau đó dùng chung các trang của phim (kế hoạch, nhân vật, tập, ghép).
     Route::get('music-videos', [MusicVideoController::class, 'index'])->name('music-videos.index');
     Route::get('music-videos/create', [MusicVideoController::class, 'create'])->name('music-videos.create');
+    // Nhạc cho Shorts: kho bài hát của ban nhạc ảo, nhiều bản nhạc, đoạn hook.
+    Route::get('music-studio', [MusicStudioController::class, 'index'])->name('music-studio.index');
+    Route::post('music-studio/songs', [MusicStudioController::class, 'storeSongs'])->name('music-studio.songs.store');
+    Route::post('music-studio/songs/{songDraft}/takes/{take}', [MusicStudioController::class, 'chooseTake'])->name('music-studio.takes.choose');
+    Route::post('music-studio/bands/{band}/generate', [MusicStudioController::class, 'generateAll'])->name('music-studio.generate-all');
+    Route::get('music-studio/tracks/{audioTrack}/suggest', [MusicStudioController::class, 'suggestClips'])->name('music-studio.clips.suggest');
+    Route::post('music-studio/tracks/{audioTrack}/clips', [MusicStudioController::class, 'storeClip'])->name('music-studio.clips.store');
+    Route::delete('music-studio/clips/{clip}', [MusicStudioController::class, 'destroyClip'])->name('music-studio.clips.destroy');
+
     // Series Shorts nhạc: ban nhạc ảo + mẫu Shorts → tạo hàng loạt MV ngắn.
     Route::get('music-videos/shorts', [ShortsController::class, 'index'])->name('shorts.index');
     Route::post('music-videos/shorts/bands', [ShortsController::class, 'storeBand'])->name('shorts.bands.store');

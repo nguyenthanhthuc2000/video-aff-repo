@@ -50,7 +50,7 @@ class SongDraftController extends Controller
     {
         $this->authorizeDraft($request, $songDraft);
         $validated = $request->validate(['notes' => ['nullable', 'string', 'max:2000']]);
-        if ($songDraft->isBusy() || $songDraft->profile === null) {
+        if ($songDraft->isBusy() || ($songDraft->profile === null && $songDraft->source_url !== null)) {
             return back()->with('status', 'Bài đang được xử lý hoặc chưa phân tích xong bài tham khảo.');
         }
         if ($message = Credits::shortfall($request->user(), CreditPricing::aiEstimates()['film_plan'], 'viết lại bài hát')) {
@@ -120,14 +120,15 @@ class SongDraftController extends Controller
     /**
      * Lưu bài mới vào thư viện Âm thanh: lời, ngôn ngữ, phân tích có sẵn (thể loại, nhịp, không khí, chủ đề), rồi lấy lời theo thời gian.
      */
-    public static function attach(SongDraft $draft, string $contents, string $extension, ?string $localPath): AudioTrack
+    public static function attach(SongDraft $draft, string $contents, string $extension, ?string $localPath, ?string $provider = null): AudioTrack
     {
+        $take = $draft->takes()->count() + 1;
         $song = $draft->song;
         $path = "audio/{$draft->user_id}/".Str::random(40).'.'.strtolower($extension);
         Media::disk()->put($path, $contents);
         $duration = $localPath ? (app(VideoProbe::class)->probe($localPath)['duration_ms'] ?? null) : null;
         $track = $draft->user->audioTracks()->create([
-            'name' => Str::limit($song['title'] ?: 'Bài hát mới', 200, ''),
+            'name' => Str::limit(($song['title'] ?: 'Bài hát mới').($take > 1 ? " (bản {$take})" : ''), 200, ''),
             'path' => $path,
             'mime' => $extension === 'wav' ? 'audio/wav' : 'audio/mpeg',
             'size_bytes' => strlen($contents),
@@ -149,7 +150,9 @@ class SongDraftController extends Controller
                 'singer' => $song['singer'],
             ],
         ]);
-        $draft->update(['audio_track_id' => $track->id, 'music_status' => 'done', 'music_error' => null]);
+        // Mỗi lần tạo / tải lên là một bản; bản đầu tiên tự được chọn, sau đó người dùng chọn bản hay nhất.
+        $draft->takes()->create(['audio_track_id' => $track->id, 'provider' => $provider ?? 'upload']);
+        $draft->update(['audio_track_id' => $draft->audio_track_id ?? $track->id, 'music_status' => 'done', 'music_error' => null]);
         $track->analyzeVocals();
 
         return $track;

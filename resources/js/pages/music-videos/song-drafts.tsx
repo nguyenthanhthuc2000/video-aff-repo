@@ -253,7 +253,7 @@ function CopyButton({ text }: { text: string }) {
     );
 }
 
-function SongEditor({ draft }: { draft: Draft }) {
+export function SongEditor({ draft }: { draft: Draft }) {
     const song = draft.song!;
     const { data, setData, put, processing, errors } = useForm({ title: song.title, style_prompt: song.style_prompt, lyrics: song.lyrics });
     const [notes, setNotes] = useState(draft.notes ?? '');
@@ -331,18 +331,21 @@ function SongEditor({ draft }: { draft: Draft }) {
     );
 }
 
-function MakeMusic({
+export function MakeMusic({
     draft,
     providers,
     maxMb,
     onUse,
     defaultProvider,
+    allowMore = false,
 }: {
     draft: Draft;
     providers: Record<string, MusicProvider>;
     maxMb: number;
-    onUse: (trackId: number) => void;
+    onUse?: (trackId: number) => void;
     defaultProvider?: string;
+    /** Nhạc cho Shorts: đã có nhạc vẫn tạo thêm bản khác để chọn. */
+    allowMore?: boolean;
 }) {
     // Mặc định: công cụ chọn ở trang Kết nối AI (MiniMax Music 3 qua fal khi có khoá fal), không thì tự làm ở công cụ ngoài.
     const [provider, setProvider] = useState(
@@ -368,7 +371,7 @@ function MakeMusic({
         }
     };
 
-    if (draft.audio_track_id) {
+    if (draft.audio_track_id && !allowMore && onUse) {
         return (
             <div className="flex flex-wrap items-center gap-3 rounded-md border border-green-600/40 bg-green-600/5 p-3 text-xs">
                 <Check className="size-4 text-green-600" />
@@ -383,7 +386,7 @@ function MakeMusic({
     return (
         <div className="space-y-3 rounded-md border p-3">
             <p className="flex items-center gap-2 font-medium">
-                <Music className="size-4" /> Tạo nhạc cho bài mới
+                <Music className="size-4" /> {draft.audio_track_id ? 'Tạo thêm bản nhạc khác' : 'Tạo nhạc cho bài mới'}
             </p>
             {Object.entries(providers).map(([key, p]) => (
                 <label key={key} className={`flex items-start gap-2 text-xs ${p.available ? 'cursor-pointer' : 'opacity-60'}`}>

@@ -38,6 +38,7 @@ type Band = {
 type Template = { label: string; hint: string; variation: string; lip_sync: string };
 type Driver = { label: string; available: boolean; note: string };
 type PreviewItem = { title: string; hashtags: string[]; description: string };
+type Clip = { id: number; name: string; song: string | null; seconds: number; start_ms: number; band_id: number | null };
 
 const emptyMember = (): Member => ({ name: '', role: '', look: '', look_old: '' });
 
@@ -49,6 +50,7 @@ export default function Shorts({
     bands,
     templates,
     songs,
+    clips,
     stylePresets,
     drivers,
     creditsPerVideo,
@@ -57,6 +59,7 @@ export default function Shorts({
     bands: Band[];
     templates: Record<string, Template>;
     songs: { id: number; name: string; duration_ms: number | null }[];
+    clips: Clip[];
     stylePresets: Record<string, string>;
     drivers: Record<string, Driver>;
     creditsPerVideo: number;
@@ -120,6 +123,7 @@ export default function Shorts({
                         bands={bands.filter((b) => b.status === 'ready' && b.members.length > 0)}
                         templates={templates}
                         songs={songs}
+                        clips={clips}
                         drivers={drivers}
                         creditsPerVideo={creditsPerVideo}
                         credits={credits}
@@ -352,6 +356,7 @@ function BatchForm({
     bands,
     templates,
     songs,
+    clips,
     drivers,
     creditsPerVideo,
     credits,
@@ -359,6 +364,7 @@ function BatchForm({
     bands: Band[];
     templates: Record<string, Template>;
     songs: { id: number; name: string; duration_ms: number | null }[];
+    clips: Clip[];
     drivers: Record<string, Driver>;
     creditsPerVideo: number;
     credits: number;
@@ -369,6 +375,7 @@ function BatchForm({
         template: 'lineup',
         variations: bands[0].variations.lineup.join('\n'),
         audio_track_id: songs[0] ? String(songs[0].id) : '',
+        clip_id: '',
         song_start: '',
         seconds: '25',
         driver: firstDriver,
@@ -378,9 +385,14 @@ function BatchForm({
     const band = bands.find((b) => String(b.id) === data.band_id) ?? bands[0];
     // Đổi ban / mẫu: điền biến thể gợi ý.
     useEffect(() => {
-        setData('variations', (band.variations[data.template] ?? []).join('\n'));
+        setData((current) => ({
+            ...current,
+            variations: (band.variations[current.template] ?? []).join('\n'),
+            clip_id: clips.some((c) => String(c.id) === current.clip_id && String(c.band_id) === current.band_id) ? current.clip_id : '',
+        }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.band_id, data.template]);
+    const bandClips = clips.filter((c) => String(c.band_id) === data.band_id);
     const count = data.variations.split('\n').filter((l) => l.trim()).length;
     const total = Math.min(count, 10) * creditsPerVideo;
     const [preview, setPreview] = useState<PreviewItem[] | null>(null);
@@ -396,6 +408,7 @@ function BatchForm({
                 template: data.template,
                 variations: data.variations,
                 audio_track_id: data.audio_track_id,
+                clip_id: data.clip_id || null,
             }),
         });
         const body = await response.json();
@@ -435,6 +448,21 @@ function BatchForm({
                     </select>
                 </div>
                 <div className="space-y-1">
+                    {bandClips.length > 0 && (
+                        <>
+                            <Label>Đoạn hook đã lưu (Nhạc cho Shorts)</Label>
+                            <select className={select} value={data.clip_id} onChange={(e) => setData('clip_id', e.target.value)}>
+                                <option value="">Tự chọn bài + giây bắt đầu</option>
+                                {bandClips.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name} · {c.song} ({c.seconds}s)
+                                    </option>
+                                ))}
+                            </select>
+                        </>
+                    )}
+                </div>
+                <div className={data.clip_id ? 'hidden' : 'space-y-1'}>
                     <Label>Bài hát (thư viện Âm thanh)</Label>
                     <select className={select} value={data.audio_track_id} onChange={(e) => setData('audio_track_id', e.target.value)}>
                         {songs.map((s) => (
@@ -474,7 +502,7 @@ function BatchForm({
                     />
                     <InputError message={errors.variations} />
                 </div>
-                <div className="space-y-2">
+                <div className={data.clip_id ? 'hidden' : 'space-y-2'}>
                     <div className="space-y-1">
                         <Label>Bắt đầu từ giây (đoạn điệp khúc)</Label>
                         <Input
@@ -517,13 +545,13 @@ function BatchForm({
             <InputError message={errors.driver || (errors as Record<string, string | undefined>).confirm} />
 
             <div className="flex flex-wrap items-center gap-3">
-                <Button type="button" variant="outline" onClick={showPreview} disabled={count === 0 || !data.audio_track_id}>
+                <Button type="button" variant="outline" onClick={showPreview} disabled={count === 0 || (!data.audio_track_id && !data.clip_id)}>
                     <Eye /> Xem trước tên & hashtag
                 </Button>
                 <Button
                     type="button"
                     onClick={create}
-                    disabled={processing || count === 0 || !data.audio_track_id || !data.driver || !data.fictional}
+                    disabled={processing || count === 0 || (!data.audio_track_id && !data.clip_id) || !data.driver || !data.fictional}
                 >
                     {processing ? <Loader2 className="animate-spin" /> : <Zap />} Tạo {Math.min(count, 10)} MV ngắn
                 </Button>

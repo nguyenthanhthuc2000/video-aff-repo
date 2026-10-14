@@ -53,7 +53,7 @@ class GenerateSongJob implements ShouldQueue
 
             return;
         }
-        SongDraftController::attach($draft, $song['contents'], $song['extension'], null);
+        SongDraftController::attach($draft, $song['contents'], $song['extension'], null, $draft->music_provider);
     }
 
     public function failed(?Throwable $e): void

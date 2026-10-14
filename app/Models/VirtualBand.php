@@ -29,6 +29,17 @@ class VirtualBand extends Model
         return $this->hasMany(Series::class);
     }
 
+    /** Bài hát của ban (Nhạc cho Shorts). */
+    public function songs(): HasMany
+    {
+        return $this->hasMany(SongDraft::class);
+    }
+
+    public function clips(): HasMany
+    {
+        return $this->hasMany(SongClip::class);
+    }
+
     /**
      * Lấy ảnh chính của thành viên từ các MV của ban (nhân vật cùng tên đã có ảnh, ưu tiên ảnh đã chốt, mới nhất) để MV sau dùng lại.
      *

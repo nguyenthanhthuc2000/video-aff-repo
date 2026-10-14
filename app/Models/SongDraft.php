@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Bài hát mới sáng tác từ bài tham khảo trên YouTube: fetching (đọc link) → profiling (Claude phân tích) → writing (Claude viết bài mới)
@@ -14,7 +15,7 @@ class SongDraft extends Model
     public const BUSY = ['fetching', 'profiling', 'writing'];
 
     protected $fillable = [
-        'user_id', 'source_url', 'notes', 'status', 'error', 'reference', 'profile', 'song', 'overlap',
+        'user_id', 'virtual_band_id', 'source_url', 'notes', 'topic', 'status', 'error', 'reference', 'profile', 'song', 'overlap',
         'music_provider', 'music_status', 'music_request_id', 'music_error', 'audio_track_id',
     ];
 
@@ -39,6 +40,17 @@ class SongDraft extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function band(): BelongsTo
+    {
+        return $this->belongsTo(VirtualBand::class, 'virtual_band_id');
+    }
+
+    /** Các bản nhạc đã tạo, mới nhất trước. */
+    public function takes(): HasMany
+    {
+        return $this->hasMany(SongTake::class)->latest('id');
     }
 
     public function audioTrack(): BelongsTo

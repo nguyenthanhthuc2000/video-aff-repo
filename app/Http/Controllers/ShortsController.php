@@ -8,6 +8,7 @@ use App\Jobs\MusicVideoAutopilotJob;
 use App\Jobs\PlanSeriesJob;
 use App\Models\AudioTrack;
 use App\Models\Series;
+use App\Models\SongClip;
 use App\Models\VirtualBand;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\ShortTemplates;
@@ -42,6 +43,8 @@ class ShortsController extends Controller
             ]),
             'templates' => ShortTemplates::TEMPLATES,
             'songs' => $request->user()->audioTracks()->whereNotNull('path')->latest('id')->get(['id', 'name', 'duration_ms']),
+            // Đoạn hook đã lưu ở Nhạc cho Shorts (lọc theo ban nhạc ở giao diện).
+            'clips' => $request->user()->songClips()->with('audioTrack:id,name')->latest('id')->get()->map(fn (SongClip $c) => MusicStudioController::presentClip($c)),
             'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => $p['label']),
             'drivers' => MusicVideoController::drivers(),
             // Credits mỗi MV ngắn: lên ý tưởng + viết phân cảnh (ảnh / clip Muse tính riêng khi làm).
@@ -256,10 +259,12 @@ class ShortsController extends Controller
             'band_id' => ['required', 'integer', Rule::exists('virtual_bands', 'id')->where('user_id', $request->user()->id)],
             'template' => ['required', Rule::in(array_keys(ShortTemplates::TEMPLATES))],
             'variations' => ['required', 'string', 'max:2000'],
-            'audio_track_id' => ['required', 'integer', Rule::exists('audio_tracks', 'id')->where('user_id', $request->user()->id)->whereNotNull('path')],
+            // Đoạn hook đã lưu ở Nhạc cho Shorts (bài + điểm bắt đầu + độ dài), hoặc chọn bài + điểm bắt đầu tay.
+            'clip_id' => ['nullable', 'integer', Rule::exists('song_clips', 'id')->where('user_id', $request->user()->id)],
+            'audio_track_id' => ['required_without:clip_id', 'nullable', 'integer', Rule::exists('audio_tracks', 'id')->where('user_id', $request->user()->id)->whereNotNull('path')],
             ...($create ? [
                 'song_start' => ['nullable', 'numeric', 'min:0'],
-                'seconds' => ['required', 'integer', 'min:15', 'max:40'],
+                'seconds' => ['required_without:clip_id', 'nullable', 'integer', 'min:15', 'max:40'],
                 'driver' => ['required', Rule::in(collect(MusicVideoController::drivers())->filter(fn ($d) => $d['available'])->keys()->all())],
                 'autopilot' => ['boolean'],
                 'confirm' => ['accepted'],
@@ -273,6 +278,11 @@ class ShortsController extends Controller
         abort_if($band->status !== 'ready' || $band->members === [], 422, 'Ban nhạc chưa sẵn sàng.');
         if ($variations === [] || $blocked) {
             throw ValidationException::withMessages(['variations' => $blocked ? "\"{$blocked}\" là tên có bản quyền." : 'Nhập ít nhất một biến thể.']);
+        }
+
+        if (filled($validated['clip_id'] ?? null)) {
+            $clip = SongClip::findOrFail($validated['clip_id']);
+            $validated = [...$validated, 'audio_track_id' => $clip->audio_track_id, 'song_start' => $clip->start_ms / 1000, 'seconds' => max(15, min(40, $clip->seconds()))];
         }
 
         return [$band, $validated['template'], $variations, AudioTrack::findOrFail($validated['audio_track_id']), $validated];
