@@ -3,6 +3,7 @@
 namespace App\Services\Film;
 
 use App\Models\Episode;
+use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Models\SeriesLocation;
 use App\Services\Script\ScriptWriterException;
@@ -23,6 +24,53 @@ final class EpisodeWriter
     ];
 
     public const NARRATOR = 'Narrator';
+
+    /** Chuyển động máy của shot (clip AI và ảnh tĩnh đều dùng). */
+    public const CAMERA_MOVES = [
+        'static' => 'Đứng yên', 'push_in' => 'Đẩy vào chậm', 'pull_out' => 'Lùi ra chậm', 'pan_left' => 'Lia sang trái',
+        'pan_right' => 'Lia sang phải', 'tilt_up' => 'Ngước lên', 'tilt_down' => 'Cúi xuống',
+    ];
+
+    public const BEATS = ['hook', 'setup', 'escalation', 'twist', 'ending'];
+
+    /** Truyện ngắn không thoại: một lượt viết trọn gói sản xuất của tập (theo kế hoạch kênh: 5 shot, prompt ảnh đầu, chuyển động, âm thanh, đăng bài). */
+    public const SHORT_SYSTEM = <<<'PROMPT'
+    You are the creative director and AI video production supervisor of an original animated short-form series with NO dialogue
+    (vertical 9:16 for TikTok, Facebook Reels and YouTube Shorts, international audience). Write the complete production package of ONE episode.
+
+    Story:
+    - Target 20–35 seconds in total, usually five independent shots of 4–7 seconds (4–6 shots). The story must work with the sound off:
+      movement, expressions, staging and objects. No spoken dialogue, no text on screen.
+    - Beat map to adapt (do not force every episode into it): hook in the first 0–3 s (an image or incident that makes people curious),
+      set up the problem, escalation or a choice, twist / resolution, a warm or funny final moment. Vary the rhythm and the endings.
+    - Humor and warmth without repetitive tragedy, fake animal cruelty or manipulation.
+
+    Each shot:
+    - ONE principal action. Keep visual continuity between adjacent shots (same place, light, props, accessories).
+    - If a moment is too complex to generate (many characters, fine paw/hand actions, objects changing state), simplify the staging
+      instead of adding characters; prefer a clear close-up of the key prop.
+    - action: the FIRST-FRAME image of the shot: who is where, pose, expression, key props, composition. Concrete, drawable in one picture,
+      natural anatomy (animals have exactly four legs), characters named exactly, no text, signs or logos.
+    - motion: the image-to-video prompt of the shot, like "Milo gently looks down at the cookie, blinks once and smiles. Soft breeze moves
+      the teal scarf slightly." Only the motion inside this shot; keep key props visible.
+    - camera: framing from the allowed list. camera_move: the camera movement (used for the AI clip and for stills).
+    - sound: ambient sound and sound-effect cues plus the music feel (e.g. "birds chirping, tummy rumble; soft warm piano").
+    - animate: true for exactly the given number of shots: the beats that need real character motion. The other shots become still images
+      with the camera movement and sound effects, so choose shots that still read well as a still for them.
+    - seconds: 3–8. beat: hook, setup, escalation, twist or ending.
+
+    Package:
+    - title: the English social title (max 60 characters, a curiosity hook, up to 2 emoji), like "He Gave Away His Last Cookie 🥹🍪".
+    - logline: one sentence.
+    - continuity: checklist of what must stay identical (accessories, prop states shot by shot, light, setting).
+    - hooks: three alternative openings (what we see in the first 2 seconds, one sentence each).
+    - captions: one English caption each for TikTok, Facebook Reels and YouTube Shorts (1–2 sentences, emoji ok); hashtags: 4–6.
+    - qc: checklist for this episode (extra limbs, identity drift, disappearing props, incorrect anatomy, object continuity, unnatural camera
+      motion), naming the risky shots and props.
+    - fallback: a lower-cost version with still images, camera moves and SFX (which shots stay stills, which cutaways to use).
+    - notes_vi: short production notes in Vietnamese for the creator (what is risky and how to fix it).
+    - Do not invent video model features or generation prices.
+    PROMPT;
 
     public const OUTLINE_SYSTEM = <<<'PROMPT'
     You are the head writer of an original English animated series for a YouTube kids channel.
@@ -81,6 +129,118 @@ final class EpisodeWriter
             .($previous !== '' ? "Previous episodes:\n{$previous}\n\n" : '')
             ."This episode: Episode {$episode->number} \"{$episode->title}\"\nSynopsis: {$episode->synopsis}\n"
             .($episode->lesson ? "Lesson: {$episode->lesson}\n" : '');
+    }
+
+    /** Bối cảnh cho lượt viết truyện ngắn: kinh thánh, nhân vật kèm ngoại hình, bối cảnh, vài tập trước, tập này (kèm kịch bản có sẵn). */
+    private static function shortContext(Episode $episode): string
+    {
+        $series = $episode->series;
+        $bible = $series->bible ?? [];
+        $characters = self::characters($episode)->map(fn (SeriesCharacter $c) => "- {$c->name}: {$c->appearance} Personality: {$c->personality}")->implode("\n");
+        $locations = $series->locations()->get()->map(fn (SeriesLocation $l) => "- {$l->name}: {$l->description}")->implode("\n");
+        $previous = $series->episodes()->where('number', '<', $episode->number)->orderByDesc('number')->limit(5)->get()->reverse()
+            ->map(fn (Episode $e) => "- Episode {$e->number} \"{$e->title}\": ".($e->package['logline'] ?? $e->synopsis))->implode("\n");
+
+        return "Series: {$series->title}\n"
+            .(isset($bible['logline']) ? "Logline: {$bible['logline']}\n" : '')
+            .(isset($bible['world']) ? "World: {$bible['world']}\n" : '')
+            .(isset($bible['tone']) ? "Tone: {$bible['tone']}\n" : '')
+            .'Audience: '.($series->audience ?: Series::SHORT_AUDIENCE).".\n"
+            ."Art style: {$series->style}.\n\n"
+            ."Characters:\n{$characters}\n\n"
+            .($locations !== '' ? "Locations:\n{$locations}\n\n" : '')
+            .($previous !== '' ? "Previous episodes (do not repeat their motifs):\n{$previous}\n\n" : '')
+            ."This episode: Episode {$episode->number} \"{$episode->title}\"\nSynopsis: {$episode->synopsis}\n"
+            .($episode->kind ? 'Kind: '.$episode->kind."\n" : '')
+            .(filled($episode->brief) ? "\nThe creator already wrote this script (may be in Vietnamese). Follow its shots, timing, actions, prompts and sounds "
+                ."closely, write everything in English and only improve what is needed:\n{$episode->brief}\n" : '');
+    }
+
+    public static function shortSchema(): array
+    {
+        $string = ['type' => 'string'];
+        $list = ['type' => 'array', 'items' => $string];
+
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['title', 'logline', 'shots', 'continuity', 'hooks', 'captions', 'hashtags', 'qc', 'fallback', 'notes_vi'],
+            'properties' => [
+                'title' => $string, 'logline' => $string,
+                'shots' => ['type' => 'array', 'items' => [
+                    'type' => 'object', 'additionalProperties' => false,
+                    'required' => ['beat', 'location', 'characters', 'camera', 'camera_move', 'action', 'motion', 'sound', 'seconds', 'animate'],
+                    'properties' => [
+                        'beat' => ['type' => 'string', 'enum' => self::BEATS],
+                        'location' => $string,
+                        'characters' => $list,
+                        'camera' => ['type' => 'string', 'enum' => self::CAMERAS],
+                        'camera_move' => ['type' => 'string', 'enum' => array_keys(self::CAMERA_MOVES)],
+                        'action' => $string, 'motion' => $string, 'sound' => $string,
+                        'seconds' => ['type' => 'number'],
+                        'animate' => ['type' => 'boolean'],
+                    ],
+                ]],
+                'continuity' => $list, 'hooks' => $list,
+                'captions' => ['type' => 'object', 'additionalProperties' => false, 'required' => ['tiktok', 'reels', 'shorts'],
+                    'properties' => ['tiktok' => $string, 'reels' => $string, 'shorts' => $string]],
+                'hashtags' => $list, 'qc' => $list, 'fallback' => $string, 'notes_vi' => $string,
+            ],
+        ];
+    }
+
+    /**
+     * Truyện ngắn không thoại: shot (đã chuẩn hoá, kèm chuyển động, âm thanh, có làm clip AI không) + gói sản xuất / đăng bài.
+     *
+     * @return array{shots: list<array>, package: array}
+     *
+     * @throws ScriptWriterException
+     */
+    public static function short(Episode $episode): array
+    {
+        $budget = $episode->series->clipBudget();
+        $text = self::shortContext($episode)
+            ."\nAllowed camera values: ".implode(', ', self::CAMERAS).".\nMark exactly {$budget} shot(s) with animate = true (all shots if there are fewer)."
+            ."\nWrite the production package.";
+        $data = FilmClaude::json(self::SHORT_SYSTEM, $text, self::shortSchema(), 'film_episode', "film_episode:{$episode->id}", 10000, fn () => self::sampleShort($episode));
+
+        return self::normalizeShort($episode, (array) $data, $budget);
+    }
+
+    /** @return array{shots: list<array>, package: array} */
+    public static function normalizeShort(Episode $episode, array $data, int $budget): array
+    {
+        $raw = array_values(array_slice((array) ($data['shots'] ?? []), 0, 8));
+        $shots = self::normalizeShots($episode, array_map(fn ($s) => [...$s, 'dialogue' => [], 'continues_previous' => false], $raw));
+        $animated = 0;
+        foreach ($shots as $i => &$shot) {
+            $source = $raw[$i] ?? [];
+            $shot['duration_ms'] = (int) round(max(3, min(8, (float) ($source['seconds'] ?? 5))) * 1000);
+            $shot['camera_move'] = isset(self::CAMERA_MOVES[$source['camera_move'] ?? '']) ? $source['camera_move'] : 'push_in';
+            $shot['motion'] = mb_substr(trim((string) ($source['motion'] ?? '')), 0, 1500) ?: null;
+            $shot['sound_cue'] = mb_substr(trim((string) ($source['sound'] ?? '')), 0, 500) ?: null;
+            // Đúng số clip AI đã chọn: ưu tiên shot Claude đánh dấu, thiếu thì để ảnh tĩnh.
+            $shot['animate'] = (bool) ($source['animate'] ?? false) && $animated < $budget;
+            $animated += $shot['animate'] ? 1 : 0;
+        }
+        unset($shot);
+        $list = fn ($value, int $max = 10) => array_values(array_filter(array_map(fn ($v) => mb_substr(trim((string) $v), 0, 500), array_slice((array) $value, 0, $max))));
+        $captions = (array) ($data['captions'] ?? []);
+
+        return [
+            'shots' => $shots,
+            'package' => [
+                'title' => mb_substr(trim((string) ($data['title'] ?? $episode->title)), 0, 100),
+                'logline' => mb_substr(trim((string) ($data['logline'] ?? '')), 0, 500),
+                'beats' => array_map(fn ($s) => in_array($s['beat'] ?? null, self::BEATS, true) ? $s['beat'] : null, array_slice($raw, 0, count($shots))),
+                'continuity' => $list($data['continuity'] ?? []),
+                'hooks' => $list($data['hooks'] ?? [], 3),
+                'captions' => collect(['tiktok', 'reels', 'shorts'])->mapWithKeys(fn ($k) => [$k => mb_substr(trim((string) ($captions[$k] ?? '')), 0, 500)])->all(),
+                'hashtags' => array_map(fn ($t) => '#'.ltrim(preg_replace('/\s+/u', '', $t), '#'), $list($data['hashtags'] ?? [], 8)),
+                'qc' => $list($data['qc'] ?? [], 12),
+                'fallback' => mb_substr(trim((string) ($data['fallback'] ?? '')), 0, 2000),
+                'notes_vi' => mb_substr(trim((string) ($data['notes_vi'] ?? '')), 0, 2000),
+            ],
+        ];
     }
 
     public static function outlineSchema(): array
@@ -222,6 +382,36 @@ final class EpisodeWriter
         $lines = collect($shot['dialogue'] ?? [])->map(fn ($d) => ($characters->firstWhere('id', $d['character_id'])?->name ?? self::NARRATOR).": \"{$d['line']}\"")->implode(' ');
 
         return "- [{$shot['camera']}] {$shot['action']}".($lines !== '' ? " {$lines}" : '');
+    }
+
+    private static function sampleShort(Episode $episode): array
+    {
+        $names = self::characters($episode)->take(2)->pluck('name')->all();
+        $second = $names[1] ?? $names[0];
+        $location = $episode->series->locations()->value('name') ?? 'Village park';
+        $shot = fn (string $beat, array $who, string $camera, string $move, string $action, string $motion, string $sound, float $seconds, bool $animate) => [
+            'beat' => $beat, 'location' => $location, 'characters' => $who, 'camera' => $camera, 'camera_move' => $move, 'action' => $action,
+            'motion' => $motion, 'sound' => $sound, 'seconds' => $seconds, 'animate' => $animate,
+        ];
+
+        return [
+            'title' => 'He Gave Away His Last Cookie 🥹🍪',
+            'logline' => "{$names[0]} shares the last cookie with {$second} and gets a sweet surprise back.",
+            'shots' => [
+                $shot('hook', [$names[0]], 'medium shot', 'push_in', "{$names[0]} sits on a wooden bench holding one golden cookie, delighted.", "{$names[0]} looks down at the cookie, blinks and smiles.", 'birds chirping; soft playful music', 5, true),
+                $shot('setup', [$names[0], $second], 'two-shot', 'static', "{$second} stops beside the bench and stares at the cookie, tummy rumbling.", "{$second} slowly approaches, {$names[0]} turns his head.", 'tummy rumble, small whimper', 6, true),
+                $shot('escalation', [$names[0], $second], 'close-up', 'push_in', "{$names[0]} breaks the cookie and offers the bigger half to {$second}.", "{$names[0]} splits the cookie and holds out the larger piece.", 'crunch; warm piano', 7, false),
+                $shot('twist', [$names[0], $second], 'medium close-up', 'push_in', "{$second} pulls a small cup of milk from a tiny backpack.", "{$second} sets the cup between them, {$names[0]} widens his eyes.", 'pop, chime', 7, true),
+                $shot('ending', [$names[0], $second], 'two-shot', 'pull_out', "{$names[0]} and {$second} share cookie and milk at sunset; {$second} has a milk moustache.", "{$names[0]} laughs silently.", 'cute ending music', 5, false),
+            ],
+            'continuity' => ['Teal scarf on every shot', 'Cookie whole in shot 1, two halves from shot 3'],
+            'hooks' => ['A tiny kitten guards one last cookie.', 'A hungry corgi tummy rumbles loudly.', 'One cookie, two friends.'],
+            'captions' => ['tiktok' => 'Sometimes the smallest kindness makes the sweetest memory. 🐱🐶', 'reels' => 'Share the last cookie. 🍪', 'shorts' => 'He gave away his last cookie 🥹'],
+            'hashtags' => ['CatStories', '#AnimatedShorts', 'Wholesome'],
+            'qc' => ['Shot 3: cookie halves must not melt or merge', 'Count legs on every shot'],
+            'fallback' => 'Keep shots 3 and 5 as stills with push-in and SFX.',
+            'notes_vi' => 'Cảnh bẻ bánh dễ lỗi vật thể, nên để ảnh tĩnh.',
+        ];
     }
 
     private static function sampleOutline(Episode $episode): array

@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Enums\SeriesStatus;
 use App\Jobs\PlanSeriesJob;
+use App\Jobs\WriteEpisodeJob;
 use App\Models\Episode;
 use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Models\SeriesLocation;
+use App\Services\Film\EpisodeList;
+use App\Services\Film\EpisodeWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\Voices;
 use App\Support\CreditPricing;
@@ -49,26 +52,51 @@ class SeriesController extends Controller
             'languages' => Series::SUBTITLE_LANGUAGES,
             'ages' => ['min' => Series::AGE_MIN, 'max' => Series::AGE_MAX],
             'defaultStyle' => Series::DEFAULT_STYLE,
+            'stylePresets' => collect(Series::STYLE_PRESETS)->map(fn ($p) => $p['label']),
+            'formats' => Series::FORMATS,
+            'clipBudgets' => Series::CLIP_BUDGETS,
+            'kinds' => Series::KINDS,
+            'shortAudience' => Series::SHORT_AUDIENCE,
             'estimate' => CreditPricing::aiEstimates()['film_plan'],
+            'lengths' => Series::EPISODE_LENGTHS,
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'idea' => ['required', 'string', 'min:20', 'max:3000'],
+            'format' => ['nullable', Rule::in(array_keys(Series::FORMATS))],
+            'idea' => ['required', 'string', 'min:20', 'max:8000'],
+            // Truyện ngắn: người xem, số clip AI mỗi tập, danh sách tập có sẵn (mỗi dòng một tập), kịch bản có sẵn của vài tập.
+            'audience' => ['nullable', 'string', 'max:200'],
+            'clip_budget' => ['nullable', 'integer', Rule::in(array_keys(Series::CLIP_BUDGETS))],
+            'episode_list' => ['nullable', 'string', 'max:20000'],
+            'briefs' => ['array', 'max:'.EpisodeList::MAX],
+            'briefs.*.number' => ['required', 'integer', 'min:1', 'max:'.EpisodeList::MAX],
+            'briefs.*.text' => ['required', 'string', 'max:8000'],
+            'style_preset' => ['nullable', Rule::in(array_keys(Series::STYLE_PRESETS))],
             'genre' => ['required', Rule::in(array_keys(Series::GENRES))],
             'age_min' => ['required', 'integer', 'min:'.Series::AGE_MIN, 'max:'.Series::AGE_MAX],
             'age_max' => ['required', 'integer', 'gte:age_min', 'max:'.Series::AGE_MAX],
-            'episode_count' => ['required', 'integer', 'min:1', 'max:52'],
-            'episode_minutes' => ['required', 'integer', 'min:1', 'max:15'],
+            'episode_count' => ['required', 'integer', 'min:1', 'max:'.EpisodeList::MAX],
+            'episode_seconds' => ['nullable', 'integer', Rule::in(Series::EPISODE_LENGTHS)],
+            'episode_minutes' => ['required_without:episode_seconds', 'nullable', 'integer', 'min:1', 'max:15'],
+            // Nhân vật có sẵn ảnh (không bắt buộc): Claude xem ảnh để viết ngoại hình, ảnh thành ảnh chính của nhân vật.
+            'characters' => ['array', 'max:6'],
+            'characters.*.name' => ['required', 'string', 'max:80', 'distinct:ignore_case'],
+            'characters.*.note' => ['nullable', 'string', 'max:300'],
+            'characters.*.image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
             'style' => ['nullable', 'string', 'max:500'],
             'subtitle_languages' => ['array'],
             'subtitle_languages.*' => [Rule::in(array_keys(Series::SUBTITLE_LANGUAGES))],
         ], [
             'age_max.gte' => 'Tuổi lớn nhất phải từ tuổi nhỏ nhất trở lên.',
             'idea.min' => 'Viết ý tưởng dài hơn một chút (ít nhất 20 ký tự): nhân vật chính, bối cảnh, mỗi tập xảy ra chuyện gì.',
-        ], ['idea' => 'ý tưởng', 'age_min' => 'tuổi nhỏ nhất', 'age_max' => 'tuổi lớn nhất', 'episode_count' => 'số tập', 'episode_minutes' => 'độ dài tập']);
+            'characters.*.name.required' => 'Nhập tên nhân vật.',
+            'characters.*.name.distinct' => 'Hai nhân vật trùng tên.',
+            'characters.*.image.required' => 'Chọn ảnh cho nhân vật.',
+            'characters.*.image.image' => 'File phải là ảnh (jpg, png, webp).',
+        ], ['idea' => 'ý tưởng', 'characters.*.image' => 'ảnh nhân vật', 'characters.*.name' => 'tên nhân vật', 'age_min' => 'tuổi nhỏ nhất', 'age_max' => 'tuổi lớn nhất', 'episode_count' => 'số tập', 'episode_minutes' => 'độ dài tập']);
 
         if ($name = SeriesPlanner::blockedName($validated['idea'])) {
             return back()->withErrors(['idea' => "Ý tưởng nhắc \"{$name}\" là nhân vật / phim có bản quyền. Hãy tạo nhân vật riêng (vẫn có thể theo phong cách tương tự)."])->withInput();
@@ -77,22 +105,42 @@ class SeriesController extends Controller
             return back()->withErrors(['idea' => $message])->withInput();
         }
 
+        $short = ($validated['format'] ?? 'episodic') === 'silent_short';
+        // Danh sách tập có sẵn: số tập theo danh sách; kịch bản có sẵn gắn theo số tập.
+        $briefs = collect($validated['briefs'] ?? [])->keyBy('number');
+        $list = collect(EpisodeList::parse($validated['episode_list'] ?? null))->map(fn ($e, $i) => [...$e, 'brief' => filled($briefs[$i + 1]['text'] ?? null) ? trim($briefs[$i + 1]['text']) : null])->all();
+        $preset = Series::STYLE_PRESETS[$validated['style_preset'] ?? ($short ? '3d' : '2d')]['style'];
+
         $series = $request->user()->series()->create([
-            'title' => Str::limit(trim($validated['idea']), 60),
+            'title' => Str::limit(trim(ltrim(strtok(trim($validated['idea']), "\n"), '# ')), 60),
             'idea' => trim($validated['idea']),
+            'format' => $short ? 'silent_short' : 'episodic',
             'genre' => $validated['genre'],
             'age_min' => $validated['age_min'],
             'age_max' => $validated['age_max'],
-            'made_for_kids' => Series::madeForKids($validated['age_min']),
-            'style' => filled($validated['style'] ?? null) ? trim($validated['style']) : Series::DEFAULT_STYLE,
-            'episode_count' => $validated['episode_count'],
-            'episode_seconds' => $validated['episode_minutes'] * 60,
+            // Truyện ngắn cho người xem quốc tế 16–34: không đánh dấu "Dành cho trẻ em".
+            'audience' => $short ? (filled($validated['audience'] ?? null) ? trim($validated['audience']) : Series::SHORT_AUDIENCE) : null,
+            'made_for_kids' => $short ? false : Series::madeForKids($validated['age_min']),
+            'style' => filled($validated['style'] ?? null) ? trim($validated['style']) : $preset,
+            'aspect_ratio' => $short ? '9:16' : '16:9',
+            'episode_count' => $list !== [] ? count($list) : $validated['episode_count'],
+            'episode_seconds' => $short ? 30 : ($validated['episode_seconds'] ?? $validated['episode_minutes'] * 60),
+            'clip_budget' => $short ? ($validated['clip_budget'] ?? 3) : null,
+            'seed_episodes' => $list !== [] ? $list : null,
             'subtitle_languages' => array_values(array_unique($validated['subtitle_languages'] ?? [])),
             'status' => SeriesStatus::Planning,
         ]);
+        $seeds = collect($request->file('characters') ?? [])->map(fn ($files, $i) => [
+            'name' => trim($validated['characters'][$i]['name']),
+            'note' => trim((string) ($validated['characters'][$i]['note'] ?? '')),
+            'path' => Media::store($files['image'], "series/{$series->id}/characters"),
+        ])->values()->all();
+        if ($seeds !== []) {
+            $series->update(['seed_characters' => $seeds]);
+        }
         PlanSeriesJob::dispatch($series);
 
-        return to_route('series.show', $series)->with('status', 'Claude đang lên kế hoạch bộ phim (nhân vật, bối cảnh, dàn ý các tập), mất khoảng 1–3 phút...');
+        return to_route('series.show', $series)->with('status', ($seeds !== [] ? 'Claude đang xem ảnh '.count($seeds).' nhân vật và lên kế hoạch' : 'Claude đang lên kế hoạch').' bộ phim (nhân vật, bối cảnh, dàn ý các tập), mất khoảng 1–3 phút...');
     }
 
     public function show(Series $series): Response
@@ -111,6 +159,10 @@ class SeriesController extends Controller
                 'age_max' => $series->age_max,
                 'made_for_kids' => $series->made_for_kids,
                 'style' => $series->style,
+                'format' => $series->format,
+                'format_label' => Series::FORMATS[$series->format] ?? $series->format,
+                'audience' => $series->audience,
+                'clip_budget' => $series->silent() ? $series->clipBudget() : null,
                 'episode_count' => $series->episode_count,
                 'episode_seconds' => $series->episode_seconds,
                 'subtitle_languages' => collect($series->subtitle_languages ?? [])->map(fn ($code) => Series::SUBTITLE_LANGUAGES[$code] ?? $code)->values(),
@@ -145,6 +197,9 @@ class SeriesController extends Controller
                     'title' => $e->title,
                     'synopsis' => $e->synopsis,
                     'lesson' => $e->lesson,
+                    'kind' => $e->kind,
+                    'kind_label' => Series::KINDS[$e->kind] ?? null,
+                    'has_brief' => filled($e->brief),
                     'status' => $e->status,
                     'status_label' => Episode::STATUSES[$e->status] ?? $e->status,
                 ]),
@@ -231,6 +286,32 @@ class SeriesController extends Controller
         PlanSeriesJob::dispatch($series);
 
         return back()->with('status', 'Claude đang lên kế hoạch lại bộ phim...');
+    }
+
+    /** Claude viết kịch bản lô tập kế tiếp chưa viết (mặc định 5 tập, theo kế hoạch kênh: viết theo lô rồi duyệt tránh lặp motif). */
+    public function writeBatch(Request $request, Series $series): RedirectResponse
+    {
+        $this->authorize('update', $series);
+        $validated = $request->validate(['count' => ['nullable', 'integer', 'min:1', 'max:10']]);
+        if ($series->isBusy() || $series->characters()->doesntExist()) {
+            return back()->with('status', 'Bộ phim đang lên kế hoạch hoặc chưa có nhân vật.');
+        }
+        $episodes = $series->episodes()->whereIn('status', ['draft', 'failed'])->whereDoesntHave('shots')->limit($validated['count'] ?? 5)->get();
+        if ($episodes->isEmpty()) {
+            return back()->with('status', 'Mọi tập đã có kịch bản.');
+        }
+        $price = CreditPricing::aiEstimates()['film_episode'] * ($series->silent() ? 2 : max(2, (int) round($series->episode_seconds / EpisodeWriter::SEQUENCE_SECONDS)) + 1) * $episodes->count();
+        if ($message = Credits::shortfall($request->user(), $price, "viết {$episodes->count()} tập")) {
+            return back()->with('status', $message);
+        }
+        // Viết lần lượt (tập sau đọc được tóm tắt tập trước): mỗi tập chạy một job, cách nhau một chút.
+        foreach ($episodes->values() as $i => $episode) {
+            $run = (string) Str::uuid();
+            $episode->update(['status' => 'writing', 'error' => null, 'outline' => ['run' => $run]]);
+            WriteEpisodeJob::dispatch($episode, $run)->delay(now()->addSeconds($i * 20));
+        }
+
+        return back()->with('status', "Claude đang viết kịch bản {$episodes->count()} tập: ".$episodes->map(fn (Episode $e) => "tập {$e->number}")->implode(', ').'. Trang tập tự cập nhật.');
     }
 
     public function destroy(Series $series): RedirectResponse

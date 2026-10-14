@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Film\EpisodeDialogue;
 use App\Services\Film\ShotAudio;
 use App\Services\Film\ShotClipPrompt;
+use App\Services\Film\VoiceMatch;
 use App\Services\Film\VoiceReference;
 use App\Services\Film\Voices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -232,6 +233,70 @@ class ShotVideoTest extends TestCase
         $prompt = ShotClipPrompt::build($talking);
         $this->assertStringContainsString('dialogue track', $prompt);
         $this->assertMatchesRegularExpression('/0\.3s–1\.1s: (.+ speaks this line|off-screen narrator)/u', $prompt);
+    }
+
+    public function test_voice_match_assigns_segments_to_lines()
+    {
+        $leo = ['character_id' => 1];
+        $maya = ['character_id' => 2];
+        // Đủ đoạn: theo thứ tự.
+        $this->assertSame([0, 1], array_column(VoiceMatch::assign([['start' => 0.5, 'end' => 1.2], ['start' => 1.8, 'end' => 2.6]], [$leo, $maya])['segments'], 'line'));
+        // Dư đoạn (Muse ngắt hơi giữa câu): gộp hai đoạn gần nhau nhất.
+        $merged = VoiceMatch::assign([['start' => 0.5, 'end' => 0.9], ['start' => 1.0, 'end' => 1.4], ['start' => 2.2, 'end' => 2.8]], [$leo, $maya]);
+        $this->assertSame([['start' => 0.5, 'end' => 1.4, 'line' => 0], ['start' => 2.2, 'end' => 2.8, 'line' => 1]], $merged['segments']);
+        $this->assertNull($merged['warning']);
+        // Thiếu đoạn, hai người nói: vẫn gán theo vị trí nhưng cảnh báo.
+        $this->assertNotNull(VoiceMatch::assign([['start' => 0.5, 'end' => 2.5]], [$leo, $maya])['warning']);
+        // Muse không nói gì: dùng tiếng đọc sẵn, cảnh báo.
+        $this->assertSame([], VoiceMatch::assign([], [$leo])['segments']);
+        $this->assertNotNull(VoiceMatch::assign([], [$leo])['warning']);
+    }
+
+    public function test_muse_speech_is_converted_to_character_voice_and_kept_in_place()
+    {
+        $shot = $this->episode->shots()->first();
+        $character = $this->series->characters()->first();
+        $shot->update(['dialogue' => [['character_id' => $character->id, 'line' => 'Whoa! Every single flag is gray!', 'emotion' => 'surprised']], 'image_status' => 'ready', 'image_path' => 'k.png']);
+        ShotAudio::ensure($shot->fresh());
+        // Clip Muse có tiếng nói từ 0,5 đến 1,5 giây (tiếng bíp thay cho lời).
+        $file = tempnam(sys_get_temp_dir(), 'clip').'.mp4';
+        Process::run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:d=3:r=24', '-f', 'lavfi', '-i', "aevalsrc='if(between(t,0.5,1.5),0.5*sin(2*PI*300*t),0)':s=24000:d=3", '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', $file])->throw();
+        Storage::disk(config('videoaff.disk'))->put('c/clip.mp4', file_get_contents($file));
+        @unlink($file);
+        $shot->update(['clip_path' => 'c/clip.mp4', 'clip_status' => 'ready']);
+        $this->assertSame([[0.5, 1.5]], array_map(fn ($s) => [round($s['start'], 1), round($s['end'], 1)], VoiceMatch::segments(self::extract('c/clip.mp4'))));
+
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('series.episodes.shots.resync', $this->params(['shot' => $shot->id])))->assertSessionHas('status');
+        Queue::assertPushed(AnimateShotJob::class);
+        $this->assertSame('sync', $shot->fresh()->clip_stage);
+        $credits = $this->user->creditTransactions()->count();
+
+        $job = new AnimateShotJob($shot->fresh());
+        $job->handle(); // gửi đổi giọng
+        $this->assertSame('vc', $this->expressive[0]['kind'] ?? 'vc');
+        $this->assertEqualsWithDelta(0.5, $this->expressive[0]['segments'][0]['start'], 0.05);
+        $this->assertSame(base64_encode(Storage::disk(config('videoaff.disk'))->get(VoiceReference::path($this->series->id, $character->voice))), $this->expressive[0]['segments'][0]['ref']);
+        $job->handle(); // đang đổi
+        $this->assertSame('pending', $shot->fresh()->clip_status);
+        $job->handle(); // xong → ghép video
+        $shot->refresh();
+        $this->assertSame('ready', $shot->clip_status);
+        $this->assertNull($shot->clip_stage);
+        $this->assertNotNull($shot->synced_audio_path);
+        $this->assertNotNull($shot->video_path);
+        // Khớp lại tiếng không gọi Muse, không trừ Credits.
+        $this->assertSame($credits, $this->user->creditTransactions()->count());
+    }
+
+    private static function extract(string $clip): string
+    {
+        $mp4 = tempnam(sys_get_temp_dir(), 'c').'.mp4';
+        $wav = tempnam(sys_get_temp_dir(), 'w').'.wav';
+        file_put_contents($mp4, Storage::disk(config('videoaff.disk'))->get($clip));
+        Process::run(['ffmpeg', '-v', 'error', '-y', '-i', $mp4, '-vn', '-ac', '1', '-ar', '24000', $wav])->throw();
+
+        return $wav;
     }
 
     public function test_remake_one_shot_video_and_voice_sample()

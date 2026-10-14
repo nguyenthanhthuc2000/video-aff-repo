@@ -9,7 +9,9 @@ use App\Models\User;
 use App\Services\Film\AgeRules;
 use App\Services\Film\SeriesPlanner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -50,6 +52,40 @@ class SeriesTest extends TestCase
         $this->assertSame(3, $series->characters()->count());
         $this->assertSame('am_puck', $series->characters()->first()->voice['voice']);
         $this->assertSame(3, $series->locations()->count());
+    }
+
+    public function test_creator_uploads_character_images_and_picks_30_second_episodes()
+    {
+        Storage::fake(config('videoaff.disk'));
+        $user = User::factory()->create();
+        $this->actingAs($user)->post(route('series.store'), $this->payload([
+            'episode_minutes' => null,
+            'episode_seconds' => 30,
+            'characters' => [
+                ['name' => 'Milo', 'note' => 'nhân vật chính', 'image' => UploadedFile::fake()->image('milo.png', 400, 400)],
+                ['name' => 'Bông', 'note' => 'cô mèo trắng', 'image' => UploadedFile::fake()->image('bong.jpg', 400, 400)],
+            ],
+        ]))->assertRedirect()->assertSessionHas('status', fn ($s) => str_contains($s, 'xem ảnh 2 nhân vật'));
+
+        $series = $user->series()->sole();
+        $this->assertSame(30, $series->episode_seconds);
+        $this->assertSame(SeriesStatus::BibleReady, $series->status, (string) $series->error);
+        $this->assertStringContainsString('30 seconds', SeriesPlanner::userText($series));
+        $this->assertStringContainsString('Image 1: Milo (nhân vật chính)', SeriesPlanner::userText($series));
+        // Milo có trong kế hoạch của Claude: gắn ảnh; Bông Claude bỏ sót: vẫn được thêm, có ảnh.
+        $milo = $series->characters()->where('name', 'Milo')->sole();
+        $bong = $series->characters()->where('name', 'Bông')->sole();
+        foreach ([$milo, $bong] as $character) {
+            $this->assertNotNull($character->main_image_path);
+            Storage::disk(config('videoaff.disk'))->assertExists($character->main_image_path);
+            $this->assertSame(1, $character->images()->where('source', 'upload')->count());
+        }
+        $this->assertSame('cô mèo trắng', $bong->appearance);
+        $this->assertNull($series->characters()->where('name', 'Lily')->value('main_image_path'));
+
+        // Ảnh bắt buộc, tên không trùng, độ dài phải trong danh sách.
+        $this->actingAs($user)->post(route('series.store'), $this->payload(['episode_seconds' => 45, 'characters' => [['name' => 'A'], ['name' => 'a', 'image' => UploadedFile::fake()->image('a.png')]]]))
+            ->assertSessionHasErrors(['episode_seconds', 'characters.0.image', 'characters.0.name']);
     }
 
     public function test_teen_series_is_not_made_for_kids()

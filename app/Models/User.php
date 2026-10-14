@@ -23,6 +23,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'english_profile',
     ];
 
     /**
@@ -100,6 +101,11 @@ class User extends Authenticatable
     public function series(): HasMany
     {
         return $this->hasMany(Series::class);
+    }
+
+    public function englishLessons(): HasMany
+    {
+        return $this->hasMany(EnglishLesson::class)->orderBy('day');
     }
 
     public function isAdmin(): bool

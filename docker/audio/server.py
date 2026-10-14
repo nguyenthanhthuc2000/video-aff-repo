@@ -4,6 +4,15 @@ POST /tts {"lines": [{"text", "voice", "speed", "pitch"}], "lead": giây, "gap":
     -> {"base64": WAV 24 kHz mono, "duration": giây, "lines": [{"start", "end"}]}
     Cùng giọng + cùng thông số luôn ra cùng một chất giọng (Kokoro không ngẫu nhiên), nên mỗi nhân vật giữ một giọng ở mọi cảnh.
 
+    Câu có "lang": "vi" đọc bằng Piper giọng tiếng Việt vais1000 (CC BY 4.0) cho bản lồng tiếng Việt; pitch / speed như trên.
+
+POST /music {"cues": [{"cue": {tempo, style, lead, pad, arp, bars: [{chord, melody}]}, "seconds"}]}
+    -> {"cues": [{"base64": WAV 44,1 kHz stereo, "duration"}]}  Nhạc Claude sáng tác cho tập phim (music.py, FluidSynth).
+
+POST /transcribe {"base64": file ghi âm, "language": "en"}
+    -> {"text", "duration", "words": [{"start", "end", "word", "probability"}], "segments": [{"start", "end", "text"}]}
+    Chép lời người học đọc / nói (faster-whisper, không gợi ý câu mẫu để chấm phát âm cho thật).
+
 POST /analyze {"base64": "...", "name": "song.mp3", "language": "vi"} -> {"id": "..."} (chạy nền, mỗi lần một bài)
 GET /analyze/<id> -> {"state": "pending"} | {"state": "failed", "error"} |
     {"state": "done", "duration": giây, "vocals": [{"start", "end"}], "words": [{"start", "end", "text"}]}
@@ -140,6 +149,30 @@ def analyze(data, name, language):
         return {"duration": round(duration, 2), "vocals": vocals, "words": words}
 
 
+def transcribe(data, language):
+    with tempfile.TemporaryDirectory() as tmp:
+        source = os.path.join(tmp, "speech")
+        with open(source, "wb") as f:
+            f.write(data)
+        wav = os.path.join(tmp, "speech.wav")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-ac", "1", "-ar", "16000", wav], check=True)
+        with LOCK:
+            segments, info = whisper().transcribe(
+                wav, language=language or "en", word_timestamps=True, vad_filter=True, condition_on_previous_text=False, beam_size=5,
+            )
+            segments = list(segments)
+        words = [
+            {"start": round(w.start, 2), "end": round(w.end, 2), "word": w.word.strip(), "probability": round(w.probability, 3)}
+            for seg in segments for w in (seg.words or []) if w.word.strip()
+        ]
+        return {
+            "text": " ".join(seg.text.strip() for seg in segments).strip(),
+            "duration": round(info.duration, 2),
+            "words": words,
+            "segments": [{"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()} for seg in segments],
+        }
+
+
 def run(task_id, data, name, language):
     try:
         # Mỗi lần một bài: Demucs và Whisper dùng nhiều CPU / RAM.
@@ -166,6 +199,25 @@ def pipeline(voice):
     return _pipelines[lang]
 
 
+_piper = None
+
+
+def piper_vi(text, speed):
+    """Tiếng Việt: Piper (MIT) + giọng vais1000 (CC BY 4.0), đổi về 24 kHz như Kokoro."""
+    global _piper
+    from piper import PiperVoice
+
+    if _piper is None:
+        _piper = PiperVoice.load(os.environ.get("PIPER_VI_MODEL", "/models/piper/vi_VN-vais1000-medium.onnx"))
+    rate = _piper.config.sample_rate
+    pcm = b"".join(_piper.synthesize_stream_raw(text, length_scale=1.0 / max(0.5, speed), sentence_silence=0.15))
+    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    if rate != TTS_RATE and len(audio) > 1:
+        idx = np.linspace(0, len(audio) - 1, int(len(audio) * TTS_RATE / rate))
+        audio = np.interp(idx, np.arange(len(audio)), audio).astype(np.float32)
+    return audio
+
+
 def shift_pitch(audio, pitch):
     """Nâng / hạ cao độ, giữ nguyên tốc độ (asetrate rồi atempo bù lại), như bản nghe thử F0."""
     if abs(pitch - 1.0) < 0.001:
@@ -184,9 +236,13 @@ def tts(body):
     pieces, lines, cursor = [np.zeros(int(lead * TTS_RATE), dtype=np.float32)], [], lead
     with TTS_LOCK:
         for i, line in enumerate(body.get("lines", [])):
-            voice = str(line["voice"])
-            chunks = [np.asarray(audio, dtype=np.float32) for _, _, audio in pipeline(voice)(str(line["text"]), voice=voice, speed=float(line.get("speed", 1.0)))]
-            audio = shift_pitch(np.concatenate(chunks) if chunks else np.zeros(1, dtype=np.float32), float(line.get("pitch", 1.0)))
+            voice = str(line.get("voice", ""))
+            if line.get("lang") == "vi":
+                raw = piper_vi(str(line["text"]), float(line.get("speed", 1.0)))
+            else:
+                chunks = [np.asarray(audio, dtype=np.float32) for _, _, audio in pipeline(voice)(str(line["text"]), voice=voice, speed=float(line.get("speed", 1.0)))]
+                raw = np.concatenate(chunks) if chunks else np.zeros(1, dtype=np.float32)
+            audio = shift_pitch(raw if len(raw) else np.zeros(1, dtype=np.float32), float(line.get("pitch", 1.0)))
             if i > 0:
                 pieces.append(np.zeros(int(gap * TTS_RATE), dtype=np.float32))
                 cursor += gap
@@ -231,10 +287,23 @@ class Handler(BaseHTTPRequestHandler):
             TASKS.pop(self.path.rsplit("/", 1)[-1], None)
 
     def do_POST(self):
-        if self.path not in ("/analyze", "/tts"):
+        if self.path not in ("/analyze", "/tts", "/transcribe", "/music"):
             return self.reply(404, {"error": "not found"})
         if not self.authorized():
             return self.reply(401, {"error": "unauthorized"})
+        if self.path == "/music":
+            try:
+                import music
+
+                return self.reply(200, music.score(json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))))
+            except Exception as e:  # noqa: BLE001
+                return self.reply(500, {"error": "Phát nhạc thất bại: " + str(e)[:300]})
+        if self.path == "/transcribe":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                return self.reply(200, transcribe(base64.b64decode(body["base64"]), body.get("language", "en")))
+            except Exception as e:  # noqa: BLE001
+                return self.reply(500, {"error": "Chép lời thất bại: " + str(e)[:300]})
         if self.path == "/tts":
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))

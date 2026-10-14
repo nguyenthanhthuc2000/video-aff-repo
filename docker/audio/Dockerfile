@@ -18,7 +18,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng && rm
 COPY kokoro_voices.txt ./
 RUN python -c "from kokoro import KPipeline; [KPipeline(lang_code=l, repo_id='hexgrad/Kokoro-82M').load_voice(v) for l in 'ab' for v in open('kokoro_voices.txt').read().split() if (v[0] == 'b') == (l == 'b')]"
 
-COPY server.py ./
+# Bản lồng tiếng Việt: Piper (MIT) + giọng vais1000-medium (dữ liệu VAIS-1000, CC BY 4.0).
+RUN pip install --no-cache-dir piper-tts==1.2.0 \
+    && mkdir -p /models/piper && cd /models/piper \
+    && python -c "import urllib.request as u; b='https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium'; [u.urlretrieve(b + e, 'vi_VN-vais1000-medium' + e) for e in ('.onnx', '.onnx.json')]"
+
+# Nhạc riêng cho tập phim: FluidSynth + SoundFont FluidR3_GM (MIT), mido ghi MIDI.
+RUN apt-get update && apt-get install -y --no-install-recommends fluidsynth fluid-soundfont-gm && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir mido==1.3.3
+
+COPY server.py music.py ./
 ENV PORT=3100
 EXPOSE 3100
 CMD ["python", "server.py"]

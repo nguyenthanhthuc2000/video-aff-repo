@@ -6,6 +6,7 @@ use App\Enums\SeriesStatus;
 use App\Models\Series;
 use App\Services\Claude\AiUsage;
 use App\Services\Film\SeriesPlanner;
+use App\Services\Film\Voices;
 use App\Services\Script\ScriptWriterException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -54,8 +55,21 @@ class PlanSeriesJob implements ShouldQueue
             $series->characters()->delete();
             $series->locations()->delete();
             $series->episodes()->delete();
-            foreach ($plan['characters'] as $i => $character) {
-                $series->characters()->create([...$character, 'position' => $i]);
+            // Nhân vật có sẵn ảnh: khớp theo tên, ảnh thành ảnh chính; Claude bỏ sót thì vẫn thêm (ngoại hình theo ghi chú).
+            $seeds = collect($series->seed_characters ?? [])->keyBy(fn ($c) => mb_strtolower(trim($c['name'])));
+            $characters = collect($plan['characters']);
+            foreach ($seeds as $key => $seed) {
+                if (! $characters->contains(fn ($c) => mb_strtolower(trim($c['name'])) === $key)) {
+                    $characters->prepend(['name' => $seed['name'], 'role' => 'main', 'age' => null, 'personality' => '', 'appearance' => $seed['note'] ?: $seed['name'],
+                        'voice' => Voices::forType('kid_boy', $characters->pluck('voice.voice')->all())]);
+                }
+            }
+            foreach ($characters->values() as $i => $character) {
+                $created = $series->characters()->create([...$character, 'position' => $i]);
+                if ($seed = $seeds->get(mb_strtolower(trim($character['name'])))) {
+                    $created->images()->create(['kind' => 'main', 'source' => 'upload', 'status' => 'ready', 'path' => $seed['path']]);
+                    $created->update(['main_image_path' => $seed['path']]);
+                }
             }
             foreach ($plan['locations'] as $i => $location) {
                 $series->locations()->create([...$location, 'position' => $i]);

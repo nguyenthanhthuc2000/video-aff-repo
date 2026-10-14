@@ -11,7 +11,7 @@ import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ChevronRight, ImageIcon, Loader2, Lock, Plus, RefreshCw, Save, Trash2, UserRound } from 'lucide-react';
+import { ChevronRight, FileText, ImageIcon, Loader2, Lock, Plus, RefreshCw, Save, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import CharacterFields, { type CharacterFormData, emptyCharacter } from './character-form';
 
@@ -42,6 +42,9 @@ interface Episode {
     title: string;
     synopsis: string;
     lesson: string | null;
+    kind: string | null;
+    kind_label: string | null;
+    has_brief: boolean;
     status: string;
     status_label: string;
 }
@@ -60,6 +63,10 @@ interface SeriesDetail {
     title: string;
     idea: string;
     genre_label: string;
+    format: string;
+    format_label: string;
+    audience: string | null;
+    clip_budget: number | null;
     age_min: number;
     age_max: number;
     made_for_kids: boolean;
@@ -119,8 +126,11 @@ export default function SeriesShow({
                             </Badge>
                         </div>
                         <p className="text-muted-foreground text-sm">
-                            {series.genre_label} · {series.age_min}–{series.age_max} tuổi{series.made_for_kids && ' · Dành cho trẻ em'} ·{' '}
-                            {series.episode_count} tập × {Math.round(series.episode_seconds / 60)} phút
+                            {series.format === 'silent_short'
+                                ? `${series.format_label} · ${series.clip_budget} clip AI / tập`
+                                : `${series.genre_label} · ${series.age_min}–${series.age_max} tuổi${series.made_for_kids ? ' · Dành cho trẻ em' : ''}`}{' '}
+                            · {series.episode_count} tập ×{' '}
+                            {series.episode_seconds < 60 ? `${series.episode_seconds} giây` : `${Math.round(series.episode_seconds / 60)} phút`}
                             {series.subtitle_languages.length > 0 && ` · Phụ đề: ${series.subtitle_languages.join(', ')}`}
                         </p>
                     </div>
@@ -143,6 +153,7 @@ export default function SeriesShow({
                     <summary className="cursor-pointer font-medium">Ý tưởng gốc và phong cách</summary>
                     <p className="mt-2 whitespace-pre-line">{series.idea}</p>
                     <p className="text-muted-foreground mt-2 text-xs">Phong cách: {series.style}</p>
+                    {series.audience && <p className="text-muted-foreground mt-1 text-xs">Người xem: {series.audience}</p>}
                 </details>
 
                 {series.status === 'planning' ? (
@@ -252,7 +263,29 @@ function PlanEditor({ series, roles, voiceTypes }: { series: SeriesDetail; roles
             )}
 
             <section className="space-y-4">
-                <h2 className="text-lg font-semibold">Các tập</h2>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-semibold">Các tập</h2>
+                    {series.episodes.some((e) => e.status === 'draft') && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            title="Claude viết kịch bản 5 tập kế tiếp chưa viết, lần lượt từng tập (tập sau biết tập trước để tránh lặp motif)"
+                            onClick={() => {
+                                const next = series.episodes.filter((e) => e.status === 'draft').slice(0, 5);
+                                if (
+                                    confirm(
+                                        `Claude viết kịch bản ${next.length} tập: ${next.map((e) => e.number).join(', ')}. Tốn Credits theo số tập. Tiếp tục?`,
+                                    )
+                                ) {
+                                    router.post(route('series.episodes.batch', series.id), { count: 5 }, { preserveScroll: true });
+                                }
+                            }}
+                        >
+                            <Sparkles /> Viết 5 tập kế tiếp
+                        </Button>
+                    )}
+                </div>
                 <div className="space-y-3">
                     {data.episodes.map((episode, index) => (
                         <div key={episode.id} className="space-y-2 rounded-xl border p-4">
@@ -263,6 +296,16 @@ function PlanEditor({ series, roles, voiceTypes }: { series: SeriesDetail; roles
                                     onChange={(e) => setItem('episodes', index, { title: e.target.value })}
                                     className="font-medium"
                                 />
+                                {series.episodes[index]?.kind_label && (
+                                    <Badge variant="outline" className="shrink-0">
+                                        {series.episodes[index]?.kind_label}
+                                    </Badge>
+                                )}
+                                {series.episodes[index]?.has_brief && (
+                                    <span title="Có kịch bản chi tiết sẵn: Claude viết shot bám theo" className="text-muted-foreground shrink-0">
+                                        <FileText className="size-4" />
+                                    </span>
+                                )}
                                 <Badge variant="secondary" className="shrink-0">
                                     {series.episodes[index]?.status_label}
                                 </Badge>
@@ -274,7 +317,7 @@ function PlanEditor({ series, roles, voiceTypes }: { series: SeriesDetail; roles
                             </div>
                             <Textarea rows={3} value={episode.synopsis} onChange={(e) => setItem('episodes', index, { synopsis: e.target.value })} />
                             <Input
-                                placeholder="Bài học / kiến thức của tập"
+                                placeholder={series.format === 'silent_short' ? 'Cảm xúc / thông điệp của tập' : 'Bài học / kiến thức của tập'}
                                 value={episode.lesson}
                                 onChange={(e) => setItem('episodes', index, { lesson: e.target.value })}
                             />

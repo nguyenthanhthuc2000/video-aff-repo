@@ -13,7 +13,12 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { Check, ChevronLeft, ChevronRight, Loader2, Lock, Save, UserRound } from 'lucide-react';
 import { type FormEvent } from 'react';
+import EpisodePackagePanel, { type EpisodePackage } from './episode-package';
+import EpisodeRender, { type EpisodeDubInfo, type EpisodeRenderInfo, type EpisodeVersion } from './episode-render';
+import EpisodeScorePanel, { type EpisodeScoreInfo } from './episode-score';
 import EpisodeShots, { type Sequence, type Shot } from './episode-shots';
+import EpisodeSoundsPanel, { type EpisodeSounds } from './episode-sounds';
+import EpisodeTitlesPanel, { type EpisodeTitles } from './episode-titles';
 
 interface EpisodeDetail {
     id: number;
@@ -21,9 +26,18 @@ interface EpisodeDetail {
     title: string;
     synopsis: string;
     lesson: string | null;
+    kind: string | null;
+    brief: string | null;
+    package: EpisodePackage | null;
     character_ids: number[];
     status: string;
     voice_engine: string;
+    render: EpisodeRenderInfo;
+    render_vi: EpisodeDubInfo;
+    renders: EpisodeVersion[];
+    score: EpisodeScoreInfo;
+    sounds: EpisodeSounds;
+    titles: EpisodeTitles;
     status_label: string;
     error: string | null;
     summary: string | null;
@@ -49,22 +63,46 @@ export default function SeriesEpisode({
     episode,
     characters,
     cameras,
+    cameraMoves,
+    kinds,
     voiceEngines,
+    dubVoices,
+    aspects,
+    musicTracks,
     pricing,
     previous,
     next,
 }: {
-    series: { id: number; title: string; episode_seconds: number; episode_count: number };
+    series: {
+        id: number;
+        title: string;
+        silent: boolean;
+        vertical: boolean;
+        clip_budget: number | null;
+        episode_seconds: number;
+        episode_count: number;
+    };
     episode: EpisodeDetail;
     characters: CharacterItem[];
     cameras: string[];
+    cameraMoves: Record<string, string>;
+    kinds: Record<string, string>;
     voiceEngines: Record<string, string>;
-    pricing: { write: number; image: number; rewrite: number; clip: number };
+    musicTracks: { id: number; name: string }[];
+    dubVoices: Record<string, string>;
+    aspects: Record<string, string>;
+    pricing: { write: number; image: number; rewrite: number; clip: number; render: number; sounds: number; translate: number; titles: number };
     previous: EpisodeNav;
     next: EpisodeNav;
 }) {
     usePoll(
         episode.status === 'writing' ||
+            episode.render.status === 'rendering' ||
+            episode.render_vi.status === 'rendering' ||
+            episode.sounds.status === 'planning' ||
+            episode.score.status === 'composing' ||
+            episode.titles.status === 'suggesting' ||
+            episode.renders.some((render) => render.art_status === 'pending') ||
             episode.shots.some((shot) => shot.image_status === 'pending' || shot.clip_status === 'pending' || shot.audio_pending),
         ['episode'],
         5000,
@@ -83,7 +121,7 @@ export default function SeriesEpisode({
                     <div className="flex items-center gap-2">
                         <Heading
                             title={`Tập ${episode.number}: ${episode.title}`}
-                            description={`${series.title} · khoảng ${Math.round(series.episode_seconds / 60)} phút`}
+                            description={`${series.title} · khoảng ${series.episode_seconds < 60 ? `${series.episode_seconds} giây` : `${Math.round(series.episode_seconds / 60)} phút`}`}
                         />
                         <Badge variant={episode.status === 'failed' ? 'destructive' : 'secondary'}>{episode.status_label}</Badge>
                     </div>
@@ -97,7 +135,14 @@ export default function SeriesEpisode({
                     <p className="border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-4 py-3 text-sm">{episode.error}</p>
                 )}
 
-                <EpisodeForm key={episode.id} seriesId={series.id} episode={episode} characters={characters} />
+                <EpisodeForm
+                    key={`${episode.id}-${episode.title}`}
+                    seriesId={series.id}
+                    episode={episode}
+                    characters={characters}
+                    silent={series.silent}
+                    kinds={kinds}
+                />
 
                 <EpisodeShots
                     base={{ series: series.id, episode: episode.id }}
@@ -108,10 +153,60 @@ export default function SeriesEpisode({
                     shots={episode.shots}
                     characters={characters}
                     cameras={cameras}
+                    cameraMoves={cameraMoves}
+                    silent={series.silent}
+                    vertical={series.vertical}
+                    clipBudget={series.clip_budget}
                     voiceEngine={episode.voice_engine}
                     voiceEngines={voiceEngines}
                     pricing={pricing}
                     episodeSeconds={series.episode_seconds}
+                />
+
+                <EpisodeTitlesPanel
+                    base={{ series: series.id, episode: episode.id }}
+                    titles={episode.titles}
+                    current={episode.title}
+                    hasShots={episode.shots.length > 0}
+                    price={pricing.titles}
+                />
+
+                {episode.package && <EpisodePackagePanel pack={episode.package} />}
+
+                <EpisodeSoundsPanel
+                    base={{ series: series.id, episode: episode.id }}
+                    sounds={episode.sounds}
+                    hasShots={episode.shots.length > 0}
+                    price={pricing.sounds}
+                />
+
+                <EpisodeScorePanel
+                    base={{ series: series.id, episode: episode.id }}
+                    score={episode.score}
+                    hasShots={episode.shots.length > 0}
+                    price={pricing.sounds}
+                />
+
+                <EpisodeRender
+                    base={{ series: series.id, episode: episode.id }}
+                    render={episode.render}
+                    dub={episode.render_vi}
+                    renders={episode.renders}
+                    dubVoices={dubVoices}
+                    aspects={aspects}
+                    translatePrice={pricing.translate}
+                    imagePrice={pricing.image}
+                    titlePrice={pricing.titles}
+                    titleIdeas={episode.titles.ideas}
+                    shots={episode.shots}
+                    musicTracks={musicTracks}
+                    price={pricing.render}
+                    soundCount={episode.sounds.items.length}
+                    soundsReady={episode.sounds.library_ready}
+                    soundsPlanning={episode.sounds.status === 'planning'}
+                    soundPrice={pricing.sounds}
+                    scoreReady={episode.score.cues.length > 0}
+                    silent={series.silent}
                 />
 
                 {episode.summary && (
@@ -144,13 +239,27 @@ function EpisodeLink({ series, episode, direction }: { series: number; episode: 
     );
 }
 
-function EpisodeForm({ seriesId, episode, characters }: { seriesId: number; episode: EpisodeDetail; characters: CharacterItem[] }) {
+function EpisodeForm({
+    seriesId,
+    episode,
+    characters,
+    silent,
+    kinds,
+}: {
+    seriesId: number;
+    episode: EpisodeDetail;
+    characters: CharacterItem[];
+    silent: boolean;
+    kinds: Record<string, string>;
+}) {
     const { data, setData, put, processing, errors, isDirty } = useForm({
         title: episode.title,
         synopsis: episode.synopsis,
         lesson: episode.lesson ?? '',
         character_ids: episode.character_ids,
+        ...(silent ? { kind: episode.kind ?? '', brief: episode.brief ?? '' } : {}),
     });
+    const form = data as typeof data & { kind?: string; brief?: string };
 
     const toggle = (id: number) =>
         setData('character_ids', data.character_ids.includes(id) ? data.character_ids.filter((item) => item !== id) : [...data.character_ids, id]);
@@ -172,11 +281,45 @@ function EpisodeForm({ seriesId, episode, characters }: { seriesId: number; epis
                 <Textarea id="synopsis" rows={4} value={data.synopsis} onChange={(e) => setData('synopsis', e.target.value)} />
                 <InputError message={errors.synopsis} />
             </div>
-            <div className="space-y-2">
-                <Label htmlFor="lesson">Bài học / kiến thức của tập</Label>
-                <Input id="lesson" value={data.lesson} onChange={(e) => setData('lesson', e.target.value)} />
-                <InputError message={errors.lesson} />
+            <div className={silent ? 'grid gap-4 sm:grid-cols-[1fr_200px]' : 'space-y-2'}>
+                <div className="space-y-2">
+                    <Label htmlFor="lesson">{silent ? 'Cảm xúc / thông điệp của tập' : 'Bài học / kiến thức của tập'}</Label>
+                    <Input id="lesson" value={data.lesson} onChange={(e) => setData('lesson', e.target.value)} />
+                    <InputError message={errors.lesson} />
+                </div>
+                {silent && (
+                    <div className="space-y-2">
+                        <Label htmlFor="kind">Thể loại</Label>
+                        <select
+                            id="kind"
+                            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                            value={form.kind ?? ''}
+                            onChange={(e) => setData((current) => ({ ...current, kind: e.target.value }))}
+                        >
+                            <option value="">Chưa chọn</option>
+                            {Object.entries(kinds).map(([key, label]) => (
+                                <option key={key} value={key}>
+                                    {label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
             </div>
+            {silent && (
+                <div className="space-y-2">
+                    <Label htmlFor="brief">Kịch bản có sẵn (không bắt buộc)</Label>
+                    <Textarea
+                        id="brief"
+                        rows={form.brief ? 8 : 3}
+                        value={form.brief ?? ''}
+                        onChange={(e) => setData((current) => ({ ...current, brief: e.target.value }))}
+                        placeholder="Dán kịch bản của tập (bảng cảnh, thời gian, hành động, âm thanh, prompt ảnh / video). Claude viết shot bám theo kịch bản này."
+                        className="font-mono text-xs"
+                    />
+                    <InputError message={(errors as Record<string, string>).brief} />
+                </div>
+            )}
 
             <div className="space-y-2">
                 <Label>Nhân vật xuất hiện trong tập</Label>

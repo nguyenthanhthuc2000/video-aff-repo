@@ -18,12 +18,16 @@ final class FilmClaude
     /**
      * @param  string  $action  Thao tác (chọn model, dòng chi phí): film_plan, film_episode...
      * @param  Closure(): array  $sample  Kết quả mẫu cho driver fake (test).
+     * @param  list<array{data: string, media_type: string}>  $images  Ảnh gửi kèm (nội dung file), đặt trước phần chữ.
      *
      * @throws ScriptWriterException
      */
-    public static function json(string $system, string $text, array $schema, string $action, string $logContext, int $maxTokens, Closure $sample): array
+    public static function json(string $system, string $text, array $schema, string $action, string $logContext, int $maxTokens, Closure $sample, array $images = []): array
     {
-        $content = [['type' => 'text', 'text' => $text]];
+        $content = [
+            ...array_map(fn ($image) => ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $image['media_type'], 'data' => base64_encode($image['data'])]], $images),
+            ['type' => 'text', 'text' => $text],
+        ];
 
         return match (ScriptDriver::current()) {
             'claude_cli' => self::viaCli($system, $content, $schema, $logContext),

@@ -10,14 +10,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Shot extends Model
 {
     protected $fillable = [
-        'episode_id', 'sequence', 'position', 'series_location_id', 'character_ids', 'camera', 'action', 'dialogue',
+        'episode_id', 'sequence', 'position', 'series_location_id', 'character_ids', 'camera', 'camera_move', 'action', 'motion', 'sound_cue', 'animate', 'dialogue',
         'duration_ms', 'continues_previous', 'image_status', 'image_path', 'clip_status', 'clip_path', 'clip_parts',
-        'audio_path', 'audio_key', 'audio_ms', 'audio_lines', 'clip_request_id', 'clip_error', 'video_path', 'request_id', 'error',
+        'audio_path', 'audio_key', 'audio_ms', 'audio_lines', 'clip_stage', 'synced_audio_path', 'sync_warning', 'clip_request_id', 'clip_error', 'video_path', 'request_id', 'error',
+        'dub_vi_path', 'dub_vi_key', 'dub_vi_lines',
     ];
 
     protected function casts(): array
     {
-        return ['character_ids' => 'array', 'dialogue' => 'array', 'clip_parts' => 'array', 'audio_lines' => 'array', 'continues_previous' => 'boolean'];
+        return ['character_ids' => 'array', 'dialogue' => 'array', 'clip_parts' => 'array', 'audio_lines' => 'array', 'dub_vi_lines' => 'array', 'continues_previous' => 'boolean', 'animate' => 'boolean'];
     }
 
     public function episode(): BelongsTo

@@ -17,8 +17,17 @@ final class ShotClipPrompt
         return max(3, min(self::MAX_SECONDS, (int) ceil($shot->duration_ms / 1000)));
     }
 
+    /** Tên tiếng Anh của chuyển động máy (gửi Muse). */
+    public const MOVES = [
+        'static' => 'locked-off camera, no camera movement', 'push_in' => 'camera slowly pushes in', 'pull_out' => 'camera slowly pulls back',
+        'pan_left' => 'camera slowly pans left', 'pan_right' => 'camera slowly pans right', 'tilt_up' => 'camera slowly tilts up', 'tilt_down' => 'camera slowly tilts down',
+    ];
+
     public static function build(Shot $shot, ?string $notes = null): string
     {
+        if ($shot->episode->series->silent()) {
+            return self::short($shot, $notes);
+        }
         $characters = $shot->episode->series->characters()->get()->keyBy('id');
         $inFrame = ShotPrompt::characters($shot)->map(fn (SeriesCharacter $c) => $c->name.' ('.Str::words($c->appearance, 12, '').')')->implode('; ');
         $seconds = self::seconds($shot);
@@ -34,8 +43,8 @@ final class ShotClipPrompt
                 : "{$from}s–{$to}s: off-screen narrator says: \"{$text}\" (no character's mouth moves)";
         })->implode("\n");
 
-        return "Make a {$seconds}-second clip. Camera: {$shot->camera}; keep the framing of the keyframe, only gentle camera motion.\n"
-            ."What happens: {$shot->action}\n"
+        return "Make a {$seconds}-second clip ({$shot->episode->series->frameLine()}). Camera: {$shot->camera}; keep the framing of the keyframe, only gentle camera motion.\n"
+            .'What happens: '.($shot->motion ?: $shot->action)."\n"
             .($inFrame !== '' ? "Characters (keep them exactly as drawn): {$inFrame}.\n" : '')
             .($timeline !== ''
                 ? "The attached audio is the dialogue track of this clip; make the clip exactly as long as the audio. Dialogue timeline:\n{$timeline}\n"
@@ -43,5 +52,21 @@ final class ShotClipPrompt
                 : "No one speaks in this clip: mouths stay closed. No voices, no music.\n")
             .(filled($notes) ? 'Additional direction: '.trim($notes).".\n" : '')
             .'Smooth, simple TV-cartoon animation (like a 2D kids series), natural timing, no sudden cuts, no new characters.';
+    }
+
+    /** Truyện ngắn không thoại: prompt image-to-video theo chuyển động Claude viết cho shot, một hành động chính, không lời. */
+    private static function short(Shot $shot, ?string $notes): string
+    {
+        $inFrame = ShotPrompt::characters($shot)->map(fn (SeriesCharacter $c) => $c->name.' ('.Str::words($c->appearance, 14, '').')')->implode('; ');
+
+        return 'Animate the supplied reference frame for '.self::seconds($shot)." seconds ({$shot->episode->series->frameLine()}).\n"
+            .($shot->motion ?: $shot->action)."\n"
+            ."Camera: {$shot->camera}; ".(self::MOVES[$shot->camera_move ?? ''] ?? self::MOVES['push_in']).".\n"
+            .($inFrame !== '' ? "Characters (keep them exactly as in the frame): {$inFrame}.\n" : '')
+            .(($continuity = ShotPrompt::continuity($shot)) !== '' ? "Continuity (must stay true for the whole clip):\n{$continuity}\n" : '')
+            .(filled($notes) ? 'Additional direction: '.trim($notes).".\n" : '')
+            .'Maintain exact identity, fur pattern, body proportions, clothing, accessories, background and prop positions; keep key props visible. '
+            .'One continuous shot, no cuts, no transformation, no morphing props, no new characters, natural character motion. '
+            .'No dialogue: mouths stay closed (silent laughs and expressions are fine); no voices, no music, no text.';
     }
 }

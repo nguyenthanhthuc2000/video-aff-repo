@@ -21,15 +21,63 @@ final class ShotRewriter
     camera: pick from the allowed list, preferably different from the old one.
     PROMPT;
 
+    public const CLIP_SYSTEM = <<<'PROMPT'
+    You fix one shot of an animated series after the image-to-video AI refused to animate its keyframe. The keyframe image stays the same;
+    only the motion description changes. Write a NEW motion for this frame that keeps the same story beat but avoids whatever the refusal
+    reason points at (follow its suggestion of a makeable version when it gives one). Use fresh wording, not a retry of the old sentence, because
+    the video AI may remember the refused request. Keep it gentle and wholesome: no danger, injury, mess or objects flying at faces, no fighting,
+    nothing scary, no brand names, no text. One simple, continuous main movement that starts from exactly what the keyframe shows, naming
+    the characters exactly; small natural reactions are fine. 1–2 sentences in English.
+    PROMPT;
+
     /** Lời giải thích của Muse trong lỗi "AI từ chối..." của shot; null nếu lỗi không phải bị từ chối. */
     public static function rejection(Shot $shot): ?string
     {
-        $error = (string) $shot->error;
-        if ($shot->image_status !== 'failed' || ! (str_starts_with($error, MuseBrowserImageGenerator::REJECTED) || str_starts_with($error, MuseBrowserImageGenerator::REJECTED_LEGACY))) {
+        return $shot->image_status === 'failed' ? self::reason((string) $shot->error) : null;
+    }
+
+    /** Muse từ chối làm clip của shot: lời giải thích; null nếu clip không bị từ chối. */
+    public static function clipRejection(Shot $shot): ?string
+    {
+        return $shot->clip_status === 'failed' ? self::reason((string) $shot->clip_error) : null;
+    }
+
+    private static function reason(string $error): ?string
+    {
+        if (! (str_starts_with($error, MuseBrowserImageGenerator::REJECTED) || str_starts_with($error, MuseBrowserImageGenerator::REJECTED_LEGACY))) {
             return null;
         }
 
         return trim(Str::after($error, 'AI trả lời:'));
+    }
+
+    /**
+     * Viết lại chuyển động của shot bị Muse từ chối làm clip (giữ khung hình).
+     *
+     * @throws ScriptWriterException
+     */
+    public static function rewriteMotion(Shot $shot, ?string $reason): string
+    {
+        $characters = ShotPrompt::characters($shot)->map(fn ($c) => "- {$c->name}: {$c->appearance}")->implode("\n");
+        $text = "Series: {$shot->episode->series->title}\n"
+            ."Episode {$shot->episode->number}: {$shot->episode->title}\n"
+            .($shot->location ? "Location: {$shot->location->name}: {$shot->location->description}\n" : '')
+            .($characters !== '' ? "Characters in the frame:\n{$characters}\n" : '')
+            ."What the keyframe shows: {$shot->action}\n"
+            .'Refused motion: '.($shot->motion ?: $shot->action)."\n"
+            .(filled($reason) ? 'Refusal reason from the video AI: '.Str::limit($reason, 800)."\n" : '');
+
+        $schema = ['type' => 'object', 'additionalProperties' => false, 'required' => ['motion'], 'properties' => ['motion' => ['type' => 'string']]];
+        $data = FilmClaude::json(self::CLIP_SYSTEM, $text, $schema, 'film_episode', "shot_clip_rewrite:{$shot->id}", 800, fn () => [
+            'motion' => 'Gentle, calm movement from the pose in the frame: the characters breathe, blink and react softly.',
+        ]);
+
+        $motion = trim((string) ($data['motion'] ?? ''));
+        if ($motion === '') {
+            throw new ScriptWriterException('Claude không trả về chuyển động mới.');
+        }
+
+        return Str::limit($motion, 1000, '');
     }
 
     /**

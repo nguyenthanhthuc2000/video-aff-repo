@@ -21,6 +21,7 @@ class AiUsageLog extends Model
         'motion_analysis' => 'Phân tích video mẫu',
         'film_plan' => 'Phim: lên kế hoạch bộ phim',
         'film_episode' => 'Phim: viết tập (dàn ý, shot)',
+        'english_lesson' => 'Tiếng Anh: soạn bài / sửa lỗi nói',
         'auth_test' => 'Kiểm tra kết nối',
     ];
 

@@ -6,6 +6,7 @@ use App\Models\Shot;
 use App\Services\Film\ShotAudio;
 use App\Services\Film\ShotClipPrompt;
 use App\Services\Film\ShotVideo;
+use App\Services\Film\VoiceMatch;
 use App\Services\Image\ImageGeneratorException;
 use App\Services\Image\MuseTask;
 use App\Services\Video\ClipGenerator;
@@ -52,6 +53,12 @@ class AnimateShotJob implements ShouldQueue
         if ($shot === null || $shot->clip_status !== 'pending') {
             return;
         }
+        // Đã có clip Muse: đổi giọng tiếng Muse sang giọng nhân vật (khớp khẩu hình) rồi ghép video. Không gọi Muse, không tốn Credits.
+        if ($shot->clip_stage === 'sync') {
+            $this->sync($shot);
+
+            return;
+        }
         /** @var ClipGenerator $generator */
         $generator = app('film.clip');
 
@@ -80,7 +87,7 @@ class AnimateShotJob implements ShouldQueue
                 } finally {
                     Media::delete($audio);
                 }
-                $shot->update(['clip_request_id' => $code]);
+                $shot->update(['clip_request_id' => $code, 'clip_stage' => 'muse']);
                 $this->release(30);
 
                 return;
@@ -115,10 +122,13 @@ class AnimateShotJob implements ShouldQueue
         }
 
         $episode = $shot->episode;
-        $old = [$shot->clip_path, $shot->video_path];
+        $oldClip = $shot->clip_path;
         $clipPath = "series/{$episode->series_id}/episodes/{$episode->id}/shot-{$shot->id}-clip-{$shot->clip_request_id}.{$clip['extension']}";
         Media::disk()->put($clipPath, $clip['contents']);
-        $shot->update(['clip_path' => $clipPath]);
+        $shot->update(['clip_path' => $clipPath, 'clip_stage' => 'sync', 'clip_request_id' => null]);
+        if ($oldClip !== null && $oldClip !== $clipPath) {
+            Media::delete($oldClip);
+        }
         Credits::charge(
             $episode->series->user_id,
             self::price(),
@@ -127,26 +137,36 @@ class AnimateShotJob implements ShouldQueue
             "Phim {$episode->series->title}: clip tập {$episode->number}",
         );
 
+        $this->sync($shot->fresh());
+    }
+
+    /** Khớp tiếng (đổi giọng tiếng Muse, chạy nền ở dịch vụ expressive) rồi ghép clip + tiếng thành video của shot. */
+    private function sync(Shot $shot): void
+    {
         try {
+            if (! VoiceMatch::advance($shot)) {
+                $this->release(15);
+
+                return;
+            }
             $video = ShotVideo::mux($shot->fresh());
         } catch (RuntimeException $e) {
             $this->fail($e);
 
             return;
         }
-        $shot->update(['video_path' => $video, 'clip_status' => 'ready', 'clip_request_id' => null, 'clip_error' => null]);
-        foreach ($old as $path) {
-            if ($path !== null && ! in_array($path, [$clipPath, $video], true)) {
-                Media::delete($path);
-            }
+        $old = $shot->video_path;
+        $shot->update(['video_path' => $video, 'clip_status' => 'ready', 'clip_stage' => null, 'clip_request_id' => null, 'clip_error' => null]);
+        if ($old !== null && $old !== $video) {
+            Media::delete($old);
         }
-        $episode->syncStatus();
+        $shot->episode->syncStatus();
     }
 
     public function failed(?Throwable $e): void
     {
         $shot = $this->shot->fresh();
-        $shot?->update(['clip_status' => 'failed', 'clip_request_id' => null, 'clip_error' => mb_substr($e?->getMessage() ?: 'Làm clip thất bại.', 0, 500)]);
+        $shot?->update(['clip_status' => 'failed', 'clip_stage' => null, 'clip_request_id' => null, 'clip_error' => mb_substr($e?->getMessage() ?: 'Làm clip thất bại.', 0, 500)]);
         $shot?->episode->syncStatus();
     }
 }

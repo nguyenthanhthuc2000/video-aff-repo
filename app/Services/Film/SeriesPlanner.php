@@ -5,6 +5,7 @@ namespace App\Services\Film;
 use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Services\Script\ScriptWriterException;
+use App\Support\Media;
 
 /**
  * Claude lên kế hoạch bộ phim từ ý tưởng: kinh thánh (logline, thế giới, giọng kể, chủ đề),
@@ -39,9 +40,33 @@ final class SeriesPlanner
       tone: the feel of the show. themes: 3–5 recurring themes.
     PROMPT;
 
-    public static function schema(): array
+    /** Truyện ngắn không thoại khung dọc (kể bằng hành động, biểu cảm, âm thanh) cho khán giả quốc tế. */
+    public const SYSTEM_SHORT = <<<'PROMPT'
+    You are the creative director of an original short-form animated series with NO dialogue, made for TikTok, Facebook Reels and
+    YouTube Shorts (vertical 9:16, 20–35 seconds per episode) and an international audience. From the creator's idea, write the series plan as JSON.
+
+    Rules:
+    - Everything (titles, names, descriptions) in simple, natural English.
+    - Original work only: never copy names, looks or signature items of existing copyrighted characters or shows, and avoid
+      recognizably derivative designs. Following a general art style is fine.
+    - Stories work with the sound off: told through actions, expressions, staging, objects, music and sound effects. Humor and warmth
+      (friendship, kindness, misunderstandings, pranks, small adventures); no repetitive tragedy, no fake animal cruelty, no manipulation.
+    - Every episode has a distinctive conflict and a satisfying outcome; vary the rhythm and the kind of ending, no near-duplicate plots.
+    - Characters: keep the creator's characters exactly (names, species, colors, accessories). "appearance" is a fixed visual description reused
+      in every image prompt: species, body size and proportions, fur / skin colors and pattern, eye color, ears / tail, outfit or accessories
+      with colors. 35–70 words, no personality words, nothing that changes between scenes. Characters must look clearly different.
+    - voice_type: use creature for animals (they never speak).
+    - 3–6 recurring locations, each described visually in 20–50 words (no characters in the description).
+    - Episode synopsis: 2–3 sentences: the hook, the problem and the twist / payoff. kind: heartwarming, funny, magical or adventure.
+      lesson: the feeling or small truth the episode leaves (one short sentence).
+    - title: the series name. logline: one sentence. premise: 2–3 sentences. world: where the stories happen. tone: the feel of the show.
+      themes: 3–5 recurring themes.
+    PROMPT;
+
+    public static function schema(bool $short = false): array
     {
         $string = ['type' => 'string'];
+        $episode = ['title' => $string, 'synopsis' => $string, 'lesson' => $string, ...($short ? ['kind' => ['type' => 'string', 'enum' => array_keys(Series::KINDS)]] : [])];
 
         return [
             'type' => 'object',
@@ -76,8 +101,8 @@ final class SeriesPlanner
                 'episodes' => ['type' => 'array', 'items' => [
                     'type' => 'object',
                     'additionalProperties' => false,
-                    'required' => ['title', 'synopsis', 'lesson'],
-                    'properties' => ['title' => $string, 'synopsis' => $string, 'lesson' => $string],
+                    'required' => array_keys($episode),
+                    'properties' => $episode,
                 ]],
             ],
         ];
@@ -85,13 +110,40 @@ final class SeriesPlanner
 
     public static function userText(Series $series): string
     {
-        $minutes = round($series->episode_seconds / 60, 1);
+        if ($series->silent()) {
+            return self::shortText($series);
+        }
+        $length = $series->episode_seconds < 60 ? "{$series->episode_seconds} seconds (a very short episode: one tiny situation, a quick funny payoff)" : round($series->episode_seconds / 60, 1).' minutes';
+        $seeds = collect($series->seed_characters ?? [])->values()->map(fn ($c, $i) => '- Image '.($i + 1).": {$c['name']}".(filled($c['note'] ?? null) ? " ({$c['note']})" : ''))->implode("\n");
 
         return "Idea from the creator (may be in Vietnamese, write the plan in English):\n{$series->idea}\n\n"
             .'Genre: '.(Series::GENRES[$series->genre] ?? $series->genre)." ({$series->genre}).\n"
             .AgeRules::prompt($series->age_min, $series->age_max)."\n"
             ."Art style (for the appearance descriptions): {$series->style}.\n"
-            ."Episodes: exactly {$series->episode_count}, about {$minutes} minutes each.\n\n"
+            ."Episodes: exactly {$series->episode_count}, about {$length} each.\n\n"
+            .($seeds !== '' ? "The creator already has these characters; the attached images show them in order:\n{$seeds}\n"
+                .'Include each of them with exactly this name. Write their "appearance" strictly from their image (what you see: body, colors, '
+                .'clothes, items), not from imagination. Add other characters only if the story needs them.'."\n\n" : '')
+            .'Write the series plan in the required format.';
+    }
+
+    private static function shortText(Series $series): string
+    {
+        $seeds = collect($series->seed_characters ?? [])->values()->map(fn ($c, $i) => '- Image '.($i + 1).": {$c['name']}".(filled($c['note'] ?? null) ? " ({$c['note']})" : ''))->implode("\n");
+        // Tên / ý tưởng còn là chữ tạm của file mẫu ("[Episode Title]", "[...]"): để Claude tự đặt.
+        $list = collect($series->seed_episodes ?? [])->values()->map(fn ($e, $i) => ($i + 1).'. '.(EpisodeTitler::placeholder($e['title']) ? '(no title yet: invent a catchy one)' : $e['title'])
+            .(filled($e['idea'] ?? null) && ! EpisodeTitler::placeholder($e['idea']) ? ": {$e['idea']}" : '')
+            .(filled($e['kind'] ?? null) ? " [{$e['kind']}]" : ''))->implode("\n");
+
+        return "Idea and series bible from the creator (may be in Vietnamese, write the plan in English):\n{$series->idea}\n\n"
+            .'Audience: '.($series->audience ?: Series::SHORT_AUDIENCE).".\n"
+            ."Art style (for the appearance descriptions): {$series->style}.\n"
+            ."Format: vertical 9:16, about {$series->episode_seconds} seconds per episode, no dialogue.\n"
+            ."Episodes: exactly {$series->episode_count}.\n\n"
+            .($list !== '' ? 'The creator already chose the episodes, in this order. Keep exactly these titles and this order; write each synopsis '
+                ."from its idea (you may add the twist and the ending) and keep its kind when given:\n{$list}\n\n" : '')
+            .($seeds !== '' ? "The creator already has these characters; the attached images show them in order:\n{$seeds}\n"
+                .'Write their "appearance" strictly from their image.'."\n\n" : '')
             .'Write the series plan in the required format.';
     }
 
@@ -111,7 +163,7 @@ final class SeriesPlanner
     /**
      * @return array{bible: array, characters: list<array>, locations: list<array>, episodes: list<array>}
      */
-    public static function normalize(mixed $data, int $episodeCount): array
+    public static function normalize(mixed $data, int $episodeCount, array $seedEpisodes = []): array
     {
         if (! is_array($data) || empty($data['characters']) || empty($data['episodes'])) {
             throw new ScriptWriterException('Claude không trả về kế hoạch bộ phim.');
@@ -143,7 +195,20 @@ final class SeriesPlanner
             'title' => $text($e['title'] ?? '', 200),
             'synopsis' => $text($e['synopsis'] ?? '', 2000),
             'lesson' => $text($e['lesson'] ?? '', 500),
+            'kind' => EpisodeList::kind($e['kind'] ?? null),
         ])->filter(fn ($e) => $e['title'] !== '' && $e['synopsis'] !== '')->values()->all();
+        // Danh sách tập có sẵn: giữ đúng tên, thể loại, kịch bản có sẵn theo thứ tự; Claude chỉ viết tóm tắt. Claude trả thiếu thì dùng ý tưởng.
+        foreach (array_values($seedEpisodes) as $i => $seed) {
+            $episodes[$i] = [
+                'title' => EpisodeTitler::placeholder($seed['title']) && filled($episodes[$i]['title'] ?? null) && ! EpisodeTitler::placeholder($episodes[$i]['title'])
+                    ? $episodes[$i]['title'] : $text($seed['title'], 200),
+                'synopsis' => $episodes[$i]['synopsis'] ?? ($text($seed['idea'] ?? '', 2000) ?: $text($seed['title'], 200)),
+                'lesson' => $episodes[$i]['lesson'] ?? '',
+                'kind' => $seed['kind'] ?? ($episodes[$i]['kind'] ?? null),
+                'brief' => filled($seed['brief'] ?? null) ? $text($seed['brief'], 8000) : null,
+            ];
+        }
+        $episodes = array_slice($episodes, 0, max($episodeCount, count($seedEpisodes)));
 
         if ($characters === [] || $episodes === []) {
             throw new ScriptWriterException('Kế hoạch bộ phim Claude trả về thiếu nhân vật hoặc tập.');
@@ -171,15 +236,23 @@ final class SeriesPlanner
      */
     public static function write(Series $series): array
     {
+        $images = collect($series->seed_characters ?? [])->map(fn ($c) => ['data' => (string) Media::disk()->get($c['path']), 'media_type' => Media::disk()->mimeType($c['path']) ?: 'image/png'])
+            ->filter(fn ($image) => $image['data'] !== '')->values()->all();
+
         return self::normalize(
-            FilmClaude::json(self::SYSTEM, self::userText($series), self::schema(), 'film_plan', "film_plan:{$series->id}", 16000, fn () => self::sample($series)),
+            FilmClaude::json($series->silent() ? self::SYSTEM_SHORT : self::SYSTEM, self::userText($series), self::schema($series->silent()), 'film_plan', "film_plan:{$series->id}", 16000, fn () => self::sample($series), $images),
             $series->episode_count,
+            $series->seed_episodes ?? [],
         );
     }
 
     /** Mẫu khi chưa kết nối Claude (và trong test). */
     public static function sample(Series $series): array
     {
+        if ($series->silent()) {
+            return self::sampleShort($series);
+        }
+
         return [
             'title' => 'Milo and the Mystery Club',
             'logline' => 'A curious boy and his friends solve small mysteries in their town.',
@@ -201,6 +274,32 @@ final class SeriesPlanner
                 'title' => "The Missing Clue #{$n}",
                 'synopsis' => 'Something goes missing in Maple Town. Milo and Lily follow the clues and find out it was a misunderstanding.',
                 'lesson' => 'Ask before you blame someone.',
+            ])->all(),
+        ];
+    }
+
+    private static function sampleShort(Series $series): array
+    {
+        return [
+            'title' => "Milo's Little World",
+            'logline' => 'A tiny orange kitten and his friends turn small troubles into warm, funny adventures.',
+            'premise' => 'Milo lives in a cozy animal village with his best friend Bobo and clever Luna. Every short tells one small story without words.',
+            'world' => 'A cozy colorful animal village with a park, a bakery street and a little pond.',
+            'tone' => 'Warm, funny and cinematic.',
+            'themes' => ['friendship', 'kindness', 'misunderstandings'],
+            'characters' => [
+                ['name' => 'Milo', 'role' => 'main', 'age' => 1, 'personality' => 'Kind, curious, a bit clumsy.', 'appearance' => 'A tiny orange tabby kitten with slightly oversized ears, emerald-green eyes, soft striped fur, white chest patch and a teal knitted scarf.', 'voice_type' => 'creature'],
+                ['name' => 'Bobo', 'role' => 'friend', 'age' => 2, 'personality' => 'Loyal, hungry, playful.', 'appearance' => 'A small cream-colored corgi with short legs, big fluffy ears, a white muzzle, brown eyes and a blue collar with a round tag.', 'voice_type' => 'creature'],
+            ],
+            'locations' => [
+                ['name' => 'Village park', 'description' => 'A sunny park with a wooden bench, round green trees, flower beds and a gravel path.'],
+                ['name' => 'Cozy porch', 'description' => 'A small wooden porch with a round table, a white plate, potted plants and warm sunlight.'],
+            ],
+            'episodes' => collect(range(1, $series->episode_count))->map(fn (int $n) => [
+                'title' => "Small Adventure #{$n}",
+                'synopsis' => 'Milo finds a small problem, makes a kind choice and gets a sweet surprise.',
+                'lesson' => 'Small kindness makes big memories.',
+                'kind' => array_keys(Series::KINDS)[$n % 4],
             ])->all(),
         ];
     }

@@ -176,7 +176,9 @@ class SeriesCharacterTest extends TestCase
     {
         $message = FilmMuseImageGenerator::message('VA-ABC123', 'draw');
 
-        $this->assertStringContainsString('2D cartoon illustration in a WIDE HORIZONTAL 16:9', $message);
+        // Khổ khung và phong cách nằm trong prompt (phim ngang 16:9 hoặc truyện ngắn dọc 9:16).
+        $this->assertStringContainsString('NOT a photo', $message);
+        $this->assertStringContainsString('Frame: WIDE HORIZONTAL 16:9', CharacterPrompt::build($this->character(), 'main', null, false));
         $this->assertStringContainsString('never write it', $message);
         $this->assertStringNotContainsString('photorealistic image', $message);
         $this->assertStringContainsString('Expression sheet', CharacterPrompt::build($this->character(), 'expressions', null, true));

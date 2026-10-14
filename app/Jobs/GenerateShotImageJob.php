@@ -45,7 +45,7 @@ class GenerateShotImageJob implements ShouldQueue
         }
         /** @var AsyncImageGenerator $generator */
         $generator = app('film.image');
-        $references = ShotPrompt::references($shot);
+        $references = ShotPrompt::references($shot, true);
 
         try {
             if (! MuseTask::isCode($shot->request_id)) {
@@ -54,6 +54,15 @@ class GenerateShotImageJob implements ShouldQueue
 
                     return;
                 }
+                // Shot trước cùng cảnh đang vẽ: chờ để vẽ theo khung hình của nó (đạo cụ / bối cảnh khớp nhau khi cắt cảnh).
+                $anchor = ShotPrompt::anchor($shot);
+                if ($anchor?->image_status === 'pending' && $anchor->updated_at?->gt(now()->subMinutes(30))) {
+                    $this->release(20);
+
+                    return;
+                }
+                $anchored = $anchor?->image_status === 'ready' && in_array($anchor->image_path, $references, true);
+                $this->prompt = $anchored && ! str_contains($this->prompt, 'SET CONTINUITY') ? $this->prompt."\n".ShotPrompt::ANCHOR_LINE : $this->prompt;
                 $shot->update(['request_id' => $generator->start($references, $this->prompt)]);
                 $this->release(15);
 
@@ -94,7 +103,9 @@ class GenerateShotImageJob implements ShouldQueue
         Media::disk()->put($path, $result->contents);
         $image->update(['path' => $path]);
         $shot->images()->whereKeyNot($image->id)->update(['approved' => false]);
-        $shot->update(['image_status' => 'ready', 'image_path' => $path, 'request_id' => null, 'error' => null]);
+        // Clip cũ làm từ khung hình cũ: không dùng nữa (ghép sẽ dùng khung hình mới, hoặc làm clip mới từ nó).
+        $shot->update(['image_status' => 'ready', 'image_path' => $path, 'request_id' => null, 'error' => null,
+            ...($shot->clip_status !== 'pending' ? ['video_path' => null, 'clip_path' => null, 'clip_status' => 'none', 'clip_error' => null] : [])]);
 
         Credits::charge(
             $episode->series->user_id,

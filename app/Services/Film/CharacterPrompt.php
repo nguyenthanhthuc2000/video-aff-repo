@@ -9,7 +9,8 @@ final class CharacterPrompt
 {
     public static function build(SeriesCharacter $character, string $kind, ?string $notes, bool $hasReference): string
     {
-        $who = trim("{$character->name}".($character->age !== null ? ", {$character->age} years old" : ''));
+        // Truyện ngắn (thường là thú): bỏ tuổi, ngoại hình đã ghi loài và kích cỡ.
+        $who = trim("{$character->name}".($character->age !== null && ! $character->series->silent() ? ", {$character->age} years old" : ''));
         $same = $hasReference
             ? 'It is exactly the same character as in the attached image: same face, hair, body proportions, outfit and colors. '
             : '';
@@ -25,8 +26,10 @@ final class CharacterPrompt
         };
 
         $extra = $kind !== 'custom' && filled($notes) ? ' Additional direction: '.trim($notes).'.' : '';
+        // Bảng xoay / biểu cảm nhiều hình cạnh nhau luôn khung ngang; ảnh chính theo khung của phim.
+        $frame = in_array($kind, ['turnaround', 'expressions'], true) ? 'WIDE HORIZONTAL 16:9 landscape frame' : $character->series->frameLine();
 
-        return "{$body}{$extra}\n\n{$same}Character appearance (keep every detail): {$character->appearance}\n\n"
+        return "Frame: {$frame}. {$body}{$extra}\n\n{$same}Character appearance (keep every detail): {$character->appearance}\n\n"
             ."Art style: {$character->series->style}.";
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\Claude;
 
 use App\Models\AiUsageLog;
 use App\Models\AppSetting;
+use App\Models\EnglishLesson;
 use App\Models\Product;
 use App\Models\SampleVideo;
 use App\Models\Series;
@@ -207,6 +208,7 @@ class AiUsage
             'product' => Product::find($id)?->name,
             'sample_video' => SampleVideo::find($id)?->name,
             'series' => ($title = Series::find($id)?->title) ? "Phim: {$title}" : null,
+            'english' => ($lesson = EnglishLesson::find($id)) ? "Tiếng Anh Day {$lesson->day}: {$lesson->topic}" : null,
             default => null,
         };
     }

@@ -5,7 +5,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { cn } from '@/lib/utils';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { BookOpen, Clapperboard, Coins, Film, History, Image, Music, Package, ShieldCheck, Tv, Users, Wallet } from 'lucide-react';
+import { BookOpen, Clapperboard, Coins, Film, GraduationCap, History, Image, Music, Package, ShieldCheck, Tv, Users, Wallet } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -18,6 +18,11 @@ const mainNavItems: NavItem[] = [
         title: 'Phim hoạt hình',
         url: '/series',
         icon: Tv,
+    },
+    {
+        title: 'Học tiếng Anh',
+        url: '/english',
+        icon: GraduationCap,
     },
     {
         title: 'Sản phẩm',

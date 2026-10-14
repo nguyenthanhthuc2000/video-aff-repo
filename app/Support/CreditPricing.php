@@ -93,7 +93,7 @@ class CreditPricing
     {
         $settings = self::settings();
         $usdVnd = AiUsage::settings()['usd_vnd'];
-        $sample = ['script' => [5000, 2500], 'product_import' => [6000, 600], 'motion_analysis' => [15000, 1500], 'scene_prompt_rewrite' => [900, 250], 'film_plan' => [2500, 6000], 'film_episode' => [3500, 3000]];
+        $sample = ['script' => [5000, 2500], 'product_import' => [6000, 600], 'motion_analysis' => [15000, 1500], 'scene_prompt_rewrite' => [900, 250], 'film_plan' => [2500, 6000], 'film_episode' => [3500, 3000], 'english_lesson' => [2000, 1800]];
 
         return collect($sample)->map(function (array $tokens, string $action) use ($settings, $usdVnd) {
             $recent = AiUsageLog::where('action', $action)->where('success', true)->latest('id')->limit(100)->get(['cost_usd', 'model']);

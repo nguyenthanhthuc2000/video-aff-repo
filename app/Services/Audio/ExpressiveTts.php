@@ -27,6 +27,23 @@ class ExpressiveTts
     }
 
     /**
+     * Đổi giọng từng đoạn nói của tiếng nguồn sang giọng mẫu, giữ nguyên vị trí (khớp khẩu hình).
+     *
+     * @param  list<array{start: float, end: float, ref: string}>  $segments  ref: WAV giọng mẫu (nội dung file).
+     *
+     * @throws RuntimeException
+     */
+    public function convert(string $sourceWav, array $segments): string
+    {
+        $response = $this->call(fn (PendingRequest $http) => $http->timeout(120)->post('/vc', [
+            'source' => base64_encode($sourceWav),
+            'segments' => array_map(fn ($s) => [...$s, 'ref' => base64_encode($s['ref'])], $segments),
+        ]));
+
+        return (string) $response->json('id');
+    }
+
+    /**
      * @return array{contents: string, duration_ms: int, lines: list<array{start_ms: int, end_ms: int}>}|false|null
      *                                                                                                              null = đang đọc; false = dịch vụ không còn yêu cầu này (đã khởi động lại), gửi lại.
      *

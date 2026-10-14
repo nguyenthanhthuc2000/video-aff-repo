@@ -8,6 +8,8 @@ use App\Models\SeriesCharacter;
 use App\Models\SeriesCharacterImage;
 use App\Services\Audio\Tts;
 use App\Services\Film\CharacterPrompt;
+use App\Services\Film\CharacterSounds;
+use App\Services\Film\SoundLibrary;
 use App\Services\Film\Voices;
 use App\Support\CreditPricing;
 use App\Support\Credits;
@@ -18,6 +20,7 @@ use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /** Nhân vật của bộ phim: thêm / xoá, thư viện ảnh (Muse vẽ hoặc tải lên), chọn ảnh chính, chốt nhân vật. */
 class SeriesCharacterController extends Controller
@@ -63,7 +66,22 @@ class SeriesCharacterController extends Controller
             // Giọng các nhân vật khác đang dùng (báo trùng giọng).
             'usedVoices' => $series->characters()->whereKeyNot($character->id)->get(['name', 'voice'])->mapWithKeys(fn (SeriesCharacter $c) => [$c->voice['voice'] ?? '' => $c->name])->filter(),
             'imageCredits' => CreditPricing::settings()['steps']['image'],
+            // Tiếng của nhân vật (cười, khóc... và tiếng kêu đúng loài), đã đổi cao độ riêng: nghe thử trước khi ghép.
+            'species' => CharacterSounds::species($character),
+            'sounds' => collect(SoundLibrary::catalog())->whereIn('id', CharacterSounds::allowed($character, SoundLibrary::catalog()))
+                ->map(fn ($s) => ['id' => $s['id'], 'group' => $s['group'], 'description' => $s['description']])->values(),
         ]);
+    }
+
+    /** Nghe thử một tiếng của nhân vật (đổi cao độ theo nhân vật). Miễn phí, chạy trên máy. */
+    public function sound(Series $series, SeriesCharacter $character, string $sound): StreamedResponse
+    {
+        $this->authorize('view', $series);
+        abort_unless($character->series_id === $series->id, 404);
+        $entry = SoundLibrary::byId()[$sound] ?? null;
+        abort_unless($entry !== null && in_array($sound, CharacterSounds::allowed($character, SoundLibrary::catalog()), true), 404);
+
+        return Media::disk()->response(CharacterSounds::preview($character, $entry), "{$sound}.wav", ['Content-Type' => 'audio/wav']);
     }
 
     public function store(Request $request, Series $series): RedirectResponse

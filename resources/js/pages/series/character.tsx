@@ -55,7 +55,11 @@ export default function SeriesCharacterPage({
     voices,
     usedVoices,
     imageCredits,
+    species,
+    sounds,
 }: {
+    species: string | null;
+    sounds: CharacterSound[];
     series: { id: number; title: string; style: string };
     character: Character;
     characters: { id: number; name: string; image_url: string | null }[];
@@ -148,6 +152,7 @@ export default function SeriesCharacterPage({
                             Ảnh chính được gửi kèm mọi khung hình có {character.name} để Muse vẽ giống nhau. Chốt nhân vật khi ảnh chính đã ưng.
                         </p>
                         <VoicePanel character={character} base={base} voices={voices} usedVoices={usedVoices} />
+                        {sounds.length > 0 && <SoundsPanel name={character.name} base={base} species={species} sounds={sounds} />}
                         {/* Đổi giọng ở trên thì dựng lại form để loại giọng trong form khớp giọng mới. */}
                         <CharacterEditor key={character.voice ?? ''} character={character} base={base} roles={roles} voiceTypes={voiceTypes} />
                     </div>
@@ -201,6 +206,81 @@ function Avatar({ url, className }: { url: string | null; className?: string }) 
         <span className={cn('bg-muted flex items-center justify-center rounded-full', className)}>
             <UserRound className="text-muted-foreground size-4" />
         </span>
+    );
+}
+
+interface CharacterSound {
+    id: string;
+    group: string;
+    description: string;
+}
+
+const SPECIES_LABELS: Record<string, string> = {
+    cat: 'mèo',
+    dog: 'chó',
+    duck: 'vịt',
+    chicken: 'gà',
+    bird: 'chim',
+    owl: 'cú',
+    frog: 'ếch',
+    sheep: 'cừu',
+    goat: 'dê',
+    cow: 'bò',
+    pig: 'heo',
+    horse: 'ngựa',
+    hedgehog: 'nhím',
+    mouse: 'chuột / thú nhỏ',
+};
+
+/** Tiếng của nhân vật (cười, khóc, thở dài... và tiếng kêu đúng loài), đã đổi cao độ riêng của nhân vật: bấm để nghe thử. */
+function SoundsPanel({
+    name,
+    base,
+    species,
+    sounds,
+}: {
+    name: string;
+    base: { series: number; character: number };
+    species: string | null;
+    sounds: CharacterSound[];
+}) {
+    const [playing, setPlaying] = useState<string | null>(null);
+    const play = (id: string) => {
+        setPlaying(id);
+        const audio = new Audio(route('series.characters.sound', { ...base, sound: id }));
+        audio.onended = () => setPlaying(null);
+        audio.onerror = () => setPlaying(null);
+        audio.play();
+    };
+    const label = (sound: CharacterSound) => sound.description.replace(/^a character /, '').replace(/^(a|an) /, '');
+
+    return (
+        <div className="space-y-2 rounded-xl border p-4">
+            <p className="flex items-center gap-2 text-sm font-medium">
+                <Volume2 className="size-4" /> Tiếng của {name}
+                {species && <Badge variant="secondary">{SPECIES_LABELS[species] ?? species}</Badge>}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+                {sounds.map((sound) => (
+                    <Button
+                        key={sound.id}
+                        type="button"
+                        size="sm"
+                        variant={sound.group === 'animal' ? 'secondary' : 'outline'}
+                        className="h-7 px-2 text-xs"
+                        title={sound.description}
+                        onClick={() => play(sound.id)}
+                    >
+                        {playing === sound.id ? <Loader2 className="animate-spin" /> : <Volume2 />} {label(sound)}
+                    </Button>
+                ))}
+            </div>
+            <p className="text-muted-foreground text-xs">
+                Khi chọn âm thanh cho tập, Claude thêm tiếng này đúng lúc {name} cười, khóc, ngạc nhiên{species ? ', kêu' : ''}... Cao độ riêng theo
+                giọng và vóc dáng của {name}, giống nhau ở mọi tập. Bản thu thật CC0 (BigSoundBank), miễn phí, dùng thương mại được.
+                {!species && ' Nhân vật là thú mà chưa có tiếng kêu: ghi loài (cat, dog, duck...) trong mô tả ngoại hình.'}
+            </p>
+        </div>
     );
 }
 

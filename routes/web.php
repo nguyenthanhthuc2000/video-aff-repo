@@ -6,6 +6,7 @@ use App\Http\Controllers\BackgroundController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\ClaudeAuthController;
 use App\Http\Controllers\CreditHistoryController;
+use App\Http\Controllers\EnglishController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\MuseAuthController;
@@ -84,6 +85,19 @@ Route::middleware(['auth'])->group(function () {
     Route::post('projects/{project}/renders', [RenderController::class, 'store'])->name('projects.renders.store');
     Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');
 
+    // Học tiếng Anh mỗi ngày (A2 → B1) + video Shorts từ bài luyện.
+    Route::get('english', [EnglishController::class, 'index'])->name('english.index');
+    Route::post('english/prepare', [EnglishController::class, 'prepareAll'])->name('english.prepare');
+    Route::put('english/profile', [EnglishController::class, 'profile'])->name('english.profile');
+    Route::post('english/days/{day}', [EnglishController::class, 'start'])->whereNumber('day')->name('english.start');
+    Route::get('english/{lesson}', [EnglishController::class, 'show'])->name('english.show');
+    Route::post('english/{lesson}/recordings', [EnglishController::class, 'record'])->name('english.recordings.store');
+    Route::delete('english/{lesson}/recordings/{recording}', [EnglishController::class, 'destroyRecording'])->name('english.recordings.destroy');
+    Route::post('english/{lesson}/correct', [EnglishController::class, 'correct'])->name('english.correct');
+    Route::post('english/{lesson}/video', [EnglishController::class, 'render'])->name('english.video');
+    Route::get('english/{lesson}/video', [EnglishController::class, 'download'])->name('english.video.download');
+    Route::get('english/{lesson}/thumbnail', [EnglishController::class, 'thumbnail'])->name('english.thumbnail');
+
     // Phim hoạt hình nhiều tập (docs/phim-hoat-hinh.md).
     Route::get('series', [SeriesController::class, 'index'])->name('series.index');
     Route::get('series/create', [SeriesController::class, 'create'])->name('series.create');
@@ -101,14 +115,33 @@ Route::middleware(['auth'])->group(function () {
         Route::put('series/{series}/episodes/{episode}/shots/{shot}', [EpisodeController::class, 'updateShot'])->name('series.episodes.shots.update');
         Route::post('series/{series}/episodes/{episode}/shots/{shot}/image', [EpisodeController::class, 'regenerateShot'])->name('series.episodes.shots.image');
         Route::post('series/{series}/characters/{character}/voice-sample', [SeriesCharacterController::class, 'voiceSample'])->name('series.characters.voice-sample');
+        Route::post('series/{series}/episodes/{episode}/sounds', [EpisodeController::class, 'planSounds'])->name('series.episodes.sounds');
+        Route::delete('series/{series}/episodes/{episode}/sounds/{index}', [EpisodeController::class, 'removeSound'])->whereNumber('index')->name('series.episodes.sounds.destroy');
+        Route::post('series/{series}/episodes/{episode}/render', [EpisodeController::class, 'render'])->name('series.episodes.render');
+        Route::get('series/{series}/episodes/{episode}/render', [EpisodeController::class, 'downloadRender'])->name('series.episodes.render.download');
+        Route::post('series/{series}/episodes/{episode}/score', [EpisodeController::class, 'composeScore'])->name('series.episodes.score');
+        Route::post('series/{series}/episodes/{episode}/renders/{render}/thumbnail', [EpisodeController::class, 'thumbnail'])->name('series.episodes.renders.thumbnail');
+        Route::post('series/{series}/episodes/{episode}/renders/{render}/thumbnail-art', [EpisodeController::class, 'thumbnailArt'])->name('series.episodes.renders.thumbnail-art');
+        Route::post('series/{series}/episodes/{episode}/titles', [EpisodeController::class, 'suggestTitles'])->name('series.episodes.titles');
+        Route::post('series/{series}/episodes/{episode}/titles/use', [EpisodeController::class, 'useTitle'])->name('series.episodes.titles.use');
+        Route::get('series/{series}/episodes/{episode}/renders/{render}/thumbnail', [EpisodeController::class, 'downloadThumbnail'])->name('series.episodes.renders.thumbnail.download');
+        Route::get('series/{series}/episodes/{episode}/renders/{render}', [EpisodeController::class, 'downloadVersion'])->name('series.episodes.renders.download');
+        Route::get('series/{series}/episodes/{episode}/renders/{render}/subtitles', [EpisodeController::class, 'versionSubtitles'])->name('series.episodes.renders.subtitles');
+        Route::delete('series/{series}/episodes/{episode}/renders/{render}', [EpisodeController::class, 'destroyVersion'])->name('series.episodes.renders.destroy');
+        Route::get('series/{series}/episodes/{episode}/subtitles', [EpisodeController::class, 'downloadSubtitles'])->name('series.episodes.subtitles');
         Route::get('series/{series}/episodes/{episode}/dialogue', [EpisodeController::class, 'downloadDialogue'])->name('series.episodes.dialogue');
         Route::get('series/{series}/episodes/{episode}/shots/{shot}/audio', [EpisodeController::class, 'downloadShotAudio'])->name('series.episodes.shots.audio');
         Route::post('series/{series}/episodes/{episode}/voices', [EpisodeController::class, 'voices'])->name('series.episodes.voices');
         Route::post('series/{series}/episodes/{episode}/clips', [EpisodeController::class, 'clips'])->name('series.episodes.clips');
         Route::post('series/{series}/episodes/{episode}/shots/{shot}/clip', [EpisodeController::class, 'clip'])->name('series.episodes.shots.clip');
+        Route::post('series/{series}/episodes/{episode}/shots/{shot}/resync', [EpisodeController::class, 'resync'])->name('series.episodes.shots.resync');
         Route::post('series/{series}/episodes/{episode}/shots/{shot}/rewrite', [EpisodeController::class, 'rewriteShot'])->name('series.episodes.shots.rewrite');
+        Route::post('series/{series}/episodes/{episode}/shots/{shot}/clip-rewrite', [EpisodeController::class, 'rewriteClip'])->name('series.episodes.shots.clip-rewrite');
+        Route::put('series/{series}/episodes/{episode}/shots/{shot}/animate', [EpisodeController::class, 'toggleAnimate'])->name('series.episodes.shots.animate');
+        Route::post('series/{series}/episodes-batch', [SeriesController::class, 'writeBatch'])->name('series.episodes.batch');
         Route::post('series/{series}/characters', [SeriesCharacterController::class, 'store'])->name('series.characters.store');
         Route::get('series/{series}/characters/{character}', [SeriesCharacterController::class, 'show'])->name('series.characters.show');
+        Route::get('series/{series}/characters/{character}/sounds/{sound}', [SeriesCharacterController::class, 'sound'])->where('sound', '[a-z0-9_]+')->name('series.characters.sound');
         Route::put('series/{series}/characters/{character}', [SeriesCharacterController::class, 'update'])->name('series.characters.update');
         Route::delete('series/{series}/characters/{character}', [SeriesCharacterController::class, 'destroy'])->name('series.characters.destroy');
         Route::post('series/{series}/characters/{character}/generate', [SeriesCharacterController::class, 'generate'])->name('series.characters.generate');

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Process;
 use RuntimeException;
 
 /**
- * Ghép video của shot: hình từ clip Muse (16:9, 24 khung/giây, thiếu thì giữ khung cuối), tiếng là lời thoại Kokoro của shot
+ * Ghép video của shot: hình từ clip Muse (khổ của phim, 24 khung/giây, thiếu thì giữ khung cuối), tiếng là lời thoại Kokoro của shot
  * (bỏ tiếng Muse tự tạo để giọng nhân vật luôn đúng giọng đã chọn). Shot không lời thì im lặng.
  */
 final class ShotVideo
@@ -57,14 +57,16 @@ final class ShotVideo
             $clip = "{$dir}/clip.".(pathinfo((string) $shot->clip_path, PATHINFO_EXTENSION) ?: 'mp4');
             File::put($clip, (string) Media::disk()->get((string) $shot->clip_path));
             $seconds = self::seconds($shot->duration_ms);
-            $w = self::WIDTH;
-            $h = self::HEIGHT;
+            // Khổ theo phim: truyện ngắn khung dọc 1080×1920.
+            [$w, $h] = EpisodeRenderer::canvas($episode->series);
             $video = "[0:v]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},fps=".self::FPS.',setsar=1,'
                 ."tpad=stop_mode=clone:stop_duration={$seconds},trim=duration={$seconds},setpts=PTS-STARTPTS,format=yuv420p[v]";
 
-            if ($shot->audio_path !== null) {
+            // Ưu tiên tiếng Muse đã đổi sang giọng nhân vật (khớp khẩu hình); không có thì tiếng đọc sẵn.
+            $source = $shot->synced_audio_path ?? $shot->audio_path;
+            if ($source !== null) {
                 $voice = "{$dir}/voice.wav";
-                File::put($voice, (string) Media::disk()->get($shot->audio_path));
+                File::put($voice, (string) Media::disk()->get($source));
                 $inputs = ['-i', $clip, '-i', $voice];
             } else {
                 $inputs = ['-i', $clip, '-f', 'lavfi', '-t', $seconds, '-i', 'anullsrc=r=44100:cl=mono'];

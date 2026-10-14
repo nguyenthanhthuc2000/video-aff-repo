@@ -2,13 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\AnimateShotJob;
 use App\Jobs\GenerateShotImageJob;
+use App\Jobs\RewriteShotClipJob;
 use App\Jobs\RewriteShotJob;
 use App\Jobs\WriteSequenceJob;
 use App\Models\Episode;
 use App\Models\Series;
 use App\Models\Shot;
 use App\Models\User;
+use App\Services\Film\ShotClipPrompt;
 use App\Services\Film\ShotPrompt;
 use App\Services\Film\ShotRewriter;
 use App\Services\Image\MuseBrowserImageGenerator;
@@ -210,6 +213,30 @@ class EpisodeWritingTest extends TestCase
         $this->assertNotSame($old['action'], $shot->action);
         $this->assertNotSame($old['camera'], $shot->camera);
         Queue::assertPushed(GenerateShotImageJob::class, fn ($job) => str_contains($job->prompt, $shot->action) && str_contains($job->prompt, 'sunny'));
+    }
+
+    public function test_rejected_clip_motion_is_rewritten_by_claude_then_animated_again()
+    {
+        $this->write();
+        $shot = $this->episode->shots()->first();
+        $shot->update(['image_status' => 'ready', 'image_path' => 'k.png', 'clip_status' => 'failed', 'clip_error' => MuseBrowserImageGenerator::REJECTED.' Bấm Tạo lại... AI trả lời: jam landing on faces, do-not-retry.']);
+        $this->assertSame('jam landing on faces, do-not-retry.', ShotRewriter::clipRejection($shot));
+        $this->assertNull(ShotRewriter::rejection($shot));
+        $this->actingAs($this->user)->get(route('series.episodes.show', $this->params()))
+            ->assertInertia(fn (Assert $page) => $page->where('episode.shots.0.clip_rejected', true)->where('episode.shots.1.clip_rejected', false));
+
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('series.episodes.shots.clip-rewrite', $this->params(['shot' => $shot->id])), ['notes' => 'slowly'])
+            ->assertSessionHas('status');
+        Queue::assertPushed(RewriteShotClipJob::class, fn ($job) => $job->reason === 'jam landing on faces, do-not-retry.' && $job->notes === 'slowly');
+        $this->assertSame(['pending', 'rewrite'], array_values($shot->fresh()->only(['clip_status', 'clip_stage'])));
+
+        (new RewriteShotClipJob($shot, 'x', 'slowly'))->handle();
+        $shot->refresh();
+        $this->assertNotEmpty($shot->motion);
+        $this->assertSame('voice', $shot->clip_stage);
+        Queue::assertPushed(AnimateShotJob::class, fn ($job) => $job->shot->is($shot) && $job->notes === 'slowly');
+        $this->assertStringContainsString($shot->motion, ShotClipPrompt::build($shot));
     }
 
     public function test_other_users_cannot_write_or_draw()
