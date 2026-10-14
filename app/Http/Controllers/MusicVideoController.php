@@ -154,6 +154,7 @@ class MusicVideoController extends Controller
                 'id' => $d->id, 'source_url' => $d->source_url, 'notes' => $d->notes, 'status' => $d->status, 'error' => $d->error, 'is_busy' => $d->isBusy(),
                 'reference' => $d->reference ? collect($d->reference)->only(['title', 'artist', 'duration', 'language', 'captions_kind'])->all() + ['lines' => count($d->reference['captions'] ?? [])] : null,
                 'profile' => $d->profile, 'song' => $d->song, 'overlap' => $d->overlap,
+                'target_seconds' => $d->targetSeconds(), 'estimates' => SongDraftController::estimates($d),
                 'music_provider' => $d->music_provider, 'music_status' => $d->music_status, 'music_error' => $d->music_error, 'audio_track_id' => $d->audio_track_id,
             ]),
             'musicProviders' => SongDraftController::providers(),

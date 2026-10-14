@@ -23,6 +23,14 @@ class SongDraft extends Model
         return ['reference' => 'array', 'profile' => 'array', 'song' => 'array', 'overlap' => 'array'];
     }
 
+    /** Độ dài bài cần tạo (giây): theo cấu trúc bài tham khảo, mặc định 3 phút. */
+    public function targetSeconds(): int
+    {
+        $seconds = (int) collect($this->profile['structure'] ?? [])->sum('seconds');
+
+        return $seconds > 0 ? max(60, min(300, $seconds)) : 180;
+    }
+
     public function isBusy(): bool
     {
         return in_array($this->status, self::BUSY, true) || $this->music_status === 'pending';

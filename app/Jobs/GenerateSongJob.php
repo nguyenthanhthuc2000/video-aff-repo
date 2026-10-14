@@ -4,14 +4,14 @@ namespace App\Jobs;
 
 use App\Http\Controllers\SongDraftController;
 use App\Models\SongDraft;
-use App\Services\Music\SongGenerator;
+use App\Services\Music\FalSongGenerator;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use RuntimeException;
 use Throwable;
 
-/** Tạo bài hát mới qua API (lời + prompt phong cách của bài đã sáng tác), xong thì lưu vào thư viện Âm thanh. Gửi rồi hỏi lại. */
+/** Tạo bài hát mới qua fal (lời + prompt phong cách của bài đã sáng tác), xong thì lưu vào thư viện Âm thanh. Gửi rồi hỏi lại. */
 class GenerateSongJob implements ShouldQueue
 {
     use Queueable;
@@ -33,12 +33,10 @@ class GenerateSongJob implements ShouldQueue
         if ($draft === null || $draft->music_status !== 'pending') {
             return;
         }
-        /** @var SongGenerator $generator */
-        $generator = app("music.{$draft->music_provider}");
+        $generator = FalSongGenerator::for((string) $draft->music_provider);
         try {
             if ($draft->music_request_id === null) {
-                $seconds = (int) collect($draft->profile['structure'] ?? [])->sum('seconds') ?: 180;
-                $draft->update(['music_request_id' => $generator->start($draft->song['lyrics'], $draft->song['style_prompt'], $seconds)]);
+                $draft->update(['music_request_id' => $generator->start($draft->song['lyrics'], $draft->song['style_prompt'], $draft->targetSeconds())]);
                 $this->release(self::POLL_SECONDS);
 
                 return;

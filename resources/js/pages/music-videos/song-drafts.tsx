@@ -9,7 +9,7 @@ import { router, useForm } from '@inertiajs/react';
 import { AlertTriangle, ArrowRight, Check, Copy, Loader2, Music, PenLine, RefreshCw, Save, Sparkles, Upload } from 'lucide-react';
 import { useState } from 'react';
 
-export type MusicProvider = { label: string; available: boolean; api: boolean; note: string };
+export type MusicProvider = { label: string; available: boolean; api: boolean; note: string; max_seconds: number | null };
 
 type Profile = {
     genre: string;
@@ -49,6 +49,8 @@ export type Draft = {
     profile: Profile | null;
     song: NewSong | null;
     overlap: { score: number; lines: string[]; too_similar: boolean } | null;
+    target_seconds: number;
+    estimates: Record<string, number>;
     music_provider: string | null;
     music_status: string | null;
     music_error: string | null;
@@ -333,13 +335,29 @@ function MakeMusic({
     maxMb: number;
     onUse: (trackId: number) => void;
 }) {
-    const [provider, setProvider] = useState(draft.music_provider ?? 'manual');
+    // Mặc định: model fal đầu tiên dùng được (MiniMax Music 3), không có FAL_KEY thì tự làm ở công cụ ngoài.
+    const [provider, setProvider] = useState(
+        draft.music_provider ?? Object.entries(providers).find(([, p]) => p.api && p.available)?.[0] ?? 'manual',
+    );
+    const seconds = Math.min(draft.target_seconds, providers[provider]?.max_seconds ?? draft.target_seconds);
+    const cost = draft.estimates[provider];
+    const usd = (value: number) => `~${value < 0.1 ? value.toFixed(3) : value.toFixed(2)} USD`;
     const upload = useForm<{ song: File | null; rights: boolean }>({ song: null, rights: false });
     const send = () => {
         upload.transform((data) => ({ ...data, rights: data.rights ? 1 : 0 }));
         upload.post(route('song-drafts.upload', draft.id), { forceFormData: true, preserveScroll: true, preserveState: true });
     };
-    const generate = () => router.post(route('song-drafts.generate', draft.id), { provider }, { preserveScroll: true, preserveState: true });
+    const generate = () => {
+        const label = providers[provider]?.label ?? provider;
+        if (
+            confirm(
+                `Tạo bài hát bằng ${label}, dài khoảng ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}.\n` +
+                    `Chi phí ước tính ${usd(cost ?? 0)}, trừ vào tài khoản fal của bạn (giá tham khảo, có thể khác). Tiếp tục?`,
+            )
+        ) {
+            router.post(route('song-drafts.generate', draft.id), { provider, confirm_cost: 1 }, { preserveScroll: true, preserveState: true });
+        }
+    };
 
     if (draft.audio_track_id) {
         return (
@@ -363,6 +381,9 @@ function MakeMusic({
                     <input type="radio" className="mt-0.5" disabled={!p.available} checked={provider === key} onChange={() => setProvider(key)} />
                     <span>
                         <span className="font-medium">{p.label}</span>
+                        {p.api && draft.estimates[key] !== undefined && (
+                            <span className="text-muted-foreground"> · ước tính {usd(draft.estimates[key])}</span>
+                        )}
                         <span className="text-muted-foreground block">{p.note}</span>
                     </span>
                 </label>
@@ -408,14 +429,18 @@ function MakeMusic({
                 </div>
             ) : (
                 <div className="space-y-2 text-xs">
-                    <p className="text-muted-foreground">Chỉ gửi lời và phong cách nhạc của bài mới (không gửi bài tham khảo). Trả phí theo lượt.</p>
+                    <p className="text-muted-foreground">
+                        Chỉ gửi lời và phong cách nhạc của bài mới (không gửi bài tham khảo, không gửi tên ca sĩ gốc). Bài dài khoảng{' '}
+                        {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}, chi phí ước tính {usd(cost ?? 0)} trả cho fal; bấm tạo sẽ
+                        hỏi xác nhận.
+                    </p>
                     {draft.music_status === 'pending' ? (
                         <p className="text-muted-foreground flex items-center gap-1">
                             <Loader2 className="size-3 animate-spin" /> Đang tạo bài hát (vài phút)...
                         </p>
                     ) : (
                         <Button type="button" size="sm" onClick={generate} disabled={!providers[provider]?.available}>
-                            <Sparkles /> Tạo nhạc bằng {provider}
+                            <Sparkles /> Tạo nhạc ({usd(cost ?? 0)})
                         </Button>
                     )}
                     {draft.music_status === 'failed' && <p className="text-destructive">{draft.music_error}</p>}

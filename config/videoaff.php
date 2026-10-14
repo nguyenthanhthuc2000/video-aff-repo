@@ -53,8 +53,14 @@ return [
     'fal' => [
         'key' => env('FAL_KEY'),
         'endpoint' => env('FAL_MUSE_ENDPOINT', 'meta/muse-image/edit'),
-        // MV: tạo bài hát mới (lời + phong cách → bài có giọng hát). Trả phí theo lượt.
-        'music_endpoint' => env('FAL_MUSIC_ENDPOINT', 'fal-ai/ace-step'),
+        // MV: tạo bài hát mới (lời + phong cách → bài có giọng hát), trả phí theo lượt. Model mặc định: minimax, elevenlabs hoặc ace-step.
+        'music_model' => env('FAL_MUSIC_MODEL', 'minimax'),
+        // Giá tham khảo (USD) để ước tính trước khi tạo; kiểm tra lại ở fal.ai/pricing.
+        'music_prices' => [
+            'minimax' => ['per_song' => (float) env('FAL_MINIMAX_MUSIC_USD', 0.15)],
+            'elevenlabs' => ['per_minute' => (float) env('FAL_ELEVENLABS_MUSIC_USD_PER_MIN', 0.8)],
+            'ace-step' => ['per_second' => (float) env('FAL_ACE_STEP_USD_PER_SECOND', 0.0002)],
+        ],
         // Giá tham khảo để ghi chi phí; kiểm tra lại trên trang giá của fal.
         'cost_per_image' => (float) env('FAL_MUSE_COST_USD', 0.01),
     ],

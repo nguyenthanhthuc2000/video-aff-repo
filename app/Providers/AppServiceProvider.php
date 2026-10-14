@@ -18,7 +18,6 @@ use App\Services\Image\Prompt\ClaudeApiScenePromptRewriter;
 use App\Services\Image\Prompt\ClaudeCliScenePromptRewriter;
 use App\Services\Image\Prompt\RuleScenePromptRewriter;
 use App\Services\Image\Prompt\ScenePromptRewriter;
-use App\Services\Music\FalSongGenerator;
 use App\Services\ProductImport\ClaudeCliProductExtractor;
 use App\Services\ProductImport\ClaudeProductExtractor;
 use App\Services\ProductImport\FakeProductExtractor;
@@ -113,9 +112,6 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind('film.clip', fn () => config('videoaff.image_driver') === 'browser'
             ? new FilmMuseClipGenerator($this->app->make(MuseBrowserClient::class))
             : new FakeFilmClipGenerator);
-
-        // MV: tạo bài hát mới qua API (trả phí). Bản tự làm ở công cụ ngoài rồi tải lên không cần đăng ký.
-        $this->app->bind('music.fal', fn () => FalSongGenerator::fromConfig());
 
         // Clip chuyển động tự động chỉ có khi tạo ảnh bằng muse.ai qua trình duyệt ngầm.
         $this->app->bind(ClipGenerator::class, fn () => match (config('videoaff.image_driver')) {

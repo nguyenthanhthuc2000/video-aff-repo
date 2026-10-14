@@ -9,6 +9,7 @@ use App\Models\SongDraft;
 use App\Services\Audio\YoutubeReference;
 use App\Services\Film\LyricsOverlap;
 use App\Services\Film\SongWriter;
+use App\Services\Music\FalSongGenerator;
 use App\Services\Video\VideoProbe;
 use App\Support\CreditPricing;
 use App\Support\Credits;
@@ -100,15 +101,20 @@ class SongDraftController extends Controller
     public function generate(Request $request, SongDraft $songDraft): RedirectResponse
     {
         $this->authorizeDraft($request, $songDraft);
-        $validated = $request->validate(['provider' => ['required', Rule::in(collect(self::providers())->filter(fn ($p) => $p['available'] && $p['api'])->keys()->all())]],
-            ['provider.in' => 'Công cụ tạo nhạc này chưa dùng được.']);
+        $validated = $request->validate([
+            'provider' => ['required', Rule::in(collect(self::providers())->filter(fn ($p) => $p['available'] && $p['api'])->keys()->all())],
+            // Trả phí: phải bấm xác nhận chi phí ước tính.
+            'confirm_cost' => ['accepted'],
+        ], ['provider.in' => 'Công cụ tạo nhạc này chưa dùng được (cần FAL_KEY).', 'confirm_cost.accepted' => 'Cần xác nhận chi phí trước khi tạo nhạc.']);
         if ($songDraft->song === null || $songDraft->isBusy()) {
             return back()->with('status', 'Chưa có bài mới hoặc đang tạo nhạc.');
         }
         $songDraft->update(['music_provider' => $validated['provider'], 'music_status' => 'pending', 'music_request_id' => null, 'music_error' => null]);
         GenerateSongJob::dispatch($songDraft);
 
-        return back()->with('status', 'Đang tạo bài hát (vài phút)...');
+        $model = FalSongGenerator::MODELS[$validated['provider']];
+
+        return back()->with('status', "Đang tạo bài hát bằng {$model['label']} (vài phút, ước tính ~".self::estimates($songDraft)[$validated['provider']].' USD)...');
     }
 
     /**
@@ -150,28 +156,38 @@ class SongDraftController extends Controller
     }
 
     /**
-     * Cách tạo nhạc cho bài mới.
+     * Cách tạo nhạc cho bài mới: tự làm ở công cụ ngoài rồi tải lên, hoặc một model nhạc trên fal (cần FAL_KEY, trả phí theo lượt).
      *
-     * @return array<string, array{label: string, available: bool, api: bool, note: string}>
+     * @return array<string, array{label: string, available: bool, api: bool, note: string, max_seconds: ?int}>
      */
     public static function providers(): array
     {
+        $key = filled(config('videoaff.fal.key'));
+        $default = config('videoaff.fal.music_model');
+        $models = collect(FalSongGenerator::MODELS)->sortBy(fn ($m, $k) => $k === $default ? 0 : 1)->map(fn ($m) => [
+            'label' => "{$m['label']} (fal, trả phí)",
+            'available' => $key,
+            'api' => true,
+            'note' => $key ? $m['note'] : 'Chưa đặt FAL_KEY trong .env. '.$m['note'],
+            'max_seconds' => $m['max_seconds'],
+        ])->all();
+
         return [
+            ...$models,
             'manual' => [
                 'label' => 'Tự tạo ở công cụ ngoài (Suno, Udio...) rồi tải lên',
                 'available' => true,
                 'api' => false,
                 'note' => 'Copy phong cách nhạc + lời sang công cụ tạo nhạc, tải bài về rồi tải lên đây. Kiểm tra điều khoản dùng thương mại của công cụ.',
-            ],
-            'fal' => [
-                'label' => 'fal API (trả phí theo lượt)',
-                'available' => filled(config('videoaff.fal.key')),
-                'api' => true,
-                'note' => filled(config('videoaff.fal.key'))
-                    ? 'Model '.config('videoaff.fal.music_endpoint').'. Chưa chạy thử với tài khoản thật.'
-                    : 'Chưa đặt FAL_KEY trong .env.',
+                'max_seconds' => null,
             ],
         ];
+    }
+
+    /** Ước tính chi phí (USD) mỗi model fal cho bài này. @return array<string, float> */
+    public static function estimates(SongDraft $draft): array
+    {
+        return collect(FalSongGenerator::MODELS)->keys()->mapWithKeys(fn ($m) => [$m => FalSongGenerator::estimate($m, $draft->targetSeconds())])->all();
     }
 
     private function authorizeDraft(Request $request, SongDraft $draft): void

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\SongDraftController;
 use App\Jobs\AnalyzeVocalsJob;
 use App\Jobs\ComposeSongDraftJob;
 use App\Jobs\GenerateSongJob;
@@ -23,6 +24,7 @@ use App\Services\Film\ShotClipPrompt;
 use App\Services\Film\ShotPrompt;
 use App\Services\Film\SongAnalysis;
 use App\Services\Film\SongWriter;
+use App\Services\Music\FalSongGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -298,7 +300,7 @@ class MusicVideoTest extends TestCase
         $this->actingAs(User::factory()->create())->post(route('song-drafts.rewrite', $draft))->assertForbidden();
 
         // fal chưa có khoá: không tạo nhạc qua API được.
-        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'fal'])->assertSessionHasErrors('provider');
+        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'minimax', 'confirm_cost' => 1])->assertSessionHasErrors('provider');
 
         // Tự tạo nhạc ở công cụ ngoài rồi tải lên: thành bài trong thư viện, kèm lời, ý tưởng MV, ca sĩ.
         $this->actingAs($this->user)->post(route('song-drafts.upload', $draft), ['song' => UploadedFile::fake()->create('new.mp3', 300, 'audio/mpeg')])
@@ -318,31 +320,64 @@ class MusicVideoTest extends TestCase
             ->where('drafts.0.audio_track_id', $track->id)
             ->where('drafts.0.reference.title', 'Mưa Đêm (Official MV)')
             ->where('songs.0.mv_idea', $track->song_info['mv_idea'])
-            ->where('musicProviders.fal.available', false));
+            ->where('musicProviders.minimax.available', false)
+            ->where('musicProviders.manual.available', true)
+            ->where('drafts.0.estimates.minimax', 0.15));
     }
 
-    public function test_fal_music_generation_sends_only_new_lyrics_and_style()
+    public function test_minimax_music_generation_needs_cost_confirmation_and_sends_only_new_lyrics_and_style()
     {
         config(['videoaff.fal.key' => 'test-key']);
         Queue::fake([AnalyzeVocalsJob::class]);
         $draft = $this->draftFor([]);
         Http::fake([
-            'https://queue.fal.run/fal-ai/ace-step' => Http::response(['request_id' => 'req1']),
-            'https://queue.fal.run/fal-ai/ace-step/requests/req1/status' => Http::response(['status' => 'COMPLETED']),
-            'https://queue.fal.run/fal-ai/ace-step/requests/req1' => Http::response(['audio' => ['url' => 'https://cdn.fal.media/song.wav']]),
-            'https://cdn.fal.media/song.wav' => Http::response('RIFFfake', 200, ['Content-Type' => 'audio/wav']),
+            'https://queue.fal.run/minimax/music-3' => Http::response([
+                'request_id' => 'req1',
+                'status_url' => 'https://queue.fal.run/minimax/music-3/requests/req1/status',
+                'response_url' => 'https://queue.fal.run/minimax/music-3/requests/req1',
+            ]),
+            'https://queue.fal.run/minimax/music-3/requests/req1/status' => Http::response(['status' => 'COMPLETED']),
+            'https://queue.fal.run/minimax/music-3/requests/req1' => Http::response(['audio' => ['url' => 'https://v3.fal.media/files/song.wav']]),
+            'https://v3.fal.media/files/song.wav' => Http::response('RIFFfake', 200, ['Content-Type' => 'audio/wav']),
         ]);
 
-        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'fal'])->assertSessionHasNoErrors();
+        // Trang hiện MiniMax đầu tiên, dùng được khi có FAL_KEY.
+        $this->actingAs($this->user)->get(route('music-videos.create'))->assertInertia(fn (Assert $page) => $page
+            ->where('musicProviders.minimax.available', true)->where('drafts.0.target_seconds', 75));
+        $this->assertSame('minimax', array_key_first(SongDraftController::providers()));
+
+        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'minimax'])->assertSessionHasErrors('confirm_cost');
+        Http::assertNothingSent();
+        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'minimax', 'confirm_cost' => 1])->assertSessionHasNoErrors();
+        (new GenerateSongJob($draft))->handle();
         (new GenerateSongJob($draft))->handle();
 
-        Http::assertSent(fn ($request) => $request->url() === 'https://queue.fal.run/fal-ai/ace-step'
-            && $request['lyrics'] === $draft->song['lyrics'] && $request['tags'] === $draft->song['style_prompt'] && $request['duration'] === 75
-            && ! str_contains(json_encode($request->data()), 'Ca Sĩ A'));
+        Http::assertSent(fn ($request) => $request->url() === 'https://queue.fal.run/minimax/music-3'
+            && $request['prompt'] === $draft->song['style_prompt'] && $request['duration'] === 75
+            && str_starts_with($request['lyrics'], "[verse]\nSáng nay phố vắng") && str_contains($request['lyrics'], "\n[chorus]\n")
+            && ! str_contains(json_encode($request->data(), JSON_UNESCAPED_UNICODE), 'Ca Sĩ A'));
         $draft->refresh();
         $this->assertSame('done', $draft->music_status);
         $this->assertSame('RIFFfake', Storage::disk(config('videoaff.disk'))->get($draft->audioTrack->path));
         $this->assertStringEndsWith('.wav', $draft->audioTrack->path);
+    }
+
+    public function test_music_models_payloads_and_estimates()
+    {
+        $lyrics = "[Intro]\n[Verse 1]\nLine one\nLine two\n[Pre-Chorus]\nUp\n[Chorus]\nHook line\nHook line again\n[Hook]\nOh";
+        $this->assertSame("[intro]\n[verse]\nLine one\nLine two\n[pre-chorus]\nUp\n[chorus]\nHook line\nHook line again\n[verse]\nOh", FalSongGenerator::minimaxLyrics($lyrics));
+
+        $chunks = FalSongGenerator::payload('elevenlabs', $lyrics, 'pop, female vocal', 120)['composition_plan']['chunks'];
+        $this->assertSame(['[Intro]', "[Verse 1]\nLine one\nLine two", "[Pre-Chorus]\nUp", "[Chorus]\nHook line\nHook line again", "[Hook]\nOh"], array_column($chunks, 'text'));
+        $this->assertSame(['pop', 'female vocal'], $chunks[0]['positive_styles']);
+        $this->assertTrue(collect($chunks)->every(fn ($c) => $c['duration_ms'] >= 3000 && $c['duration_ms'] <= 120000));
+        $this->assertSame(['tags' => 'pop', 'lyrics' => $lyrics, 'duration' => 90], FalSongGenerator::payload('ace-step', $lyrics, 'pop', 90));
+
+        $this->assertSame(0.15, FalSongGenerator::estimate('minimax', 180));
+        $this->assertSame(2.4, FalSongGenerator::estimate('elevenlabs', 180));
+        $this->assertSame(0.036, FalSongGenerator::estimate('ace-step', 180));
+        // ACE-Step tối đa 240 giây.
+        $this->assertSame(0.048, FalSongGenerator::estimate('ace-step', 600));
     }
 
     public function test_song_analysis_can_be_edited_and_feeds_ideas_and_shot_writing()
