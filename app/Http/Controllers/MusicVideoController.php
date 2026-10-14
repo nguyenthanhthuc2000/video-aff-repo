@@ -3,12 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Enums\SeriesStatus;
+use App\Jobs\AnalyzeSongJob;
+use App\Jobs\ImportYoutubeSongJob;
 use App\Jobs\PlanSeriesJob;
 use App\Jobs\SuggestMusicVideoIdeasJob;
 use App\Models\AudioTrack;
 use App\Models\Series;
+use App\Services\Audio\YoutubeSong;
 use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
+use App\Services\Film\SongAnalysis;
 use App\Services\Video\VideoProbe;
 use App\Support\CreditPricing;
 use App\Support\Credits;
@@ -33,12 +37,20 @@ class MusicVideoController extends Controller
         $drivers = self::drivers();
 
         return Inertia::render('music-videos/create', [
-            'songs' => $request->user()->audioTracks()->whereNotNull('path')->latest('id')->get()->map(fn (AudioTrack $t) => [
-                'id' => $t->id, 'name' => $t->name, 'duration_ms' => $t->duration_ms, 'lyrics' => $t->lyrics, 'url' => Media::url($t->path),
-                // Lời theo thời gian (dịch vụ audio): nghe thử thì câu đang hát sáng lên, bấm câu để tua tới.
-                'vocal_status' => $t->vocal_status, 'vocal_error' => $t->vocal_error,
-                'lines' => MusicVideoWriter::lines($t->vocal_analysis['words'] ?? []),
-            ]),
+            // Bài có file nhạc, và bài đang lấy / lấy lỗi từ YouTube.
+            'songs' => $request->user()->audioTracks()->where(fn ($q) => $q->whereNotNull('path')->orWhereIn('import_status', ['pending', 'failed']))
+                ->latest('id')->get()->map(fn (AudioTrack $t) => [
+                    'id' => $t->id, 'name' => $t->name, 'duration_ms' => $t->duration_ms, 'lyrics' => $t->lyrics, 'url' => Media::url($t->path),
+                    'source_url' => $t->source_url, 'import_status' => $t->import_status, 'import_error' => $t->import_error, 'language' => $t->language,
+                    // Lời theo thời gian (phụ đề YouTube hoặc dịch vụ audio): nghe thử thì câu đang hát sáng lên, bấm câu để tua tới.
+                    'vocal_status' => $t->vocal_status, 'vocal_error' => $t->vocal_error, 'lyrics_source' => $t->vocal_analysis['source'] ?? null,
+                    'lines' => MusicVideoWriter::lines($t->vocal_analysis['words'] ?? []),
+                    // Claude phân tích bài hát (sửa được).
+                    'analysis' => $t->song_info['analysis'] ?? null,
+                    'analysis_status' => $t->song_info['analysis_status'] ?? null,
+                    'analysis_error' => $t->song_info['analysis_error'] ?? null,
+                ]),
+            'sections' => SongAnalysis::SECTIONS,
             'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => ['label' => $p['label'], 'style' => $p['style']]),
             'lipSyncModes' => Series::LIP_SYNC_MODES,
             'drivers' => $drivers,
@@ -152,6 +164,78 @@ class MusicVideoController extends Controller
             .'Dịch vụ audio đang tách lời bài hát theo thời gian để cắt shot đúng câu hát.');
     }
 
+    /**
+     * Lấy bài hát từ link YouTube vào thư viện (dịch vụ audio, yt-dlp), rồi lời theo thời gian (phụ đề hoặc tách giọng) và Claude phân tích bài.
+     * Người dùng phải là chủ / có quyền với bài hát.
+     */
+    public function youtube(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'url' => ['required', 'url', 'max:2048', fn ($attribute, $value, $fail) => YoutubeSong::isYoutube($value) ? null : $fail('Chỉ nhận link YouTube (youtube.com hoặc youtu.be).')],
+            'rights' => ['accepted'],
+        ], [
+            'url.required' => 'Dán link YouTube của bài hát.',
+            'rights.accepted' => 'Cần xác nhận bạn là chủ / có quyền dùng bài hát này.',
+        ], ['url' => 'link YouTube']);
+        if ($message = Credits::shortfall($request->user(), CreditPricing::aiEstimates()['film_plan'], 'phân tích bài hát')) {
+            return back()->withErrors(['url' => $message]);
+        }
+
+        $track = $request->user()->audioTracks()->create([
+            'name' => Str::limit($validated['url'], 200, ''),
+            'source_url' => $validated['url'],
+            'rights_confirmed_at' => now(),
+            'import_status' => 'pending',
+        ]);
+        ImportYoutubeSongJob::dispatch($track);
+
+        return back()->with('status', 'Đang lấy bài hát từ YouTube (thường dưới 1 phút), sau đó lấy lời theo thời gian và Claude phân tích bài hát.');
+    }
+
+    /** Claude phân tích (lại) bài hát trong thư viện. */
+    public function analyzeSong(Request $request, AudioTrack $audioTrack): RedirectResponse
+    {
+        $this->authorize('update', $audioTrack);
+        if (! $audioTrack->isPlayable()) {
+            return back()->withErrors(['audio' => 'Bài hát chưa có file nhạc.']);
+        }
+        if (($audioTrack->song_info['analysis_status'] ?? null) === 'pending') {
+            return back()->with('status', 'Claude đang phân tích bài hát.');
+        }
+        if ($message = Credits::shortfall($request->user(), CreditPricing::aiEstimates()['film_plan'], 'phân tích bài hát')) {
+            return back()->withErrors(['audio' => $message]);
+        }
+        $audioTrack->update(['song_info' => [...($audioTrack->song_info ?? []), 'analysis_status' => 'pending', 'analysis_error' => null]]);
+        AnalyzeSongJob::dispatch($audioTrack);
+
+        return back()->with('status', 'Claude đang phân tích bài hát (khoảng 1 phút)...');
+    }
+
+    /** Lưu phân tích bài hát đã sửa. */
+    public function updateAnalysis(Request $request, AudioTrack $audioTrack): RedirectResponse
+    {
+        $this->authorize('update', $audioTrack);
+        $validated = $request->validate([
+            'title' => ['nullable', 'string', 'max:200'],
+            'artist' => ['nullable', 'string', 'max:200'],
+            'genre' => ['nullable', 'string', 'max:100'],
+            'tempo_bpm' => ['nullable', 'integer', 'min:40', 'max:220'],
+            'tempo_feel' => ['nullable', 'string', 'max:40'],
+            'mood' => ['nullable', 'string', 'max:300'],
+            'themes' => ['array', 'max:6'],
+            'themes.*' => ['nullable', 'string', 'max:100'],
+            'structure' => ['array', 'max:30'],
+            'structure.*.section' => ['required', Rule::in(SongAnalysis::SECTIONS)],
+            'structure.*.start' => ['required', 'numeric', 'min:0'],
+            'structure.*.end' => ['required', 'numeric', 'gt:structure.*.start'],
+            'summary' => ['nullable', 'string', 'max:1000'],
+        ], ['structure.*.end.gt' => 'Mỗi đoạn phải kết thúc sau khi bắt đầu.']);
+        $analysis = SongAnalysis::normalize([...($audioTrack->song_info['analysis'] ?? []), ...$validated], $audioTrack->duration_ms ? $audioTrack->duration_ms / 1000 : null);
+        $audioTrack->update(['song_info' => [...($audioTrack->song_info ?? []), 'analysis' => $analysis, 'analysis_status' => 'ready']]);
+
+        return back()->with('status', 'Đã lưu phân tích bài hát.');
+    }
+
     /** Claude đề xuất vài ý tưởng MV (chạy nền): trả mã để trang hỏi lại kết quả. */
     public function ideas(Request $request): JsonResponse
     {
@@ -163,6 +247,7 @@ class MusicVideoController extends Controller
             'aspect_ratio' => ['nullable', Rule::in(['16:9', '9:16'])],
             'singer' => ['nullable', 'string', 'max:1000'],
             'hint' => ['nullable', 'string', 'max:2000'],
+            'audio_track_id' => ['nullable', 'integer'],
             'previous' => ['array', 'max:12'],
             'previous.*' => ['nullable', 'string', 'max:120'],
         ]);
@@ -170,8 +255,12 @@ class MusicVideoController extends Controller
             return response()->json(['message' => $message], 422);
         }
         $token = (string) Str::uuid();
+        $track = isset($validated['audio_track_id']) ? $request->user()->audioTracks()->find($validated['audio_track_id']) : null;
+        $analysis = $track?->song_info['analysis'] ?? null;
         $input = [
-            ...collect($validated)->except(['style_preset', 'style'])->all(),
+            ...collect($validated)->except(['style_preset', 'style', 'audio_track_id'])->all(),
+            // Phân tích bài hát của Claude (thể loại, nhịp, không khí, chủ đề) để ý tưởng hợp bài hơn.
+            'song_brief' => trim(SongAnalysis::brief($analysis)."\n".($analysis['summary'] ?? '')) ?: null,
             'style' => filled($validated['style'] ?? null) ? $validated['style'] : Series::MV_STYLE_PRESETS[$validated['style_preset'] ?? 'cinematic']['style'],
         ];
         Cache::put(SuggestMusicVideoIdeasJob::key($token), ['user_id' => $request->user()->id, 'status' => 'pending'], now()->addMinutes(SuggestMusicVideoIdeasJob::TTL_MINUTES));

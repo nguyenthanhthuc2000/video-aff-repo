@@ -17,6 +17,13 @@ POST /analyze {"base64": "...", "name": "song.mp3", "language": "vi"} -> {"id": 
 GET /analyze/<id> -> {"state": "pending"} | {"state": "failed", "error"} |
     {"state": "done", "duration": giây, "vocals": [{"start", "end"}], "words": [{"start", "end", "text"}]}
 
+POST /youtube {"url": link YouTube, "max_bytes": giới hạn file} -> {"id": "..."} (chạy nền, yt-dlp)
+GET /youtube/<id> -> {"state": "pending"} | {"state": "failed", "error"} |
+    {"state": "done", "title", "artist", "channel", "duration", "description", "language", "captions_kind": "manual"|"auto"|null,
+     "captions": [{"start", "end", "text"}]}
+GET /youtube/<id>/audio -> file mp3 (lấy xong thì xoá khỏi dịch vụ)
+    Chỉ nhận link youtube.com / youtu.be (không cho yt-dlp tải trang khác). Người dùng phải có quyền với bài hát.
+
 vocals: các khoảng có giọng hát (từ bản tách giọng của Demucs, đo độ lớn từng 50 ms).
 words: lời bài hát kèm mốc thời gian (faster-whisper trên bản tách giọng), có thể sai chữ nhưng mốc thời gian đủ dùng.
 """
@@ -184,6 +191,112 @@ def run(task_id, data, name, language):
         TASKS[task_id] = {"state": "failed", "error": str(e)[:300]}
 
 
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
+YOUTUBE_MAX_SECONDS = 15 * 60
+YOUTUBE_FILES = {}
+
+
+def youtube_url(url):
+    from urllib.parse import urlparse
+
+    parsed = urlparse(str(url).strip())
+    if parsed.scheme not in ("http", "https") or (parsed.hostname or "").lower() not in YOUTUBE_HOSTS:
+        raise ValueError("Chỉ nhận link YouTube (youtube.com hoặc youtu.be).")
+    return parsed.geturl()
+
+
+def vtt_cues(path):
+    """Phụ đề WebVTT -> các câu có mốc; bỏ thẻ, bỏ dòng lặp của phụ đề tự động (cuộn từng dòng), bỏ [Music] / [Âm nhạc]."""
+
+    def seconds(stamp):
+        parts = stamp.replace(",", ".").split(":")
+        return sum(float(p) * 60 ** i for i, p in enumerate(reversed(parts)))
+
+    cues, last = [], ""
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        blocks = f.read().split("\n\n")
+    for block in blocks:
+        lines = [l for l in block.strip().splitlines() if l.strip()]
+        timing = next((l for l in lines if "-->" in l), None)
+        if timing is None:
+            continue
+        start, end = (seconds(t.strip().split(" ")[0]) for t in timing.split("-->"))
+        text = " ".join(re.sub(r"<[^>]+>", "", l).strip() for l in lines[lines.index(timing) + 1:]).strip()
+        text = re.sub(r"\s+", " ", text)
+        if not text or re.fullmatch(r"[\[(♪].*[\])♪]|♪+", text):
+            continue
+        # Phụ đề tự động lặp lại dòng trước rồi thêm chữ mới: chỉ giữ phần mới.
+        if last and text.startswith(last):
+            text = text[len(last):].strip()
+        if text:
+            cues.append({"start": round(start, 2), "end": round(end, 2), "text": text})
+            last = text
+    return cues
+
+
+def youtube(task_id, url, max_bytes):
+    tmp = tempfile.mkdtemp()
+    try:
+        info = json.loads(subprocess.run(
+            ["yt-dlp", "--no-playlist", "--dump-single-json", "--no-warnings", url], check=True, capture_output=True, timeout=120,
+        ).stdout)
+        duration = float(info.get("duration") or 0)
+        if duration > YOUTUBE_MAX_SECONDS:
+            raise ValueError("Video dài quá 15 phút: chọn link chỉ có bài hát.")
+        manual, auto = info.get("subtitles") or {}, info.get("automatic_captions") or {}
+        language = (info.get("language") or "").split("-")[0] or None
+        # Phụ đề do người đăng tải lên chính xác hơn phụ đề tự động; ưu tiên đúng ngôn ngữ của video.
+        kind, lang = None, None
+        for source, name in ((manual, "manual"), (auto, "auto")):
+            keys = [k for k in source if not k.startswith("live_chat")]
+            same = [k for k in keys if language and k.split("-")[0] == language]
+            # Phụ đề tự động: chỉ lấy bản gốc đúng ngôn ngữ video (các thứ tiếng khác là bản dịch máy).
+            pick = (sorted(same, key=lambda k: (k.endswith("-orig") is False, len(k)))[0] if same else None) \
+                or (keys[0] if name == "manual" and keys else None)
+            if pick:
+                kind, lang = name, pick
+                break
+        subprocess.run(
+            ["yt-dlp", "--no-playlist", "--no-warnings", "-f", "bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "160K",
+             "--max-filesize", str(int(max_bytes) * 2), "-o", os.path.join(tmp, "song.%(ext)s"), url]
+            + (["--write-subs" if kind == "manual" else "--write-auto-subs", "--sub-langs", lang, "--sub-format", "vtt"] if kind else []),
+            check=True, capture_output=True, timeout=600,
+        )
+        song = os.path.join(tmp, "song.mp3")
+        if not os.path.exists(song):
+            raise ValueError("Không tải được âm thanh của video.")
+        # Quá giới hạn của app: nén lại bitrate thấp hơn.
+        if os.path.getsize(song) > max_bytes and duration:
+            kbps = max(64, int(max_bytes * 8 / duration / 1000 * 0.95))
+            smaller = os.path.join(tmp, "small.mp3")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", song, "-b:a", f"{kbps}k", smaller], check=True)
+            song = smaller
+        if os.path.getsize(song) > max_bytes:
+            raise ValueError("File bài hát vượt giới hạn dung lượng.")
+        subs = next((os.path.join(tmp, f) for f in os.listdir(tmp) if f.endswith(".vtt")), None)
+        captions = vtt_cues(subs) if subs else []
+        YOUTUBE_FILES[task_id] = (song, tmp)
+        TASKS[task_id] = {
+            "state": "done",
+            "title": info.get("track") or info.get("title") or "",
+            "artist": info.get("artist") or info.get("creator") or info.get("uploader") or "",
+            "channel": info.get("channel") or info.get("uploader") or "",
+            "duration": round(duration, 2),
+            "description": (info.get("description") or "")[:5000],
+            "language": (lang or language or "").split("-")[0] or None,
+            "captions_kind": kind if captions else None,
+            "captions": captions,
+        }
+    except subprocess.TimeoutExpired:
+        TASKS[task_id] = {"state": "failed", "error": "YouTube phản hồi quá lâu, thử lại sau."}
+    except subprocess.CalledProcessError as e:
+        TASKS[task_id] = {"state": "failed", "error": "yt-dlp lỗi: " + (e.stderr or b"").decode(errors="ignore").strip()[-300:]}
+    except Exception as e:  # noqa: BLE001
+        TASKS[task_id] = {"state": "failed", "error": str(e)[:300]}
+    if task_id not in YOUTUBE_FILES:
+        subprocess.run(["rm", "-rf", tmp])
+
+
 TTS_RATE = 24000
 TTS_LOCK = threading.Lock()
 _pipelines = {}
@@ -275,19 +388,35 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.reply(200, {"ok": True})
-        if not self.path.startswith("/analyze/"):
+        if not self.path.startswith(("/analyze/", "/youtube/")):
             return self.reply(404, {"error": "not found"})
         if not self.authorized():
             return self.reply(401, {"error": "unauthorized"})
+        if self.path.startswith("/youtube/") and self.path.endswith("/audio"):
+            task_id = self.path.split("/")[2]
+            song, tmp = YOUTUBE_FILES.pop(task_id, (None, None))
+            if song is None:
+                return self.reply(404, {"error": "Không còn file bài hát (dịch vụ đã khởi động lại?)."})
+            with open(song, "rb") as f:
+                payload = f.read()
+            subprocess.run(["rm", "-rf", tmp])
+            TASKS.pop(task_id, None)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         task = TASKS.get(self.path.rsplit("/", 1)[-1])
         if task is None:
             return self.reply(404, {"error": "Không tìm thấy yêu cầu phân tích (dịch vụ đã khởi động lại?)."})
         self.reply(200, task)
-        if task["state"] != "pending":
+        # Bài YouTube: giữ kết quả tới khi app lấy file nhạc (GET .../audio).
+        if task["state"] != "pending" and not (self.path.startswith("/youtube/") and task["state"] == "done"):
             TASKS.pop(self.path.rsplit("/", 1)[-1], None)
 
     def do_POST(self):
-        if self.path not in ("/analyze", "/tts", "/transcribe", "/music"):
+        if self.path not in ("/analyze", "/tts", "/transcribe", "/music", "/youtube"):
             return self.reply(404, {"error": "not found"})
         if not self.authorized():
             return self.reply(401, {"error": "unauthorized"})
@@ -304,6 +433,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, transcribe(base64.b64decode(body["base64"]), body.get("language", "en")))
             except Exception as e:  # noqa: BLE001
                 return self.reply(500, {"error": "Chép lời thất bại: " + str(e)[:300]})
+        if self.path == "/youtube":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                url = youtube_url(body.get("url", ""))
+            except Exception as e:  # noqa: BLE001
+                return self.reply(400, {"error": str(e)[:300]})
+            task_id = uuid.uuid4().hex
+            TASKS[task_id] = {"state": "pending"}
+            threading.Thread(target=youtube, args=(task_id, url, int(body.get("max_bytes", 20 * 1024 * 1024))), daemon=True).start()
+            return self.reply(202, {"id": task_id})
         if self.path == "/tts":
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
@@ -318,7 +457,7 @@ class Handler(BaseHTTPRequestHandler):
 
         task_id = uuid.uuid4().hex
         TASKS[task_id] = {"state": "pending"}
-        threading.Thread(target=run, args=(task_id, data, body.get("name", "song.mp3"), body.get("language", "vi")), daemon=True).start()
+        threading.Thread(target=run, args=(task_id, data, body.get("name", "song.mp3"), body.get("language", "vi") or None), daemon=True).start()
         self.reply(202, {"id": task_id})
 
     def log_message(self, fmt, *args):

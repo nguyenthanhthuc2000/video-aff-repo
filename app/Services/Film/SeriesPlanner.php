@@ -185,6 +185,7 @@ final class SeriesPlanner
             .'Audience: '.($series->audience ?: Series::MV_AUDIENCE).".\n"
             ."Art style (for the appearance descriptions): {$series->style}.\n"
             ."Frame: {$series->frameLine()}.\n\n"
+            .(($brief = SongAnalysis::brief($series->song?->song_info['analysis'] ?? null)) !== '' ? "Song analysis:\n{$brief}\n\n" : '')
             .(filled($lyrics) ? "Lyrics:\n{$lyrics}\n\n" : "No lyrics given: base the concept on the idea and the mood.\n\n")
             .($seeds !== '' ? "The artist already has these characters; the attached images show them in order:\n{$seeds}\n"
                 .'Include each of them with exactly this name. Write their "appearance" strictly from their image.'."\n\n" : '')

@@ -39,7 +39,7 @@ class AnalyzeVocalsJob implements ShouldQueue
         try {
             if (! Cache::has($key)) {
                 $contents = Media::disk()->get((string) $track->path) ?? throw new RuntimeException('Không đọc được file nhạc.');
-                Cache::put($key, $analyzer->start($contents, basename((string) $track->path)), now()->addHour());
+                Cache::put($key, $analyzer->start($contents, basename((string) $track->path), $track->language ?: 'vi'), now()->addHour());
                 $this->release(self::POLL_SECONDS);
 
                 return;
@@ -61,11 +61,22 @@ class AnalyzeVocalsJob implements ShouldQueue
 
         Cache::forget($key);
         $track->update(['vocal_analysis' => $result, 'vocal_status' => 'ready', 'vocal_error' => null]);
+        $this->analyzeSong();
+    }
+
+    /** Bài lấy từ YouTube đang chờ lời theo thời gian: giờ Claude phân tích bài hát (không có lời thì phân tích theo thông tin video). */
+    private function analyzeSong(): void
+    {
+        $track = $this->track->fresh();
+        if (($track?->song_info['analysis_status'] ?? null) === 'waiting') {
+            AnalyzeSongJob::dispatch($track);
+        }
     }
 
     public function failed(?Throwable $e): void
     {
         Cache::forget("vocal-task:{$this->track->id}");
         $this->track->update(['vocal_status' => 'failed', 'vocal_error' => mb_substr($e?->getMessage() ?? 'Phân tích giọng hát thất bại.', 0, 500)]);
+        $this->analyzeSong();
     }
 }

@@ -83,7 +83,7 @@ Có thể ép chế độ bằng `SCRIPT_DRIVER=web|claude|fake` và `MUSE_DRIVE
 
 ## MV ca nhạc
 
-Menu **Tạo MV ca nhạc** (`/music-videos/create`): tải bài hát lên (mp3, wav, m4a) hoặc chọn bài trong thư viện Âm thanh, **nghe thử** (dạng sóng, bấm để tua, đặt điểm bắt đầu / kết thúc theo chỗ đang nghe, nghe lặp đoạn đã chọn) và **xem lời** chạy theo nhạc (nút Lấy lời theo thời gian dùng dịch vụ `audio`), dán lời, chọn đoạn bài hát (để trống là cả bài), phong cách (người thật kiểu điện ảnh, 2D anime, 3D), khung hình (16:9 mặc định hoặc 9:16), ca sĩ (mô tả, ảnh không bắt buộc), ý tưởng (nút **Claude đề xuất ý tưởng** cho 3 ý tưởng để chọn; để trống thì Claude tự chọn khi lên kế hoạch), kiểu hát nhép (chỉ điệp khúc mặc định, cả bài, không) và công cụ tạo ảnh / clip.
+Menu **Tạo MV ca nhạc** (`/music-videos/create`): **dán link YouTube** (dịch vụ `audio` dùng yt-dlp lấy âm thanh, tên bài, mô tả, phụ đề; phụ đề thành lời theo thời gian, không có thì tách giọng theo ngôn ngữ của video; rồi Claude phân tích thể loại, nhịp ước lượng, không khí, cấu trúc có mốc, chủ đề, lời; sửa được; chỉ dùng bài hát bạn có quyền), tải bài hát lên (mp3, wav, m4a) hoặc chọn bài trong thư viện Âm thanh, **nghe thử** (dạng sóng, bấm để tua, đặt điểm bắt đầu / kết thúc theo chỗ đang nghe, nghe lặp đoạn đã chọn) và **xem lời** chạy theo nhạc (nút Lấy lời theo thời gian dùng dịch vụ `audio`), dán lời, chọn đoạn bài hát (để trống là cả bài), phong cách (người thật kiểu điện ảnh, 2D anime, 3D), khung hình (16:9 mặc định hoặc 9:16), ca sĩ (mô tả, ảnh không bắt buộc), ý tưởng (nút **Claude đề xuất ý tưởng** cho 3 ý tưởng để chọn; để trống thì Claude tự chọn khi lên kế hoạch), kiểu hát nhép (chỉ điệp khúc mặc định, cả bài, không) và công cụ tạo ảnh / clip.
 
 MV là một bộ phim một tập nên dùng chung các trang của phim hoạt hình:
 
@@ -92,6 +92,8 @@ MV là một bộ phim một tập nên dùng chung các trang của phim hoạt
 3. **Viết tập**: Claude cắt shot đúng câu hát (2–10 giây mỗi shot, phủ đúng đoạn bài hát), đánh dấu shot hát nhép.
 4. Muse vẽ khung hình, làm clip. Shot hát nhép gửi kèm đúng đoạn bài hát của shot.
 5. **Ghép**: tiếng là bài hát gốc (không thẻ tiêu đề, không lời thoại / hiệu ứng), phụ đề là lời bài hát (chèn vào hình nếu chọn).
+
+Lấy bài từ YouTube cần build lại dịch vụ audio: `docker compose build audio && docker compose up -d audio`.
 
 Công cụ: Muse qua trình duyệt ngầm (`MUSE_DRIVER=browser`). fal trong app mới tạo ảnh, chưa làm clip nên chưa chọn được cho MV.
 

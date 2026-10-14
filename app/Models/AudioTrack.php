@@ -15,7 +15,7 @@ class AudioTrack extends Model
     /** @use HasFactory<AudioTrackFactory> */
     use HasFactory;
 
-    protected $fillable = ['name', 'path', 'source_url', 'mime', 'size_bytes', 'duration_ms', 'rights_confirmed_at', 'vocal_status', 'vocal_analysis', 'vocal_error', 'lyrics'];
+    protected $fillable = ['name', 'path', 'source_url', 'mime', 'size_bytes', 'duration_ms', 'rights_confirmed_at', 'vocal_status', 'vocal_analysis', 'vocal_error', 'lyrics', 'import_status', 'import_error', 'language', 'song_info'];
 
     protected function casts(): array
     {
@@ -24,6 +24,7 @@ class AudioTrack extends Model
             'duration_ms' => 'integer',
             'rights_confirmed_at' => 'datetime',
             'vocal_analysis' => 'array',
+            'song_info' => 'array',
         ];
     }
 

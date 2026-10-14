@@ -50,7 +50,7 @@ final class MusicVideoIdeas
         ];
     }
 
-    /** @param array{song_name?: ?string, lyrics?: ?string, style?: ?string, aspect_ratio?: ?string, singer?: ?string, hint?: ?string, previous?: list<string>} $input */
+    /** @param array{song_name?: ?string, song_brief?: ?string, lyrics?: ?string, style?: ?string, aspect_ratio?: ?string, singer?: ?string, hint?: ?string, previous?: list<string>} $input */
     public static function text(array $input): string
     {
         $previous = collect($input['previous'] ?? [])->filter()->map(fn ($t) => "- {$t}")->implode("\n");
@@ -58,6 +58,7 @@ final class MusicVideoIdeas
         return 'Song title: '.(trim((string) ($input['song_name'] ?? '')) ?: 'unknown')."\n"
             .'Look: '.(trim((string) ($input['style'] ?? '')) ?: 'cinematic')."\n"
             .'Frame: '.(($input['aspect_ratio'] ?? '16:9') === '9:16' ? 'vertical 9:16 (TikTok, Reels, Shorts)' : 'horizontal 16:9 (YouTube)')."\n\n"
+            .(filled($input['song_brief'] ?? null) ? "Song analysis:\n".trim($input['song_brief'])."\n\n" : '')
             .(filled($input['lyrics'] ?? null) ? "Lyrics:\n".trim($input['lyrics'])."\n\n" : "No lyrics given: base the concepts on the title and the look.\n\n")
             .(filled($input['singer'] ?? null) ? 'The creator already described the singer (keep this look in every concept): '.trim($input['singer'])."\n\n" : '')
             .(filled($input['hint'] ?? null) ? 'Notes from the creator: '.trim($input['hint'])."\n\n" : '')

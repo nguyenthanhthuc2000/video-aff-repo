@@ -16,9 +16,9 @@ class VocalAnalyzer
      *
      * @throws RuntimeException
      */
-    public function start(string $contents, string $name): string
+    public function start(string $contents, string $name, ?string $language = 'vi'): string
     {
-        $response = $this->call(fn (PendingRequest $http) => $http->post('/analyze', ['base64' => base64_encode($contents), 'name' => $name, 'language' => 'vi']));
+        $response = $this->call(fn (PendingRequest $http) => $http->post('/analyze', ['base64' => base64_encode($contents), 'name' => $name, 'language' => $language]));
 
         return (string) ($response->json('id') ?? throw new RuntimeException('Dịch vụ phân tích nhạc không trả về mã yêu cầu.'));
     }

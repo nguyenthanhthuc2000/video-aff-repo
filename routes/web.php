@@ -102,6 +102,9 @@ Route::middleware(['auth'])->group(function () {
     // MV ca nhạc: tạo ở trang riêng, sau đó dùng chung các trang của phim (kế hoạch, nhân vật, tập, ghép).
     Route::get('music-videos/create', [MusicVideoController::class, 'create'])->name('music-videos.create');
     Route::post('music-videos', [MusicVideoController::class, 'store'])->name('music-videos.store');
+    Route::post('music-videos/youtube', [MusicVideoController::class, 'youtube'])->name('music-videos.youtube');
+    Route::post('music-videos/songs/{audioTrack}/analysis', [MusicVideoController::class, 'analyzeSong'])->name('music-videos.songs.analyze');
+    Route::put('music-videos/songs/{audioTrack}/analysis', [MusicVideoController::class, 'updateAnalysis'])->name('music-videos.songs.analysis');
     Route::post('music-videos/ideas', [MusicVideoController::class, 'ideas'])->name('music-videos.ideas');
     Route::get('music-videos/ideas/{token}', [MusicVideoController::class, 'ideasStatus'])->name('music-videos.ideas.show');
 

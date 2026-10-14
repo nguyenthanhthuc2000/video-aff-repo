@@ -42,6 +42,7 @@ export default function SongPreview({
     end,
     onStart,
     onEnd,
+    seekTo,
 }: {
     source: string | File;
     lines: TimedLine[];
@@ -50,6 +51,8 @@ export default function SongPreview({
     end: number | null;
     onStart: (seconds: number | null) => void;
     onEnd: (seconds: number | null) => void;
+    /** Tua từ ngoài (bấm một đoạn trong cấu trúc bài): n đổi mỗi lần bấm. */
+    seekTo?: { at: number; n: number } | null;
 }) {
     const audio = useRef<HTMLAudioElement>(null);
     const canvas = useRef<HTMLCanvasElement>(null);
@@ -124,6 +127,13 @@ export default function SongPreview({
             seek(from, true);
         }
     };
+
+    useEffect(() => {
+        if (seekTo && audio.current) {
+            audio.current.currentTime = seekTo.at;
+            void audio.current.play();
+        }
+    }, [seekTo]);
 
     const active = lines.reduce((found, line, i) => (line.start <= time + 0.15 ? i : found), -1);
     useEffect(() => {

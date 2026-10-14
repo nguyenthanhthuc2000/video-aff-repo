@@ -27,6 +27,12 @@ RUN pip install --no-cache-dir piper-tts==1.2.0 \
 RUN apt-get update && apt-get install -y --no-install-recommends fluidsynth fluid-soundfont-gm && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir mido==1.3.3
 
+# MV ca nhạc: lấy bài hát (của người dùng) từ link YouTube. yt-dlp cần Deno để giải mã trang YouTube; không ghim phiên bản vì
+# YouTube đổi liên tục (lỗi tải thì build lại image: docker compose build --no-cache audio).
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ca-certificates && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -y \
+    && pip install --no-cache-dir -U "yt-dlp[default]"
+
 COPY server.py music.py ./
 ENV PORT=3100
 EXPOSE 3100

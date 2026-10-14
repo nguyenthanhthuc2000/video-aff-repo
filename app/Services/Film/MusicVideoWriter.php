@@ -126,6 +126,8 @@ final class MusicVideoWriter
         $seconds = round(($to - $from) / 1000, 1);
         $characters = EpisodeWriter::characters($episode)->map(fn (SeriesCharacter $c) => "- {$c->name} ({$c->role}): {$c->appearance}")->implode("\n");
         $locations = $series->locations()->get()->map(fn (SeriesLocation $l) => "- {$l->name}: {$l->description}")->implode("\n");
+        $structure = collect(SongAnalysis::structureIn($series->song?->song_info['analysis'] ?? null, $from / 1000, $to / 1000))
+            ->map(fn ($s) => sprintf('[%.1f–%.1f] %s', $s['start'], $s['end'], $s['section']))->implode("\n");
         $timed = collect(self::timedLyrics($series))->map(fn ($l) => sprintf('[%.1f–%.1f] %s', $l['start'], $l['end'], $l['text']))->implode("\n");
 
         return 'Song: '.($series->song?->name ?? $series->title)."\n"
@@ -136,6 +138,8 @@ final class MusicVideoWriter
             ."Frame: {$series->frameLine()}. Art style: {$series->style}.\n\n"
             ."Characters (the singer is the main one):\n{$characters}\n\n"
             .($locations !== '' ? "Locations:\n{$locations}\n\n" : '')
+            .(($brief = SongAnalysis::brief($series->song?->song_info['analysis'] ?? null)) !== '' ? "Song analysis:\n{$brief}\n" : '')
+            .($structure !== '' ? "Song structure (seconds from the start of the excerpt; cut on these boundaries, section names for \"section\"):\n{$structure}\n\n" : "\n")
             .($timed !== '' ? "Timed lyrics (seconds from the start of the excerpt; detected automatically, may contain small errors):\n{$timed}\n\n" : '')
             .(filled($series->lyrics) ? "Official lyrics from the artist (use this spelling):\n{$series->lyrics}\n\n" : '')
             .($timed === '' ? "No timing is available: spread the lyric lines evenly over the excerpt with an intro and an outro.\n\n" : '')
