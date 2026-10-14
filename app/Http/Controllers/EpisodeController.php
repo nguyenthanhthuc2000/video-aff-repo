@@ -154,6 +154,9 @@ class EpisodeController extends Controller
                     'action' => $shot->action,
                     'motion' => $shot->motion,
                     'sound_cue' => $shot->sound_cue,
+                    'song_ms' => $shot->song_ms,
+                    'lyric' => $shot->lyric,
+                    'lip_sync' => $shot->lip_sync,
                     'animate' => $shot->animate,
                     'character_ids' => $shot->character_ids ?? [],
                     'location' => $shot->location?->name,
@@ -256,9 +259,11 @@ class EpisodeController extends Controller
         $episode->update(['status' => 'writing', 'error' => null, 'outline' => ['run' => $run]]);
         WriteEpisodeJob::dispatch($episode, $run);
 
-        return back()->with('status', $series->silent()
+        return back()->with('status', $series->musicVideo()
+            ? 'Claude đang viết phân cảnh MV theo bài hát (mỗi shot một mốc của bài, câu hát, hát nhép hay không). Khoảng 1–3 phút...'
+            : ($series->silent()
             ? 'Claude đang viết trọn gói tập: các shot (ảnh đầu cảnh, chuyển động, âm thanh), hook, caption, checklist. Khoảng 1–2 phút...'
-            : 'Claude đang viết dàn ý rồi từng phân đoạn của tập, mất vài phút...');
+            : 'Claude đang viết dàn ý rồi từng phân đoạn của tập, mất vài phút...'));
     }
 
     /** Muse vẽ khung hình cho mọi shot chưa có (hoặc lỗi). Nhân vật trong shot cần có ảnh chính. */
@@ -425,6 +430,10 @@ class EpisodeController extends Controller
             'lang' => ['nullable', Rule::in(['en', 'vi'])],
             'vi_voice' => ['nullable', Rule::in(array_keys(ShotDub::MODES))],
         ]);
+        if ($series->musicVideo()) {
+            // MV: tiếng là bài hát gốc; chỉ chọn khung xuất và có chèn lời vào hình hay không.
+            $validated = [...collect($validated)->only(['aspect', 'burn_subtitles'])->all(), ...collect(EpisodeRenderer::SONG_OPTIONS)->except('song')->all()];
+        }
         $lang = $validated['lang'] ?? 'en';
         $column = fn (string $name) => RenderEpisodeJob::column($lang, $name);
         if ($episode->{$column('render_status')} === 'rendering') {
@@ -850,7 +859,7 @@ class EpisodeController extends Controller
     /** Credits ước tính để viết tập: truyện ngắn một lượt trọn gói (dài hơn một phân đoạn), phim nhiều tập dàn ý + từng phân đoạn. */
     private static function writePrice(Series $series, int $sequences): int
     {
-        return CreditPricing::aiEstimates()['film_episode'] * ($series->silent() ? 2 : $sequences + 1);
+        return CreditPricing::aiEstimates()['film_episode'] * ($series->silent() || $series->musicVideo() ? 2 : $sequences + 1);
     }
 
     /** Tuỳ chọn ghép lần trước (bỏ khung không hợp với phim), mặc định theo loại phim. */

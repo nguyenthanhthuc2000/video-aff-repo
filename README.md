@@ -81,6 +81,20 @@ Muốn tự động qua API thì đặt khoá trong `.env` (không commit, khôn
 
 Có thể ép chế độ bằng `SCRIPT_DRIVER=web|claude|fake` và `MUSE_DRIVER=web|fal|fake`. Sau khi sửa `.env` trong Docker, chạy `docker compose restart app queue`.
 
+## MV ca nhạc
+
+Menu **Tạo MV ca nhạc** (`/music-videos/create`): tải bài hát lên (mp3, wav, m4a) hoặc chọn bài trong thư viện Âm thanh, dán lời, chọn đoạn bài hát (để trống là cả bài), phong cách (người thật kiểu điện ảnh, 2D anime, 3D), khung hình (16:9 mặc định hoặc 9:16), ca sĩ (mô tả, ảnh không bắt buộc), ý tưởng, kiểu hát nhép (chỉ điệp khúc mặc định, cả bài, không) và công cụ tạo ảnh / clip.
+
+MV là một bộ phim một tập nên dùng chung các trang của phim hoạt hình:
+
+1. Claude lên ý tưởng, ca sĩ / nhân vật, bối cảnh. Trong lúc đó dịch vụ `audio` tách lời bài hát kèm mốc thời gian (miễn phí, cần `docker compose up -d audio`).
+2. Vẽ / tải ảnh ca sĩ rồi chốt, như nhân vật phim.
+3. **Viết tập**: Claude cắt shot đúng câu hát (2–10 giây mỗi shot, phủ đúng đoạn bài hát), đánh dấu shot hát nhép.
+4. Muse vẽ khung hình, làm clip. Shot hát nhép gửi kèm đúng đoạn bài hát của shot.
+5. **Ghép**: tiếng là bài hát gốc (không thẻ tiêu đề, không lời thoại / hiệu ứng), phụ đề là lời bài hát (chèn vào hình nếu chọn).
+
+Công cụ: Muse qua trình duyệt ngầm (`MUSE_DRIVER=browser`). fal trong app mới tạo ảnh, chưa làm clip nên chưa chọn được cho MV.
+
 ## Luồng dùng
 
 1. **Người mẫu**: tải ảnh toàn thân, tick xác nhận đã có đồng ý của người mẫu.

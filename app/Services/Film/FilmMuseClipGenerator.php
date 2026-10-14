@@ -12,8 +12,11 @@ class FilmMuseClipGenerator extends MuseBrowserClipGenerator
         .'as stated below). Keep exactly the same art style, colors, characters and background as the keyframe (it is animation, NOT live action; '
         .'no photorealism). No text, captions or watermarks.';
 
+    public const LIVE_ACTION_RULES = 'Animate the attached film still into a clip with exactly the same frame shape as the still (horizontal or vertical, '
+        .'as stated below). Keep exactly the same look, people, faces, outfits, colors, lighting and background as the still. No text, captions or watermarks.';
+
     public static function message(string $code, string $prompt): string
     {
-        return MuseTask::header($code, 'video')."\n".self::RULES."\n\n{$prompt}";
+        return MuseTask::header($code, 'video')."\n".(FilmStyle::liveAction($prompt) ? self::LIVE_ACTION_RULES : self::RULES)."\n\n{$prompt}";
     }
 }

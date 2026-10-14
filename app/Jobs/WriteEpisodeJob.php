@@ -6,6 +6,7 @@ use App\Models\Episode;
 use App\Services\Claude\AiUsage;
 use App\Services\Film\EpisodeTitler;
 use App\Services\Film\EpisodeWriter;
+use App\Services\Film\MusicVideoWriter;
 use App\Services\Script\ScriptWriterException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -36,6 +37,11 @@ class WriteEpisodeJob implements ShouldQueue
 
         if ($episode->series->silent()) {
             $this->writeShort($episode);
+
+            return;
+        }
+        if ($episode->series->musicVideo()) {
+            $this->writeMusicVideo($episode);
 
             return;
         }
@@ -97,6 +103,44 @@ class WriteEpisodeJob implements ShouldQueue
                 'sound_plan' => null,
                 'status' => 'storyboard',
                 'duration_ms' => $seconds * 1000,
+                'error' => null,
+            ]);
+        });
+    }
+
+    /** MV ca nhạc: một lượt viết cả phân cảnh theo bài hát, shot nối liền phủ đúng đoạn bài hát (cắt thẳng giữa các shot). */
+    private function writeMusicVideo(Episode $episode): void
+    {
+        try {
+            $result = AiUsage::withContext(
+                ['user_id' => $episode->series->user_id, 'subject' => "series:{$episode->series_id}"],
+                fn () => MusicVideoWriter::write($episode),
+            );
+        } catch (ScriptWriterException $e) {
+            if ($e->retryable && $this->attempts() < $this->tries) {
+                $this->release($this->backoff[$this->attempts() - 1] ?? 120);
+
+                return;
+            }
+            $this->failed($e);
+
+            return;
+        }
+
+        DB::transaction(function () use ($episode, $result) {
+            $episode->shots()->delete();
+            foreach ($result['shots'] as $i => $shot) {
+                $episode->shots()->create([...$shot, 'sequence' => 1, 'position' => $i + 1, 'image_status' => 'none', 'clip_status' => 'none']);
+            }
+            $ms = array_sum(array_column($result['shots'], 'duration_ms'));
+            $episode->update([
+                'outline' => ['run' => $this->run, 'written' => 1, 'sequences' => [[
+                    'title' => $result['package']['title'], 'summary' => $result['package']['logline'] ?: $episode->synopsis, 'location' => '', 'characters' => [], 'seconds' => (int) round($ms / 1000),
+                ]]],
+                'package' => $result['package'],
+                'sound_plan' => null,
+                'status' => 'storyboard',
+                'duration_ms' => $ms,
                 'error' => null,
             ]);
         });

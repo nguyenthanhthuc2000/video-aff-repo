@@ -63,6 +63,26 @@ final class SeriesPlanner
       themes: 3–5 recurring themes.
     PROMPT;
 
+    /** MV ca nhạc: kế hoạch một video theo bài hát (ý tưởng hình ảnh, ca sĩ / nhân vật, bối cảnh). */
+    public const SYSTEM_MV = <<<'PROMPT'
+    You are the director of an original official music video made entirely with AI image and image-to-video tools.
+    From the artist's idea, the song and its lyrics, write the plan of the music video as JSON.
+
+    Rules:
+    - Everything (titles, names, descriptions) in natural English, even when the song or the idea is in another language.
+    - Original work only: no real celebrities, no copyrighted characters, no brand logos. Following a general art style is fine.
+    - The concept follows the meaning and emotion of the lyrics: one clear visual story or performance concept, strong recurring motifs,
+      and a visual change between verses and the chorus.
+    - Characters: the singer (role main) first, then 0–3 other characters the story needs. Keep the creator's characters exactly when given.
+      "appearance" is a fixed visual description reused in every image prompt: age range, build, face, skin tone, hair, outfit with colors,
+      one or two signature items. 35–70 words, nothing that changes between shots. voice_type: adult_male, adult_female or the closest type.
+    - 2–6 locations, each described visually in 20–50 words (light, colors, time of day; no characters in the description).
+    - Exactly one episode: the music video itself. title: the song title + " (Official Music Video)". synopsis: the story of the video
+      in 3–5 sentences from intro to outro. lesson: the feeling the video leaves (one short sentence).
+    - title (top level): the song title. logline: the concept in one sentence. premise: the story in 2–3 sentences. world: where and when.
+      tone: mood, colors and pacing. themes: 3–5 visual motifs.
+    PROMPT;
+
     public static function schema(bool $short = false): array
     {
         $string = ['type' => 'string'];
@@ -113,6 +133,9 @@ final class SeriesPlanner
         if ($series->silent()) {
             return self::shortText($series);
         }
+        if ($series->musicVideo()) {
+            return self::musicVideoText($series);
+        }
         $length = $series->episode_seconds < 60 ? "{$series->episode_seconds} seconds (a very short episode: one tiny situation, a quick funny payoff)" : round($series->episode_seconds / 60, 1).' minutes';
         $seeds = collect($series->seed_characters ?? [])->values()->map(fn ($c, $i) => '- Image '.($i + 1).": {$c['name']}".(filled($c['note'] ?? null) ? " ({$c['note']})" : ''))->implode("\n");
 
@@ -145,6 +168,31 @@ final class SeriesPlanner
             .($seeds !== '' ? "The creator already has these characters; the attached images show them in order:\n{$seeds}\n"
                 .'Write their "appearance" strictly from their image.'."\n\n" : '')
             .'Write the series plan in the required format.';
+    }
+
+    private static function musicVideoText(Series $series): string
+    {
+        $seeds = collect($series->seed_characters ?? [])->values()->map(fn ($c, $i) => '- Image '.($i + 1).": {$c['name']}".(filled($c['note'] ?? null) ? " ({$c['note']})" : ''))->implode("\n");
+        [$from, $to] = $series->songRange();
+        $options = $series->mv_options ?? [];
+        $lyrics = filled($series->lyrics) ? $series->lyrics : ($series->song?->lyrics ?: collect($series->song?->vocal_analysis['words'] ?? [])->pluck('text')->implode(' '));
+
+        return "Idea from the artist (may be in Vietnamese, write the plan in English):\n{$series->idea}\n\n"
+            .'Song: '.($series->song?->name ?? 'untitled').', excerpt of '.round(($to - $from) / 1000).' seconds.'."\n"
+            .'Audience: '.($series->audience ?: Series::MV_AUDIENCE).".\n"
+            ."Art style (for the appearance descriptions): {$series->style}.\n"
+            ."Frame: {$series->frameLine()}.\n\n"
+            .(filled($lyrics) ? "Lyrics:\n{$lyrics}\n\n" : "No lyrics given: base the concept on the idea and the mood.\n\n")
+            .($seeds !== '' ? "The artist already has these characters; the attached images show them in order:\n{$seeds}\n"
+                .'Include each of them with exactly this name. Write their "appearance" strictly from their image.'."\n\n" : '')
+            .($seeds === '' && filled($options['singer'] ?? null) ? 'The singer (main character) is named '.($options['singer_name'] ?? 'Singer')
+                .". Base the singer's appearance on this description from the artist:\n{$options['singer']}\n\n" : '')
+            .match ($series->lipSyncMode()) {
+                'full' => "The singer lip-syncs the whole song: plan many performance shots where the singer sings to the camera.\n\n",
+                'none' => "No lip sync in this video: the singer never sings on camera; tell the song through story, mood and b-roll.\n\n",
+                default => "The singer lip-syncs only the chorus; verses are told through story shots and b-roll.\n\n",
+            }
+        .'Write the music video plan in the required format.';
     }
 
     /** Ý tưởng có nhắc tên nhân vật / phim có bản quyền thì trả tên đó. */
@@ -240,7 +288,7 @@ final class SeriesPlanner
             ->filter(fn ($image) => $image['data'] !== '')->values()->all();
 
         return self::normalize(
-            FilmClaude::json($series->silent() ? self::SYSTEM_SHORT : self::SYSTEM, self::userText($series), self::schema($series->silent()), 'film_plan', "film_plan:{$series->id}", 16000, fn () => self::sample($series), $images),
+            FilmClaude::json($series->musicVideo() ? self::SYSTEM_MV : ($series->silent() ? self::SYSTEM_SHORT : self::SYSTEM), self::userText($series), self::schema($series->silent()), 'film_plan', "film_plan:{$series->id}", 16000, fn () => self::sample($series), $images),
             $series->episode_count,
             $series->seed_episodes ?? [],
         );
@@ -251,6 +299,9 @@ final class SeriesPlanner
     {
         if ($series->silent()) {
             return self::sampleShort($series);
+        }
+        if ($series->musicVideo()) {
+            return self::sampleMusicVideo($series);
         }
 
         return [
@@ -275,6 +326,26 @@ final class SeriesPlanner
                 'synopsis' => 'Something goes missing in Maple Town. Milo and Lily follow the clues and find out it was a misunderstanding.',
                 'lesson' => 'Ask before you blame someone.',
             ])->all(),
+        ];
+    }
+
+    private static function sampleMusicVideo(Series $series): array
+    {
+        return [
+            'title' => $series->song?->name ?? 'Neon Rain',
+            'logline' => 'A lonely singer walks through a rainy neon city and finds the light again.',
+            'premise' => 'The singer remembers a lost love while walking at night. In the chorus the city lights up around her.',
+            'world' => 'A modern city at night, rain and neon.',
+            'tone' => 'Melancholic, then hopeful; teal and magenta neon; slow verses, energetic chorus.',
+            'themes' => ['rain', 'neon reflections', 'an old photo'],
+            'characters' => [
+                ['name' => 'Lan', 'role' => 'main', 'age' => 24, 'personality' => 'Quiet, determined.', 'appearance' => 'A young woman in her mid-20s, slim, shoulder-length black hair with bangs, dark brown eyes, black leather jacket over a white t-shirt, silver necklace, black boots.', 'voice_type' => 'adult_female'],
+            ],
+            'locations' => [
+                ['name' => 'Neon street', 'description' => 'A narrow city street at night after rain, wet asphalt reflecting teal and magenta neon signs without readable text.'],
+                ['name' => 'Rooftop', 'description' => 'A rooftop above the city at night with fairy lights, puddles and the skyline glowing behind.'],
+            ],
+            'episodes' => [['title' => ($series->song?->name ?? 'Neon Rain').' (Official Music Video)', 'synopsis' => 'Lan walks through the rain remembering. The chorus lights up the city. She ends on the rooftop smiling.', 'lesson' => 'Hope after loss.']],
         ];
     }
 

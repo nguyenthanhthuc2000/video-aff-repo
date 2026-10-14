@@ -81,7 +81,8 @@ class AnimateShotJob implements ShouldQueue
                     return;
                 }
                 $shot->refresh();
-                $audio = ShotVideo::dialogueAttachment($shot);
+                // MV ca nhạc: gửi đoạn bài hát của shot (hát nhép); phim thường: tiếng thoại.
+                $audio = $shot->episode->series->musicVideo() ? ShotVideo::songAttachment($shot) : ShotVideo::dialogueAttachment($shot);
                 try {
                     $code = $generator->start($shot->image_path, ShotClipPrompt::build($shot, $this->notes), null, $audio);
                 } finally {

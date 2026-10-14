@@ -61,6 +61,9 @@ final class ShotPrompt
         if ($series->silent()) {
             return self::short($shot, $lines, $notes);
         }
+        if ($series->musicVideo()) {
+            return self::musicVideo($shot, $lines, $notes);
+        }
 
         return "Keyframe of an animated TV episode for kids. Frame: {$series->frameLine()}. Camera: {$shot->camera}.\n"
             ."What we see: {$shot->action}\n"
@@ -87,6 +90,23 @@ final class ShotPrompt
             ."Art style: {$series->style}.\n"
             .'Natural anatomy: animals have exactly four legs and natural paws; no text, letters, logos or watermarks.'."\n"
             .'Avoid: '.self::NEGATIVE;
+    }
+
+    /** MV ca nhạc: khung đầu của shot như một khung hình MV chính thức; shot hát nhép thì thấy rõ mặt và miệng người hát. */
+    private static function musicVideo(Shot $shot, string $lines, ?string $notes): string
+    {
+        $series = $shot->episode->series;
+        $location = $shot->location;
+
+        return "First frame of a shot in an official music video. Frame: {$series->frameLine()}. Camera: {$shot->camera}.\n"
+            ."What we see: {$shot->action}\n"
+            .($shot->lip_sync ? "The singer is singing in this shot: face and mouth clearly visible, lips slightly parted, facing the camera or in three-quarter view.\n" : '')
+            .($lines !== '' ? "People in this frame (only these, each exactly like the reference and description; same face, hair, outfit and colors):\n{$lines}\n" : "No people in this frame.\n")
+            .($location ? "Location: {$location->name}: {$location->description}".($location->image_path ? ' (as in the attached location image)' : '')."\n" : '')
+            .(($continuity = self::continuity($shot)) !== '' ? "Continuity (identical in every shot of the video):\n{$continuity}\n" : '')
+            .(filled($shot->lyric) ? "Lyric of this moment (for the mood only, never write it in the image): \"{$shot->lyric}\"\n" : '')
+            .(filled($notes) ? 'Additional direction: '.trim($notes).".\n" : '')
+            ."Visual style: {$series->style}. Strong cinematic composition and lighting, music video aesthetic. No text, letters, logos or watermarks.";
     }
 
     /** Danh sách giữ liên tục trong gói sản xuất của tập (đạo cụ, bối cảnh, phụ kiện...), mỗi ý một dòng. */

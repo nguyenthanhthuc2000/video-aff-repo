@@ -28,7 +28,33 @@ class Series extends Model
     public const FORMATS = [
         'episodic' => 'Phim nhiều tập có lời thoại (YouTube)',
         'silent_short' => 'Truyện ngắn không thoại 9:16 (TikTok, Reels, Shorts)',
+        'music_video' => 'MV ca nhạc theo một bài hát',
     ];
+
+    /** Phong cách chọn nhanh cho MV (vẫn sửa được thành câu riêng). */
+    public const MV_STYLE_PRESETS = [
+        'cinematic' => ['label' => 'Người thật kiểu phim điện ảnh', 'style' => 'cinematic live-action music video look, photorealistic people, anamorphic lens, shallow depth of field, moody color grading, dramatic soft lighting, film grain'],
+        '2d' => ['label' => '2D anime', 'style' => '2D anime music video style, clean line art, cel-shaded colors, dramatic lighting, vivid sky and city backgrounds'],
+        '3d' => ['label' => '3D stylized', 'style' => self::STYLE_3D],
+    ];
+
+    /** Hát nhép trong MV: cả bài (mọi shot có ca sĩ khi đang hát), chỉ điệp khúc, hoặc không hát nhép. */
+    public const LIP_SYNC_MODES = [
+        'chorus' => 'Chỉ điệp khúc',
+        'full' => 'Cả bài',
+        'none' => 'Không hát nhép',
+    ];
+
+    /** Kiểu hát nhép của MV (mặc định chỉ điệp khúc). */
+    public function lipSyncMode(): string
+    {
+        $mode = $this->mv_options['lip_sync'] ?? 'chorus';
+
+        return isset(self::LIP_SYNC_MODES[$mode]) ? $mode : 'chorus';
+    }
+
+    /** Người xem mặc định của MV. */
+    public const MV_AUDIENCE = 'Music fans on YouTube, TikTok and Facebook, mainly 16–34';
 
     /** Truyện ngắn: số shot làm clip AI mỗi tập (còn lại dùng ảnh tĩnh + chuyển động máy + âm thanh). */
     public const CLIP_BUDGETS = [
@@ -68,7 +94,7 @@ class Series extends Model
     public const AGE_MAX = 17;
 
     protected $fillable = [
-        'user_id', 'title', 'idea', 'format', 'seed_characters', 'seed_episodes', 'genre', 'age_min', 'age_max', 'audience', 'made_for_kids', 'style', 'aspect_ratio',
+        'user_id', 'title', 'idea', 'format', 'audio_track_id', 'song_start_ms', 'song_end_ms', 'lyrics', 'mv_options', 'seed_characters', 'seed_episodes', 'genre', 'age_min', 'age_max', 'audience', 'made_for_kids', 'style', 'aspect_ratio',
         'episode_count', 'episode_seconds', 'clip_budget', 'language', 'subtitle_languages', 'intro_path', 'outro_path',
         'bible', 'status', 'error', 'autopilot',
     ];
@@ -81,6 +107,7 @@ class Series extends Model
             'subtitle_languages' => 'array',
             'seed_characters' => 'array',
             'seed_episodes' => 'array',
+            'mv_options' => 'array',
             'made_for_kids' => 'boolean',
             'autopilot' => 'boolean',
         ];
@@ -96,6 +123,27 @@ class Series extends Model
     public function silent(): bool
     {
         return $this->format === 'silent_short';
+    }
+
+    /** MV ca nhạc: một tập dựng theo bài hát, tiếng của video là bài hát, nhân vật hát nhép ở các shot chọn. */
+    public function musicVideo(): bool
+    {
+        return $this->format === 'music_video';
+    }
+
+    /** Bài hát của MV. */
+    public function song(): BelongsTo
+    {
+        return $this->belongsTo(AudioTrack::class, 'audio_track_id');
+    }
+
+    /** Đoạn bài hát dùng cho MV (ms): mặc định cả bài. @return array{0: int, 1: int} */
+    public function songRange(): array
+    {
+        $start = (int) ($this->song_start_ms ?? 0);
+        $end = (int) ($this->song_end_ms ?? $this->song?->duration_ms ?? $start + $this->episode_seconds * 1000);
+
+        return [$start, max($start + 1000, $end)];
     }
 
     /** Khung dọc 9:16: khung hình, clip và bản xuất đều dọc. */

@@ -44,6 +44,10 @@ export interface Shot {
     /** Prompt chuyển động image-to-video của shot (truyện ngắn). */
     motion: string | null;
     sound_cue: string | null;
+    /** MV ca nhạc: mốc của shot trong bài hát (ms), câu hát, có hát nhép không. */
+    song_ms: number | null;
+    lyric: string | null;
+    lip_sync: boolean;
     /** Truyện ngắn: làm clip AI (true) hay ảnh tĩnh + chuyển động máy khi ghép (false). */
     animate: boolean;
     character_ids: number[];
@@ -554,6 +558,15 @@ function ShotCard({
                         </Badge>
                     ))}
                 </div>
+                {shot.song_ms !== null && (
+                    <p className="text-xs">
+                        <span className="text-muted-foreground font-mono">
+                            {Math.floor(shot.song_ms / 60000)}:{String(Math.floor((shot.song_ms % 60000) / 1000)).padStart(2, '0')}
+                        </span>{' '}
+                        {shot.lip_sync && <Badge className="mr-1 px-1.5 py-0 text-[10px]">Hát nhép</Badge>}
+                        {shot.lyric ? <span className="italic">♪ {shot.lyric}</span> : <span className="text-muted-foreground">(nhạc dạo)</span>}
+                    </p>
+                )}
                 <p>{shot.action}</p>
                 {shot.motion && (
                     <p className="text-muted-foreground text-xs">

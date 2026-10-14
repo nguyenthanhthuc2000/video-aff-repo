@@ -64,8 +64,15 @@ final class EpisodeRenderer
             ...self::DEFAULT_OPTIONS,
             'aspect' => array_key_first(self::aspectsFor($series)),
             ...($series->silent() ? ['title_card' => false, 'end_card' => false, 'dialogue' => false] : []),
+            ...($series->musicVideo() ? self::SONG_OPTIONS : []),
         ];
     }
+
+    /** MV ca nhạc: vào thẳng shot đầu, tiếng là bài hát gốc (đúng đoạn đã chọn, âm lượng gốc), không lời thoại / hiệu ứng / nhạc khác. */
+    public const SONG_OPTIONS = [
+        'title_card' => false, 'end_card' => false, 'dialogue' => false, 'sound_effects' => false, 'original_score' => false,
+        'music_track_id' => null, 'music_volume' => 100, 'song' => true,
+    ];
 
     /** @return array{0: int, 1: int} */
     public static function size(string $aspect): array
@@ -191,6 +198,9 @@ final class EpisodeRenderer
 
         // Nhạc nền: nhạc riêng Claude sáng tác cho tập (theo từng phân đoạn), hoặc một bài trong thư viện Âm thanh.
         $track = ($options['music_track_id'] ?? null) ? AudioTrack::where('user_id', $episode->series->user_id)->find($options['music_track_id']) : null;
+        if ($options['song'] ?? false) {
+            return self::withSong($episode, $joined, $options, $srt, $dir);
+        }
         $music = ($options['original_score'] ?? false)
             ? EpisodeScore::track($episode, $plan, $dir)
             : ($track ? self::local($track->path, "{$dir}/music.".(pathinfo($track->path, PATHINFO_EXTENSION) ?: 'mp3')) : null);
@@ -261,6 +271,45 @@ final class EpisodeRenderer
     }
 
     /**
+     * MV ca nhạc: thay tiếng bằng đúng đoạn bài hát (bắt đầu ở mốc đã chọn, âm lượng gốc, mờ dần 1,5 giây cuối); chèn lời nếu chọn.
+     *
+     * @throws RuntimeException
+     */
+    private static function withSong(Episode $episode, string $joined, array $options, string $srt, string $dir): string
+    {
+        $series = $episode->series;
+        $song = $series->song;
+        if ($song?->path === null) {
+            throw new RuntimeException('MV chưa có bài hát (bài hát đã bị xoá khỏi thư viện Âm thanh?).');
+        }
+        $music = self::local($song->path, "{$dir}/song.".(pathinfo($song->path, PATHINFO_EXTENSION) ?: 'mp3'));
+        [$start] = $series->songRange();
+        $totalMs = (int) round(self::duration($joined) * 1000);
+        $total = self::seconds($totalMs);
+        $fadeOut = self::seconds(max(0, $totalMs - 1500));
+        // Đoạn giữa bài: mờ vào rất ngắn để không bị "bụp" ở giây đầu.
+        $fadeIn = $start > 0 ? 'afade=t=in:d=0.3,' : '';
+        $filters = ["[1:a]aresample=44100,aformat=channel_layouts=stereo,{$fadeIn}afade=t=out:st={$fadeOut}:d=1.5,apad=whole_dur={$total}[a]"];
+        $burn = (bool) ($options['burn_subtitles'] ?? false) && trim(File::get($srt)) !== '';
+        if ($burn) {
+            $vertical = str_starts_with((string) ($options['aspect'] ?? ''), '9:16');
+            $style = $vertical
+                ? 'FontName=Be Vietnam Pro,FontSize=11,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.5,Shadow=0,MarginV=75,MarginL=12,MarginR=12'
+                : 'FontName=Be Vietnam Pro,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,MarginV=36';
+            $filters[] = "[0:v]subtitles='".self::escape($srt)."':fontsdir='".self::escape(resource_path('fonts'))."':force_style='{$style}'[v]";
+        }
+        $out = "{$dir}/episode.mp4";
+        self::ffmpeg([
+            '-i', $joined, '-ss', self::seconds($start), '-i', $music,
+            '-filter_complex', implode(';', $filters), '-map', $burn ? '[v]' : '0:v', '-map', '[a]',
+            ...($burn ? ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p'] : ['-c:v', 'copy']),
+            '-c:a', 'aac', '-b:a', '256k', '-t', $total, '-movflags', '+faststart', $out,
+        ], 840);
+
+        return $out;
+    }
+
+    /**
      * Rải âm thanh hiệu ứng theo danh sách của tập thành một file tiếng cả tập (null nếu không có).
      *
      * @throws RuntimeException
@@ -317,6 +366,9 @@ final class EpisodeRenderer
     /** Phụ đề .srt của cả tập theo mốc từng câu (tiếng đã khớp khẩu hình nếu có, không thì theo tiếng đọc sẵn). */
     public static function srt(Episode $episode, array $plan): string
     {
+        if ($episode->series->musicVideo()) {
+            return self::lyricSrt($episode, $plan);
+        }
         $shots = $episode->shots()->get()->keyBy('id');
         $cues = [];
         foreach ($plan as $segment) {
@@ -332,6 +384,41 @@ final class EpisodeRenderer
                 $start = $times[$i]['start_ms'] ?? (int) ($shot->duration_ms * $i / max(1, $lines->count()));
                 $end = $times[$i]['end_ms'] ?? (int) ($shot->duration_ms * ($i + 1) / max(1, $lines->count()));
                 $cues[] = [$segment['offset_ms'] + $start, $segment['offset_ms'] + min($end + 300, $shot->duration_ms), trim((string) $line['line'])];
+            }
+        }
+
+        return collect($cues)->map(fn ($cue, $i) => ($i + 1)."\n".self::srtTime($cue[0]).' --> '.self::srtTime($cue[1])."\n".$cue[2]."\n")->implode("\n");
+    }
+
+    /**
+     * Phụ đề lời bài hát của MV: theo lời có mốc thời gian (phân tích bài hát) nếu có, không thì theo câu hát của từng shot
+     * (các shot liền nhau cùng câu gộp làm một).
+     */
+    private static function lyricSrt(Episode $episode, array $plan): string
+    {
+        $offset = collect($plan)->firstWhere('type', '!=', 'title')['offset_ms'] ?? 0;
+        $cues = collect(MusicVideoWriter::timedLyrics($episode->series))
+            ->map(fn ($l) => [$offset + (int) round($l['start'] * 1000), $offset + (int) round($l['end'] * 1000) + 300, $l['text']])->all();
+        // Giữ câu thêm 0,3 giây nhưng không đè lên câu sau.
+        foreach ($cues as $i => $cue) {
+            if (isset($cues[$i + 1])) {
+                $cues[$i][1] = min($cue[1], $cues[$i + 1][0]);
+            }
+        }
+        if ($cues === []) {
+            $shots = $episode->shots()->get()->keyBy('id');
+            foreach ($plan as $segment) {
+                $shot = isset($segment['shot_id']) ? $shots[$segment['shot_id']] : null;
+                $text = trim((string) $shot?->lyric);
+                if ($text === '') {
+                    continue;
+                }
+                $last = array_key_last($cues);
+                if ($last !== null && $cues[$last][2] === $text && $cues[$last][1] === $segment['offset_ms']) {
+                    $cues[$last][1] += $segment['duration_ms'];
+                } else {
+                    $cues[] = [$segment['offset_ms'], $segment['offset_ms'] + $segment['duration_ms'], $text];
+                }
             }
         }
 

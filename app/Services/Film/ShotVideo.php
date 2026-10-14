@@ -3,6 +3,7 @@
 namespace App\Services\Film;
 
 use App\Models\Shot;
+use App\Services\Audio\MusicAnalyzer;
 use App\Support\Media;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -38,6 +39,31 @@ final class ShotVideo
             $seconds = self::seconds(min($shot->duration_ms, ShotClipPrompt::MAX_SECONDS * 1000));
             self::ffmpeg(['-i', $source, '-af', "apad=whole_dur={$seconds}", '-t', $seconds, '-c:a', 'aac', '-b:a', '128k', $out]);
             $path = "tmp/shot-{$shot->id}-dialogue-".bin2hex(random_bytes(3)).'.m4a';
+            Media::disk()->put($path, (string) File::get($out));
+
+            return $path;
+        });
+    }
+
+    /**
+     * MV ca nhạc: đoạn bài hát đúng mốc của shot (tối đa độ dài clip Muse), gửi kèm Muse để người hát khớp môi;
+     * shot không hát nhép thì không gửi tiếng. Trả đường dẫn media tạm (gọi xong thì xoá).
+     *
+     * @throws RuntimeException
+     */
+    public static function songAttachment(Shot $shot): ?string
+    {
+        $song = $shot->episode->series->song;
+        if (! $shot->lip_sync || $shot->song_ms === null || $song?->path === null) {
+            return null;
+        }
+
+        return self::inTemp(function (string $dir) use ($shot, $song) {
+            $source = "{$dir}/song.".(pathinfo($song->path, PATHINFO_EXTENSION) ?: 'mp3');
+            $out = "{$dir}/song-part.m4a";
+            File::put($source, (string) Media::disk()->get($song->path));
+            MusicAnalyzer::fromConfig()->segment($source, $shot->song_ms, min($shot->duration_ms, ShotClipPrompt::MAX_SECONDS * 1000), $out);
+            $path = "tmp/shot-{$shot->id}-song-".bin2hex(random_bytes(3)).'.m4a';
             Media::disk()->put($path, (string) File::get($out));
 
             return $path;

@@ -11,6 +11,7 @@ use App\Models\SeriesCharacter;
 use App\Models\SeriesLocation;
 use App\Services\Film\EpisodeList;
 use App\Services\Film\EpisodeWriter;
+use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\Voices;
 use App\Support\CreditPricing;
@@ -18,6 +19,7 @@ use App\Support\Credits;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -53,7 +55,8 @@ class SeriesController extends Controller
             'ages' => ['min' => Series::AGE_MIN, 'max' => Series::AGE_MAX],
             'defaultStyle' => Series::DEFAULT_STYLE,
             'stylePresets' => collect(Series::STYLE_PRESETS)->map(fn ($p) => $p['label']),
-            'formats' => Series::FORMATS,
+            // MV ca nhạc tạo ở trang riêng (Tạo MV).
+            'formats' => Arr::except(Series::FORMATS, 'music_video'),
             'clipBudgets' => Series::CLIP_BUDGETS,
             'kinds' => Series::KINDS,
             'shortAudience' => Series::SHORT_AUDIENCE,
@@ -65,7 +68,7 @@ class SeriesController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'format' => ['nullable', Rule::in(array_keys(Series::FORMATS))],
+            'format' => ['nullable', Rule::in(['episodic', 'silent_short'])],
             'idea' => ['required', 'string', 'min:20', 'max:8000'],
             // Truyện ngắn: người xem, số clip AI mỗi tập, danh sách tập có sẵn (mỗi dòng một tập), kịch bản có sẵn của vài tập.
             'audience' => ['nullable', 'string', 'max:200'],
@@ -161,6 +164,16 @@ class SeriesController extends Controller
                 'style' => $series->style,
                 'format' => $series->format,
                 'format_label' => Series::FORMATS[$series->format] ?? $series->format,
+                'song' => $series->musicVideo() ? [
+                    'name' => $series->song?->name,
+                    'url' => Media::url($series->song?->path),
+                    'start_ms' => $series->songRange()[0],
+                    'end_ms' => $series->songRange()[1],
+                    'lyrics' => $series->lyrics,
+                    'vocal_status' => $series->song?->vocal_status,
+                    'timed_lines' => count(MusicVideoWriter::timedLyrics($series)),
+                    'lip_sync_label' => Series::LIP_SYNC_MODES[$series->lipSyncMode()],
+                ] : null,
                 'audience' => $series->audience,
                 'clip_budget' => $series->silent() ? $series->clipBudget() : null,
                 'episode_count' => $series->episode_count,
@@ -223,6 +236,7 @@ class SeriesController extends Controller
             'bible.premise' => ['nullable', 'string', 'max:2000'],
             'bible.world' => ['nullable', 'string', 'max:2000'],
             'bible.tone' => ['nullable', 'string', 'max:500'],
+            'lyrics' => ['nullable', 'string', 'max:20000'],
             'characters' => ['array'],
             'characters.*.id' => ['required', 'integer'],
             'characters.*.name' => ['required', 'string', 'max:80'],
@@ -245,6 +259,7 @@ class SeriesController extends Controller
         $series->update([
             'title' => $validated['title'],
             'bible' => [...($series->bible ?? []), ...array_map(fn ($value) => trim((string) $value), $validated['bible'] ?? [])],
+            ...($series->musicVideo() && array_key_exists('lyrics', $validated) ? ['lyrics' => filled($validated['lyrics']) ? trim($validated['lyrics']) : null] : []),
         ]);
         foreach ($validated['characters'] ?? [] as $data) {
             $character = $series->characters()->whereKey($data['id'])->first();

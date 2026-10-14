@@ -58,8 +58,22 @@ interface Bible {
     themes?: string[];
 }
 
+interface SongInfo {
+    name: string | null;
+    url: string | null;
+    start_ms: number;
+    end_ms: number;
+    lyrics: string | null;
+    vocal_status: string | null;
+    timed_lines: number;
+    lip_sync_label: string;
+}
+
+const seconds = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}`;
+
 interface SeriesDetail {
     id: number;
+    song: SongInfo | null;
     title: string;
     idea: string;
     genre_label: string;
@@ -126,9 +140,11 @@ export default function SeriesShow({
                             </Badge>
                         </div>
                         <p className="text-muted-foreground text-sm">
-                            {series.format === 'silent_short'
-                                ? `${series.format_label} · ${series.clip_budget} clip AI / tập`
-                                : `${series.genre_label} · ${series.age_min}–${series.age_max} tuổi${series.made_for_kids ? ' · Dành cho trẻ em' : ''}`}{' '}
+                            {series.format === 'music_video'
+                                ? series.format_label
+                                : series.format === 'silent_short'
+                                  ? `${series.format_label} · ${series.clip_budget} clip AI / tập`
+                                  : `${series.genre_label} · ${series.age_min}–${series.age_max} tuổi${series.made_for_kids ? ' · Dành cho trẻ em' : ''}`}{' '}
                             · {series.episode_count} tập ×{' '}
                             {series.episode_seconds < 60 ? `${series.episode_seconds} giây` : `${Math.round(series.episode_seconds / 60)} phút`}
                             {series.subtitle_languages.length > 0 && ` · Phụ đề: ${series.subtitle_languages.join(', ')}`}
@@ -144,6 +160,27 @@ export default function SeriesShow({
                     </div>
                 </div>
                 <FlashStatus />
+
+                {series.song && (
+                    <div className="space-y-2 rounded-lg border p-4 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">Bài hát: {series.song.name}</span>
+                            <span className="text-muted-foreground">
+                                đoạn {seconds(series.song.start_ms)}–{seconds(series.song.end_ms)} · Hát nhép: {series.song.lip_sync_label}
+                            </span>
+                        </div>
+                        {series.song.url && <audio controls preload="none" src={series.song.url} className="w-full" />}
+                        <p className="text-muted-foreground text-xs">
+                            {series.song.timed_lines > 0
+                                ? `Đã có lời theo thời gian (${series.song.timed_lines} câu): Claude cắt shot đúng câu hát.`
+                                : series.song.vocal_status === 'pending'
+                                  ? 'Dịch vụ audio đang tách lời bài hát theo thời gian (vài phút). Đợi xong rồi hãy viết phân cảnh MV.'
+                                  : series.song.vocal_status === 'failed'
+                                    ? 'Chưa tách được lời theo thời gian (dịch vụ audio chưa chạy?). Claude sẽ chia câu hát đều theo độ dài bài, có thể lệch nhịp.'
+                                    : 'Chưa có lời theo thời gian: Claude chia câu hát đều theo độ dài bài.'}
+                        </p>
+                    </div>
+                )}
 
                 {series.error && (
                     <p className="border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-4 py-3 text-sm">{series.error}</p>

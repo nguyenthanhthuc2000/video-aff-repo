@@ -10,6 +10,7 @@ use App\Http\Controllers\EnglishController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\FashionModelController;
 use App\Http\Controllers\MuseAuthController;
+use App\Http\Controllers\MusicVideoController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\ProductImportController;
@@ -97,6 +98,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('english/{lesson}/video', [EnglishController::class, 'render'])->name('english.video');
     Route::get('english/{lesson}/video', [EnglishController::class, 'download'])->name('english.video.download');
     Route::get('english/{lesson}/thumbnail', [EnglishController::class, 'thumbnail'])->name('english.thumbnail');
+
+    // MV ca nhạc: tạo ở trang riêng, sau đó dùng chung các trang của phim (kế hoạch, nhân vật, tập, ghép).
+    Route::get('music-videos/create', [MusicVideoController::class, 'create'])->name('music-videos.create');
+    Route::post('music-videos', [MusicVideoController::class, 'store'])->name('music-videos.store');
 
     // Phim hoạt hình nhiều tập (docs/phim-hoat-hinh.md).
     Route::get('series', [SeriesController::class, 'index'])->name('series.index');

@@ -28,6 +28,9 @@ final class ShotClipPrompt
         if ($shot->episode->series->silent()) {
             return self::short($shot, $notes);
         }
+        if ($shot->episode->series->musicVideo()) {
+            return self::musicVideo($shot, $notes);
+        }
         $characters = $shot->episode->series->characters()->get()->keyBy('id');
         $inFrame = ShotPrompt::characters($shot)->map(fn (SeriesCharacter $c) => $c->name.' ('.Str::words($c->appearance, 12, '').')')->implode('; ');
         $seconds = self::seconds($shot);
@@ -52,6 +55,31 @@ final class ShotClipPrompt
                 : "No one speaks in this clip: mouths stay closed. No voices, no music.\n")
             .(filled($notes) ? 'Additional direction: '.trim($notes).".\n" : '')
             .'Smooth, simple TV-cartoon animation (like a 2D kids series), natural timing, no sudden cuts, no new characters.';
+    }
+
+    /**
+     * MV ca nhạc: shot hát nhép gửi kèm đúng đoạn bài hát của shot để người hát khớp môi theo; shot khác không ai hát.
+     * Tiếng trong clip bị bỏ, MV dùng bài hát gốc.
+     */
+    private static function musicVideo(Shot $shot, ?string $notes): string
+    {
+        $series = $shot->episode->series;
+        $people = ShotPrompt::characters($shot);
+        $inFrame = $people->map(fn (SeriesCharacter $c) => $c->name.' ('.Str::words($c->appearance, 14, '').')')->implode('; ');
+        $singer = $people->first()?->name ?? 'the singer';
+
+        return 'Make a '.self::seconds($shot)."-second music video clip from the attached first frame ({$series->frameLine()}).\n"
+            .($shot->motion ?: $shot->action)."\n"
+            ."Camera: {$shot->camera}; ".(self::MOVES[$shot->camera_move ?? ''] ?? self::MOVES['push_in']).".\n"
+            .($inFrame !== '' ? "People (keep them exactly as in the frame): {$inFrame}.\n" : '')
+            .(($continuity = ShotPrompt::continuity($shot)) !== '' ? "Continuity (must stay true for the whole clip):\n{$continuity}\n" : '')
+            .($shot->lip_sync && filled($shot->lyric)
+                ? "The attached audio is the song during this clip. {$singer} sings it: lips, jaw and breathing in exact sync with the vocals, "
+                    ."natural singing expressions, the clip is exactly as long as the audio. Lyric: \"{$shot->lyric}\". Nobody else sings.\n"
+                : "Nobody sings or talks in this clip: mouths stay closed or relaxed. No voices.\n")
+            .(filled($notes) ? 'Additional direction: '.trim($notes).".\n" : '')
+            ."Visual style: {$series->style}. One continuous shot with music video energy (movement in hair, cloth, light and camera), "
+            .'no cuts, no morphing faces or outfits, no new people, no text.';
     }
 
     /** Truyện ngắn không thoại: prompt image-to-video theo chuyển động Claude viết cho shot, một hành động chính, không lời. */
