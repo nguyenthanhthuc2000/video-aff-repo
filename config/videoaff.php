@@ -53,6 +53,8 @@ return [
     'fal' => [
         'key' => env('FAL_KEY'),
         'endpoint' => env('FAL_MUSE_ENDPOINT', 'meta/muse-image/edit'),
+        // MV: tạo bài hát mới (lời + phong cách → bài có giọng hát). Trả phí theo lượt.
+        'music_endpoint' => env('FAL_MUSIC_ENDPOINT', 'fal-ai/ace-step'),
         // Giá tham khảo để ghi chi phí; kiểm tra lại trên trang giá của fal.
         'cost_per_image' => (float) env('FAL_MUSE_COST_USD', 0.01),
     ],

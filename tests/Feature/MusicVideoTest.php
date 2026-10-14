@@ -2,23 +2,26 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\AnalyzeSongJob;
 use App\Jobs\AnalyzeVocalsJob;
-use App\Jobs\ImportYoutubeSongJob;
+use App\Jobs\ComposeSongDraftJob;
+use App\Jobs\GenerateSongJob;
 use App\Jobs\PlanSeriesJob;
 use App\Models\AudioTrack;
 use App\Models\Series;
+use App\Models\SongDraft;
 use App\Models\User;
-use App\Services\Audio\YoutubeSong;
+use App\Services\Audio\YoutubeReference;
 use App\Services\Film\EpisodeRenderer;
 use App\Services\Film\FilmMuseClipGenerator;
 use App\Services\Film\FilmMuseImageGenerator;
+use App\Services\Film\LyricsOverlap;
 use App\Services\Film\MusicVideoIdeas;
 use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\ShotClipPrompt;
 use App\Services\Film\ShotPrompt;
 use App\Services\Film\SongAnalysis;
+use App\Services\Film\SongWriter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -26,9 +29,7 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
-use RuntimeException;
 use Tests\TestCase;
-use Throwable;
 
 /** MV ca nhạc: trang tạo MV, kế hoạch theo bài hát, phân cảnh cắt đúng câu hát, hát nhép, ghép với bài hát gốc. */
 class MusicVideoTest extends TestCase
@@ -204,99 +205,143 @@ class MusicVideoTest extends TestCase
         $this->assertStringNotContainsString('The singer (main character) is named', $text);
     }
 
-    public function test_youtube_link_is_validated_and_queued()
-    {
-        Queue::fake([AnalyzeVocalsJob::class, ImportYoutubeSongJob::class]);
-        $this->actingAs($this->user)->post(route('music-videos.youtube'), ['url' => 'https://example.com/song.mp3', 'rights' => 1])->assertSessionHasErrors('url');
-        $this->actingAs($this->user)->post(route('music-videos.youtube'), ['url' => 'https://youtu.be/abc123'])->assertSessionHasErrors('rights');
-
-        $this->actingAs($this->user)->post(route('music-videos.youtube'), ['url' => 'https://www.youtube.com/watch?v=abc123', 'rights' => 1])->assertSessionHasNoErrors();
-        $track = $this->user->audioTracks()->latest('id')->first();
-        $this->assertSame('pending', $track->import_status);
-        $this->assertNull($track->path);
-        $this->assertNotNull($track->rights_confirmed_at);
-        Queue::assertPushed(ImportYoutubeSongJob::class);
-        // Đang lấy vẫn hiện trong danh sách bài hát của trang Tạo MV.
-        $this->actingAs($this->user)->get(route('music-videos.create'))->assertInertia(fn (Assert $page) => $page
-            ->where('songs.0.import_status', 'pending')->where('songs.0.source_url', 'https://www.youtube.com/watch?v=abc123'));
-    }
-
-    private function fakeYoutube(array $captions, string $kind = 'manual'): void
+    private function fakeReference(array $captions): void
     {
         Http::fake([
             '*/youtube' => Http::response(['id' => 'yt1'], 202),
             '*/youtube/yt1' => Http::response([
-                'state' => 'done', 'title' => 'Mưa Đêm (Official MV)', 'artist' => 'Lan', 'channel' => 'Lan Official', 'duration' => 30.0,
-                'description' => 'Lời bài hát: ...', 'language' => 'vi', 'captions_kind' => $captions ? $kind : null, 'captions' => $captions,
+                'state' => 'done', 'title' => 'Mưa Đêm (Official MV)', 'artist' => 'Ca Sĩ A', 'channel' => 'Ca Sĩ A Official', 'duration' => 200.0,
+                'description' => 'MV chính thức', 'tags' => ['ballad'], 'language' => 'vi', 'captions_kind' => $captions ? 'manual' : null, 'captions' => $captions,
             ]),
-            '*/youtube/yt1/audio' => Http::response('ID3fake-mp3', 200, ['Content-Type' => 'audio/mpeg']),
         ]);
     }
 
-    public function test_youtube_import_uses_captions_as_timed_lyrics_then_claude_analyzes()
+    private function draftFor(array $captions): SongDraft
     {
-        Queue::fake([AnalyzeVocalsJob::class, AnalyzeSongJob::class]);
-        $lines = ['Đi một mình', 'trong mưa đêm', 'nghe tim mình', 'Thắp sáng em', 'thắp sáng em lần nữa', 'đêm nay'];
-        $this->fakeYoutube(array_map(fn ($line, $i) => ['start' => 3 + $i * 3, 'end' => 5.5 + $i * 3, 'text' => $line], $lines, array_keys($lines)));
-        $track = $this->user->audioTracks()->create(['name' => 'https://youtu.be/abc', 'source_url' => 'https://youtu.be/abc', 'import_status' => 'pending']);
+        $this->fakeReference($captions);
+        $this->actingAs($this->user)->post(route('song-drafts.store'), ['url' => 'https://www.youtube.com/watch?v=abc123', 'notes' => 'Chủ đề tình bạn'])
+            ->assertSessionHasNoErrors();
+        $draft = $this->user->songDrafts()->latest('id')->first();
+        // Hàng đợi sync: lượt đầu gửi yêu cầu (release không làm gì), chạy tiếp tay để hỏi lại.
+        (new ComposeSongDraftJob($draft))->handle(app(YoutubeReference::class));
 
-        $job = new ImportYoutubeSongJob($track);
-        $job->handle(app(YoutubeSong::class)); // gửi yêu cầu
-        $job->handle(app(YoutubeSong::class)); // xong: lấy thông tin + file
+        return $draft->fresh();
+    }
 
-        $track->refresh();
-        $this->assertSame('done', $track->import_status);
-        $this->assertSame('Mưa Đêm (Official MV)', $track->name);
-        $this->assertSame(30000, $track->duration_ms);
+    public function test_youtube_reference_is_validated_and_never_downloads_audio()
+    {
+        $this->actingAs($this->user)->post(route('song-drafts.store'), ['url' => 'https://example.com/song.mp3'])->assertSessionHasErrors('url');
+        $draft = $this->draftFor([]);
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/youtube') && $request['audio'] === false);
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/audio'));
+        $this->assertSame('ready', $draft->status, (string) $draft->error);
+        $this->assertSame('Mưa Đêm (Official MV)', $draft->reference['title']);
+        $this->assertSame('Chủ đề tình bạn', $draft->notes);
+        // Không có bài tham khảo nào vào thư viện Âm thanh.
+        $this->assertSame(0, $this->user->audioTracks()->count());
+    }
+
+    public function test_claude_profiles_the_reference_and_writes_an_original_song()
+    {
+        $draft = $this->draftFor([['start' => 10, 'end' => 13, 'text' => 'Mưa rơi trên phố vắng em đi một mình']]);
+
+        $this->assertSame('V-pop ballad', $draft->profile['genre']);
+        $this->assertSame(['intro', 'verse', 'chorus', 'outro'], array_column($draft->profile['structure'], 'section'));
+        $this->assertSame('Nắng Sau Cơn Mưa', $draft->song['title']);
+        $this->assertStringContainsString('[Chorus]', $draft->song['lyrics']);
+        $this->assertFalse($draft->overlap['too_similar']);
+
+        $profileText = SongWriter::profileText($draft);
+        $this->assertStringContainsString('[10.0–13.0] Mưa rơi trên phố vắng em đi một mình', $profileText);
+        $songText = SongWriter::songText($draft);
+        $this->assertStringContainsString('Chủ đề tình bạn', $songText);
+        // Bài mới không thấy lời / tên ca sĩ của bài tham khảo, chỉ hồ sơ.
+        $this->assertStringNotContainsString('Mưa rơi trên phố vắng', $songText);
+        $this->assertStringNotContainsString('Ca Sĩ A', $songText);
+        $this->assertStringContainsString('Never copy', SongWriter::WRITE_SYSTEM);
+        $this->assertSame('ballad, piano', SongWriter::cleanStyle('Ca Sĩ A, ballad, piano', $draft));
+    }
+
+    public function test_overlap_check_flags_copied_lines()
+    {
+        $reference = "Mưa rơi trên phố vắng em đi một mình\nTim anh vẫn đợi chờ";
+        $copied = LyricsOverlap::check("[Verse]\nMưa rơi trên phố vắng em đi một mình\nNắng lên rồi em ơi", $reference);
+        $this->assertTrue(LyricsOverlap::tooSimilar($copied));
+        $this->assertSame(['Mưa rơi trên phố vắng em đi một mình'], $copied['lines']);
+
+        $original = LyricsOverlap::check("[Chorus]\nNắng sau cơn mưa em lại mỉm cười\nTa vẫn còn đây", $reference);
+        $this->assertFalse(LyricsOverlap::tooSimilar($original));
+        $this->assertSame(0.0, $original['score']);
+    }
+
+    public function test_song_draft_can_be_edited_rewritten_and_turned_into_a_library_song()
+    {
+        Queue::fake([AnalyzeVocalsJob::class]);
+        $draft = $this->draftFor([['start' => 10, 'end' => 13, 'text' => 'Mưa rơi trên phố vắng em đi một mình']]);
+
+        // Sửa lời: chép lại câu của bài tham khảo thì bị cảnh báo; prompt phong cách bỏ tên ca sĩ tham khảo.
+        $this->actingAs($this->user)->put(route('song-drafts.update', $draft), [
+            'title' => 'Bài Mới', 'style_prompt' => 'ballad, Ca Sĩ A, piano', 'lyrics' => "[Verse]\nMưa rơi trên phố vắng em đi một mình",
+        ])->assertSessionHas('status', fn ($s) => str_contains($s, 'còn giống'));
+        $this->assertTrue($draft->fresh()->overlap['too_similar']);
+        $this->assertSame('ballad, piano', $draft->fresh()->song['style_prompt']);
+
+        $this->actingAs($this->user)->post(route('song-drafts.rewrite', $draft), ['notes' => 'vui hơn'])->assertSessionHasNoErrors();
+        $draft->refresh();
+        $this->assertSame('ready', $draft->status);
+        $this->assertSame('vui hơn', $draft->notes);
+        $this->assertFalse($draft->overlap['too_similar']);
+
+        // Người khác không sửa được.
+        $this->actingAs(User::factory()->create())->post(route('song-drafts.rewrite', $draft))->assertForbidden();
+
+        // fal chưa có khoá: không tạo nhạc qua API được.
+        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'fal'])->assertSessionHasErrors('provider');
+
+        // Tự tạo nhạc ở công cụ ngoài rồi tải lên: thành bài trong thư viện, kèm lời, ý tưởng MV, ca sĩ.
+        $this->actingAs($this->user)->post(route('song-drafts.upload', $draft), ['song' => UploadedFile::fake()->create('new.mp3', 300, 'audio/mpeg')])
+            ->assertSessionHasErrors('rights');
+        $this->actingAs($this->user)->post(route('song-drafts.upload', $draft), ['song' => UploadedFile::fake()->create('new.mp3', 300, 'audio/mpeg'), 'rights' => 1])
+            ->assertSessionHasNoErrors();
+        $track = $draft->fresh()->audioTrack;
+        $this->assertSame('Nắng Sau Cơn Mưa', $track->name);
         $this->assertSame('vi', $track->language);
-        $this->assertSame('ID3fake-mp3', Storage::disk(config('videoaff.disk'))->get($track->path));
-        $this->assertSame(implode("\n", $lines), $track->lyrics);
-        // Phụ đề thành lời theo thời gian: mỗi câu phụ đề là một câu hát.
-        $this->assertSame('ready', $track->vocal_status);
-        $this->assertSame('captions', $track->vocal_analysis['source']);
-        $this->assertSame($lines, array_column(MusicVideoWriter::lines($track->vocal_analysis['words']), 'text'));
-        Queue::assertNotPushed(AnalyzeVocalsJob::class);
-        Queue::assertPushed(AnalyzeSongJob::class);
-
-        (new AnalyzeSongJob($track))->handle();
-        $analysis = $track->fresh()->song_info['analysis'];
-        $this->assertSame('V-pop ballad', $analysis['genre']);
-        $this->assertSame(['intro', 'verse', 'chorus', 'outro'], array_column($analysis['structure'], 'section'));
-        $this->assertEquals(30, end($analysis['structure'])['end']);
-        $this->assertSame('ready', $track->fresh()->song_info['analysis_status']);
-        $this->assertStringContainsString('Video description:', SongAnalysis::text($track->fresh()));
-        $this->assertStringContainsString('from YouTube captions', SongAnalysis::text($track->fresh()));
-    }
-
-    public function test_youtube_import_without_captions_runs_vocal_analysis_in_the_video_language()
-    {
-        Queue::fake([AnalyzeVocalsJob::class, AnalyzeSongJob::class]);
-        $this->fakeYoutube([]);
-        $track = $this->user->audioTracks()->create(['name' => 'x', 'source_url' => 'https://youtu.be/abc', 'import_status' => 'pending']);
-        $job = new ImportYoutubeSongJob($track);
-        $job->handle(app(YoutubeSong::class));
-        $job->handle(app(YoutubeSong::class));
-
-        $track->refresh();
-        $this->assertSame('pending', $track->vocal_status);
-        $this->assertSame('waiting', $track->song_info['analysis_status']);
+        $this->assertStringContainsString('[Chorus]', $track->lyrics);
+        $this->assertSame('song_draft', $track->song_info['source']);
+        $this->assertNotEmpty($track->song_info['mv_idea']);
+        $this->assertSame('V-pop ballad', $track->song_info['analysis']['genre']);
         Queue::assertPushed(AnalyzeVocalsJob::class);
-        Queue::assertNotPushed(AnalyzeSongJob::class);
+
+        $this->actingAs($this->user)->get(route('music-videos.create'))->assertInertia(fn (Assert $page) => $page
+            ->where('drafts.0.audio_track_id', $track->id)
+            ->where('drafts.0.reference.title', 'Mưa Đêm (Official MV)')
+            ->where('songs.0.mv_idea', $track->song_info['mv_idea'])
+            ->where('musicProviders.fal.available', false));
     }
 
-    public function test_youtube_import_failure_is_shown()
+    public function test_fal_music_generation_sends_only_new_lyrics_and_style()
     {
-        Http::fake(['*/youtube' => Http::response(['id' => 'yt1'], 202), '*/youtube/yt1' => Http::response(['state' => 'failed', 'error' => 'Video dài quá 15 phút'])]);
-        $track = $this->user->audioTracks()->create(['name' => 'x', 'source_url' => 'https://youtu.be/abc', 'import_status' => 'pending']);
-        $job = new ImportYoutubeSongJob($track);
-        $job->handle(app(YoutubeSong::class));
-        try {
-            $job->handle(app(YoutubeSong::class));
-        } catch (Throwable) {
-        }
-        $job->failed(new RuntimeException('Lấy bài hát từ YouTube lỗi: Video dài quá 15 phút'));
-        $this->assertSame('failed', $track->fresh()->import_status);
-        $this->assertStringContainsString('15 phút', $track->fresh()->import_error);
+        config(['videoaff.fal.key' => 'test-key']);
+        Queue::fake([AnalyzeVocalsJob::class]);
+        $draft = $this->draftFor([]);
+        Http::fake([
+            'https://queue.fal.run/fal-ai/ace-step' => Http::response(['request_id' => 'req1']),
+            'https://queue.fal.run/fal-ai/ace-step/requests/req1/status' => Http::response(['status' => 'COMPLETED']),
+            'https://queue.fal.run/fal-ai/ace-step/requests/req1' => Http::response(['audio' => ['url' => 'https://cdn.fal.media/song.wav']]),
+            'https://cdn.fal.media/song.wav' => Http::response('RIFFfake', 200, ['Content-Type' => 'audio/wav']),
+        ]);
+
+        $this->actingAs($this->user)->post(route('song-drafts.generate', $draft), ['provider' => 'fal'])->assertSessionHasNoErrors();
+        (new GenerateSongJob($draft))->handle();
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://queue.fal.run/fal-ai/ace-step'
+            && $request['lyrics'] === $draft->song['lyrics'] && $request['tags'] === $draft->song['style_prompt'] && $request['duration'] === 75
+            && ! str_contains(json_encode($request->data()), 'Ca Sĩ A'));
+        $draft->refresh();
+        $this->assertSame('done', $draft->music_status);
+        $this->assertSame('RIFFfake', Storage::disk(config('videoaff.disk'))->get($draft->audioTrack->path));
+        $this->assertStringEndsWith('.wav', $draft->audioTrack->path);
     }
 
     public function test_song_analysis_can_be_edited_and_feeds_ideas_and_shot_writing()

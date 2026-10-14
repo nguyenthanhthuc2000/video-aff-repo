@@ -26,6 +26,7 @@ use App\Http\Controllers\SeriesCharacterController;
 use App\Http\Controllers\SeriesController;
 use App\Http\Controllers\SocialAccountController;
 use App\Http\Controllers\SocialPostController;
+use App\Http\Controllers\SongDraftController;
 use App\Http\Controllers\VideoProjectController;
 use App\Http\Controllers\VideoSettingsController;
 use App\Support\CreditPricing;
@@ -102,9 +103,13 @@ Route::middleware(['auth'])->group(function () {
     // MV ca nhạc: tạo ở trang riêng, sau đó dùng chung các trang của phim (kế hoạch, nhân vật, tập, ghép).
     Route::get('music-videos/create', [MusicVideoController::class, 'create'])->name('music-videos.create');
     Route::post('music-videos', [MusicVideoController::class, 'store'])->name('music-videos.store');
-    Route::post('music-videos/youtube', [MusicVideoController::class, 'youtube'])->name('music-videos.youtube');
     Route::post('music-videos/songs/{audioTrack}/analysis', [MusicVideoController::class, 'analyzeSong'])->name('music-videos.songs.analyze');
     Route::put('music-videos/songs/{audioTrack}/analysis', [MusicVideoController::class, 'updateAnalysis'])->name('music-videos.songs.analysis');
+    Route::post('song-drafts', [SongDraftController::class, 'store'])->name('song-drafts.store');
+    Route::put('song-drafts/{songDraft}', [SongDraftController::class, 'update'])->name('song-drafts.update');
+    Route::post('song-drafts/{songDraft}/rewrite', [SongDraftController::class, 'rewrite'])->name('song-drafts.rewrite');
+    Route::post('song-drafts/{songDraft}/song', [SongDraftController::class, 'upload'])->name('song-drafts.upload');
+    Route::post('song-drafts/{songDraft}/generate', [SongDraftController::class, 'generate'])->name('song-drafts.generate');
     Route::post('music-videos/ideas', [MusicVideoController::class, 'ideas'])->name('music-videos.ideas');
     Route::get('music-videos/ideas/{token}', [MusicVideoController::class, 'ideasStatus'])->name('music-videos.ideas.show');
 

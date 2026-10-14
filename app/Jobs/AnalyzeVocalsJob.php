@@ -60,23 +60,16 @@ class AnalyzeVocalsJob implements ShouldQueue
         }
 
         Cache::forget($key);
-        $track->update(['vocal_analysis' => $result, 'vocal_status' => 'ready', 'vocal_error' => null]);
-        $this->analyzeSong();
-    }
-
-    /** Bài lấy từ YouTube đang chờ lời theo thời gian: giờ Claude phân tích bài hát (không có lời thì phân tích theo thông tin video). */
-    private function analyzeSong(): void
-    {
-        $track = $this->track->fresh();
-        if (($track?->song_info['analysis_status'] ?? null) === 'waiting') {
-            AnalyzeSongJob::dispatch($track);
-        }
+        $track->update([
+            'vocal_analysis' => $result, 'vocal_status' => 'ready', 'vocal_error' => null,
+            // Bài tạo qua API chưa đo được độ dài: lấy theo kết quả phân tích.
+            ...($track->duration_ms === null && $result['duration'] > 0 ? ['duration_ms' => (int) round($result['duration'] * 1000)] : []),
+        ]);
     }
 
     public function failed(?Throwable $e): void
     {
         Cache::forget("vocal-task:{$this->track->id}");
         $this->track->update(['vocal_status' => 'failed', 'vocal_error' => mb_substr($e?->getMessage() ?? 'Phân tích giọng hát thất bại.', 0, 500)]);
-        $this->analyzeSong();
     }
 }

@@ -10,9 +10,10 @@ import AppLayout from '@/layouts/app-layout';
 import { formatNumber } from '@/lib/pricing';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Check, ImagePlus, Info, Lightbulb, Loader2, Music, RefreshCw, Sparkles, X, Youtube } from 'lucide-react';
+import { Check, ImagePlus, Info, Lightbulb, Loader2, Music, RefreshCw, Sparkles, X } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import SongAnalysisCard, { type Analysis } from './song-analysis';
+import SongDrafts, { type Draft, type MusicProvider } from './song-drafts';
 import SongPreview, { type TimedLine } from './song-preview';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Tạo MV ca nhạc', href: '/music-videos/create' }];
@@ -33,11 +34,9 @@ type Song = {
     vocal_status: string | null;
     vocal_error: string | null;
     lines: TimedLine[];
-    lyrics_source: string | null;
-    source_url: string | null;
-    import_status: string | null;
-    import_error: string | null;
     language: string | null;
+    mv_idea: string | null;
+    singer: string | null;
     analysis: Analysis | null;
     analysis_status: string | null;
     analysis_error: string | null;
@@ -45,8 +44,7 @@ type Song = {
 type Driver = { label: string; available: boolean; note: string };
 
 type Form = {
-    source: 'upload' | 'library' | 'youtube';
-    youtube_url: string;
+    source: 'upload' | 'library' | 'inspire';
     song: File | null;
     audio_track_id: string;
     rights: boolean;
@@ -75,6 +73,8 @@ const lipSyncNotes: Record<string, string> = {
 export default function MusicVideoCreate({
     songs,
     sections,
+    drafts,
+    musicProviders,
     stylePresets,
     lipSyncModes,
     drivers,
@@ -84,6 +84,8 @@ export default function MusicVideoCreate({
 }: {
     songs: Song[];
     sections: string[];
+    drafts: Draft[];
+    musicProviders: Record<string, MusicProvider>;
     stylePresets: Record<string, { label: string; style: string }>;
     lipSyncModes: Record<string, string>;
     drivers: Record<string, Driver>;
@@ -94,7 +96,6 @@ export default function MusicVideoCreate({
     const { data, setData, post, processing, errors, transform } = useForm<Form>({
         source: songs.length > 0 ? 'library' : 'upload',
         song: null,
-        youtube_url: '',
         audio_track_id: songs[0] ? String(songs[0].id) : '',
         rights: false,
         song_start: '',
@@ -114,46 +115,22 @@ export default function MusicVideoCreate({
     const selected = songs.find((song) => String(song.id) === data.audio_track_id);
     const library = data.source === 'library';
     // Đang lấy lời theo thời gian: hỏi lại danh sách bài hát vài giây một lần.
-    const working =
-        library &&
-        (selected?.import_status === 'pending' ||
-            selected?.vocal_status === 'pending' ||
-            ['pending', 'waiting'].includes(selected?.analysis_status ?? ''));
-    usePoll(working, ['songs'], 5000);
+    const working = library && (selected?.vocal_status === 'pending' || ['pending', 'waiting'].includes(selected?.analysis_status ?? ''));
+    usePoll(working || drafts.some((d) => d.is_busy), ['songs', 'drafts'], 5000);
     // Lời bài hát có sẵn (phụ đề YouTube / Claude phân tích): điền vào ô lời khi ô còn trống.
     useEffect(() => {
-        if (library && selected?.lyrics && !data.lyrics.trim()) {
-            setData('lyrics', selected.lyrics);
+        if (library && selected) {
+            // Bài mới sáng tác: điền sẵn ý tưởng MV và ca sĩ Claude viết kèm (khi ô còn trống).
+            setData((current) => ({
+                ...current,
+                lyrics: current.lyrics.trim() ? current.lyrics : (selected.lyrics ?? ''),
+                idea: current.idea.trim() ? current.idea : (selected.mv_idea ?? ''),
+                singer: current.singer.trim() ? current.singer : (selected.singer ?? ''),
+            }));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [library, selected?.id, selected?.lyrics]);
     const [seekTo, setSeekTo] = useState<{ at: number; n: number } | null>(null);
-    const [importing, setImporting] = useState(false);
-    // Lấy bài hát từ link YouTube vào thư viện (dịch vụ audio), rồi chọn bài đó.
-    const importYoutube = () => {
-        if (!data.rights) {
-            setSongNote('Tick ô xác nhận bạn là chủ / có quyền dùng bài hát (bên dưới) trước.');
-            return;
-        }
-        setImporting(true);
-        setSongNote(null);
-        router.post(
-            route('music-videos.youtube'),
-            { url: data.youtube_url, rights: 1 },
-            {
-                preserveScroll: true,
-                preserveState: true,
-                onSuccess: (page) => {
-                    const saved = (page.props.songs as Song[])[0];
-                    if (saved?.source_url === data.youtube_url.trim()) {
-                        setData((current) => ({ ...current, source: 'library', audio_track_id: String(saved.id), youtube_url: '' }));
-                    }
-                },
-                onError: (errors) => setSongNote(Object.values(errors)[0] ?? 'Chưa lấy được bài hát.'),
-                onFinish: () => setImporting(false),
-            },
-        );
-    };
     const [saving, setSaving] = useState(false);
     const [songNote, setSongNote] = useState<string | null>(null);
     const seconds = (value: string) => (value.trim() === '' ? null : Number(value));
@@ -279,8 +256,8 @@ export default function MusicVideoCreate({
                     <Label className="text-base">1. Bài hát</Label>
                     <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
                         <label className="flex items-center gap-2">
-                            <input type="radio" checked={data.source === 'youtube'} onChange={() => setData('source', 'youtube')} />
-                            Dán link YouTube
+                            <input type="radio" checked={data.source === 'inspire'} onChange={() => setData('source', 'inspire')} />
+                            Sáng tác bài mới từ link YouTube
                         </label>
                         <label className="flex items-center gap-2">
                             <input type="radio" checked={data.source === 'upload'} onChange={() => setData('source', 'upload')} />
@@ -297,26 +274,15 @@ export default function MusicVideoCreate({
                         </label>
                     </div>
 
-                    {data.source === 'youtube' ? (
-                        <div className="space-y-2">
-                            <div className="flex gap-2">
-                                <Input
-                                    type="url"
-                                    value={data.youtube_url}
-                                    onChange={(e) => setData('youtube_url', e.target.value)}
-                                    placeholder="https://www.youtube.com/watch?v=..."
-                                />
-                                <Button type="button" onClick={importYoutube} disabled={importing || !data.youtube_url.trim()}>
-                                    {importing ? <Loader2 className="animate-spin" /> : <Youtube />} Lấy và phân tích
-                                </Button>
-                            </div>
-                            <p className="text-muted-foreground text-xs">
-                                App lấy âm thanh, tên bài, ca sĩ, mô tả và phụ đề của video (dịch vụ audio trên máy), lưu vào thư viện Âm thanh, lấy
-                                lời theo thời gian rồi Claude phân tích bài hát: thể loại, nhịp, không khí, cấu trúc, chủ đề, lời. Chỉ dùng bài hát
-                                của bạn hoặc bài bạn có quyền dùng.
-                            </p>
-                            {songNote && <p className="text-destructive text-xs">{songNote}</p>}
-                        </div>
+                    {data.source === 'inspire' ? (
+                        <SongDrafts
+                            drafts={drafts}
+                            providers={musicProviders}
+                            maxMb={maxMb}
+                            onUse={(trackId) =>
+                                setData((current) => ({ ...current, source: 'library', audio_track_id: String(trackId), lyrics: '' }))
+                            }
+                        />
                     ) : data.source === 'upload' ? (
                         <div className="space-y-2">
                             <label className="hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-md border border-dashed p-4 text-sm">
@@ -349,24 +315,10 @@ export default function MusicVideoCreate({
                             >
                                 {songs.map((song) => (
                                     <option key={song.id} value={song.id}>
-                                        {song.import_status === 'pending'
-                                            ? `Đang lấy từ YouTube: ${song.name}`
-                                            : song.import_status === 'failed'
-                                              ? `Lỗi lấy từ YouTube: ${song.name}`
-                                              : `${song.name} (${duration(song.duration_ms)})`}
+                                        {song.name} ({duration(song.duration_ms)})
                                     </option>
                                 ))}
                             </select>
-                            {selected?.import_status === 'pending' && (
-                                <p className="text-muted-foreground flex items-center gap-1 text-xs">
-                                    <Loader2 className="size-3 animate-spin" /> Đang lấy bài hát từ YouTube (thường dưới 1 phút)...
-                                </p>
-                            )}
-                            {selected?.import_status === 'failed' && (
-                                <p className="text-destructive text-xs">
-                                    {selected.import_error ?? 'Không lấy được bài hát.'} Kiểm tra link và dịch vụ audio (docker compose up -d audio).
-                                </p>
-                            )}
                             <InputError message={errors.audio_track_id} />
                         </div>
                     )}
@@ -387,9 +339,7 @@ export default function MusicVideoCreate({
                             <div className="flex flex-wrap items-center gap-3 text-xs">
                                 {library && selected?.vocal_status === 'ready' ? (
                                     <span className="text-muted-foreground">
-                                        Đã có lời theo thời gian ({selected.lines.length} câu
-                                        {selected.lyrics_source === 'captions' ? ', từ phụ đề YouTube' : ''}): câu đang hát sáng lên, bấm một câu để
-                                        nghe từ đó.
+                                        Đã có lời theo thời gian ({selected.lines.length} câu ): câu đang hát sáng lên, bấm một câu để nghe từ đó.
                                     </span>
                                 ) : library && selected?.vocal_status === 'pending' ? (
                                     <span className="text-muted-foreground flex items-center gap-1">
@@ -410,7 +360,7 @@ export default function MusicVideoCreate({
                                         </span>
                                     </>
                                 )}
-                                {data.source !== 'youtube' && songNote && <span className="text-destructive">{songNote}</span>}
+                                {songNote && <span className="text-destructive">{songNote}</span>}
                             </div>
                             {library && selected && (
                                 <SongAnalysisCard
