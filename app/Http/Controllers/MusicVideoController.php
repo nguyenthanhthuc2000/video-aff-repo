@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\SeriesStatus;
 use App\Jobs\AnalyzeSongJob;
+use App\Jobs\MusicVideoAutopilotJob;
 use App\Jobs\PlanSeriesJob;
 use App\Jobs\SuggestMusicVideoIdeasJob;
 use App\Models\AudioTrack;
@@ -68,11 +69,19 @@ class MusicVideoController extends Controller
                     'video_url' => Media::url($episode?->render_status === 'done' ? $episode->render_path : null),
                     'continue_url' => $stage['episode_id'] ? route('series.episodes.show', ['series' => $mv->id, 'episode' => $stage['episode_id']]) : route('series.show', $mv),
                     'download_url' => $episode?->render_path ? route('series.episodes.render.download', ['series' => $mv->id, 'episode' => $episode->id]) : null,
+                    'band_id' => $mv->virtual_band_id,
+                    'template' => $mv->mv_options['template'] ?? null,
+                    // Nội dung đăng bài của MV ngắn (tên, mô tả có dòng AI-generated, hashtag).
+                    'post' => $mv->mv_options['post'] ?? null,
+                    'autopilot' => (bool) ($mv->mv_options['autopilot'] ?? false),
+                    'autopilot_note' => $mv->mv_options['autopilot_note'] ?? null,
                     'updated_at' => $mv->updated_at,
                     'created_at' => $mv->created_at,
                 ];
             }),
             'groups' => MusicVideoStage::GROUPS,
+            'bands' => $request->user()->virtualBands()->orderBy('name')->get(['id', 'name']),
+            'bandFilter' => $request->integer('band') ?: null,
             'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => $p['label']),
             'drafts' => $request->user()->songDrafts()->with('audioTrack:id,name')->latest('updated_at')->get()->map(fn (SongDraft $d) => [
                 'id' => $d->id,
@@ -85,6 +94,19 @@ class MusicVideoController extends Controller
                 'updated_at' => $d->updated_at,
             ]),
         ]);
+    }
+
+    /** Bật / tắt chạy tự động (ý tưởng → phân cảnh → khung hình → clip → ghép). */
+    public function autopilot(Request $request, Series $series): RedirectResponse
+    {
+        $this->authorizeMusicVideo($series);
+        $on = $request->boolean('on');
+        $series->update(['mv_options' => [...($series->mv_options ?? []), 'autopilot' => $on, 'autopilot_note' => null]]);
+        if ($on) {
+            MusicVideoAutopilotJob::dispatch($series);
+        }
+
+        return back()->with('status', $on ? 'Đã bật chạy tự động cho MV.' : 'Đã tắt chạy tự động.');
     }
 
     /** Đổi tên MV. */
@@ -105,7 +127,10 @@ class MusicVideoController extends Controller
             return back()->with('status', $message);
         }
         $copy = $series->replicate(['bible', 'status', 'error', 'autopilot']);
-        $copy->fill(['title' => Str::limit("{$series->title} (bản sao)", 200, ''), 'status' => SeriesStatus::Planning])->save();
+        $copy->fill([
+            'title' => Str::limit("{$series->title} (bản sao)", 200, ''), 'status' => SeriesStatus::Planning,
+            'mv_options' => [...($series->mv_options ?? []), 'autopilot' => false, 'autopilot_note' => null],
+        ])->save();
         PlanSeriesJob::dispatch($copy);
 
         return to_route('series.show', $copy)->with('status', 'Đã nhân bản MV (giữ bài hát và lựa chọn). Claude đang lên ý tưởng mới...');

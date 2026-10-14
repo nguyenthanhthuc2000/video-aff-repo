@@ -24,6 +24,7 @@ use App\Http\Controllers\SceneOutfitController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\SeriesCharacterController;
 use App\Http\Controllers\SeriesController;
+use App\Http\Controllers\ShortsController;
 use App\Http\Controllers\SocialAccountController;
 use App\Http\Controllers\SocialPostController;
 use App\Http\Controllers\SongDraftController;
@@ -103,6 +104,14 @@ Route::middleware(['auth'])->group(function () {
     // MV ca nhạc: tạo ở trang riêng, sau đó dùng chung các trang của phim (kế hoạch, nhân vật, tập, ghép).
     Route::get('music-videos', [MusicVideoController::class, 'index'])->name('music-videos.index');
     Route::get('music-videos/create', [MusicVideoController::class, 'create'])->name('music-videos.create');
+    // Series Shorts nhạc: ban nhạc ảo + mẫu Shorts → tạo hàng loạt MV ngắn.
+    Route::get('music-videos/shorts', [ShortsController::class, 'index'])->name('shorts.index');
+    Route::post('music-videos/shorts/bands', [ShortsController::class, 'storeBand'])->name('shorts.bands.store');
+    Route::put('music-videos/shorts/bands/{band}', [ShortsController::class, 'updateBand'])->name('shorts.bands.update');
+    Route::delete('music-videos/shorts/bands/{band}', [ShortsController::class, 'destroyBand'])->name('shorts.bands.destroy');
+    Route::post('music-videos/shorts/preview', [ShortsController::class, 'preview'])->name('shorts.preview');
+    Route::post('music-videos/shorts/batch', [ShortsController::class, 'batch'])->name('shorts.batch');
+    Route::post('music-videos/{series}/autopilot', [MusicVideoController::class, 'autopilot'])->name('music-videos.autopilot');
     Route::put('music-videos/{series}/title', [MusicVideoController::class, 'rename'])->name('music-videos.rename');
     Route::post('music-videos/{series}/duplicate', [MusicVideoController::class, 'duplicate'])->name('music-videos.duplicate');
     Route::delete('music-videos/{series}', [MusicVideoController::class, 'destroy'])->name('music-videos.destroy');

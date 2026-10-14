@@ -199,7 +199,7 @@ final class EpisodeRenderer
         // Nhạc nền: nhạc riêng Claude sáng tác cho tập (theo từng phân đoạn), hoặc một bài trong thư viện Âm thanh.
         $track = ($options['music_track_id'] ?? null) ? AudioTrack::where('user_id', $episode->series->user_id)->find($options['music_track_id']) : null;
         if ($options['song'] ?? false) {
-            return self::withSong($episode, $joined, $options, $srt, $dir);
+            return self::withSong($episode, $joined, $options, $srt, $dir, $plan);
         }
         $music = ($options['original_score'] ?? false)
             ? EpisodeScore::track($episode, $plan, $dir)
@@ -275,7 +275,7 @@ final class EpisodeRenderer
      *
      * @throws RuntimeException
      */
-    private static function withSong(Episode $episode, string $joined, array $options, string $srt, string $dir): string
+    private static function withSong(Episode $episode, string $joined, array $options, string $srt, string $dir, array $plan = []): string
     {
         $series = $episode->series;
         $song = $series->song;
@@ -291,22 +291,72 @@ final class EpisodeRenderer
         $fadeIn = $start > 0 ? 'afade=t=in:d=0.3,' : '';
         $filters = ["[1:a]aresample=44100,aformat=channel_layouts=stereo,{$fadeIn}afade=t=out:st={$fadeOut}:d=1.5,apad=whole_dur={$total}[a]"];
         $burn = (bool) ($options['burn_subtitles'] ?? false) && trim(File::get($srt)) !== '';
+        $overlay = self::overlay($episode, $plan, $dir, (string) ($options['aspect'] ?? '16:9'));
+        if ($overlay !== '') {
+            // Shorts: tên video + chữ từng shot vẽ thẳng lên hình; có chèn lời thì chèn lời sau.
+            $filters[] = "[0:v]{$overlay}".($burn ? '[ov]' : '[v]');
+        }
         if ($burn) {
             $vertical = str_starts_with((string) ($options['aspect'] ?? ''), '9:16');
             $style = $vertical
                 ? 'FontName=Be Vietnam Pro,FontSize=11,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.5,Shadow=0,MarginV=75,MarginL=12,MarginR=12'
                 : 'FontName=Be Vietnam Pro,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,MarginV=36';
-            $filters[] = "[0:v]subtitles='".self::escape($srt)."':fontsdir='".self::escape(resource_path('fonts'))."':force_style='{$style}'[v]";
+            $filters[] = ($overlay !== '' ? '[ov]' : '[0:v]')."subtitles='".self::escape($srt)."':fontsdir='".self::escape(resource_path('fonts'))."':force_style='{$style}'[v]";
         }
+        $encode = $burn || $overlay !== '';
         $out = "{$dir}/episode.mp4";
         self::ffmpeg([
             '-i', $joined, '-ss', self::seconds($start), '-i', $music,
-            '-filter_complex', implode(';', $filters), '-map', $burn ? '[v]' : '0:v', '-map', '[a]',
-            ...($burn ? ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p'] : ['-c:v', 'copy']),
+            '-filter_complex', implode(';', $filters), '-map', $encode ? '[v]' : '0:v', '-map', '[a]',
+            ...($encode ? ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p'] : ['-c:v', 'copy']),
             '-c:a', 'aac', '-b:a', '256k', '-t', $total, '-movflags', '+faststart', $out,
         ], 840);
 
         return $out;
+    }
+
+    /**
+     * Chữ trên hình của Shorts nhạc (mv_options.overlay): tên video ở trên suốt video, chữ của từng shot (tên, năm...) ở dưới đúng lúc shot hiện.
+     * Trả chuỗi bộ lọc drawtext (rỗng nếu không bật / không có chữ).
+     */
+    public static function overlay(Episode $episode, array $plan, string $dir, string $aspect): string
+    {
+        $options = $episode->series->mv_options['overlay'] ?? null;
+        if (! $options) {
+            return '';
+        }
+        [$w] = self::size($aspect);
+        $font = self::escape(resource_path('fonts/BeVietnamPro-Bold.ttf'));
+        $draw = function (string $text, string $file, int $size, string $y, ?array $between = null) use ($font, $dir) {
+            File::put("{$dir}/{$file}", Thumbnail::plain($text));
+
+            return "drawtext=fontfile='{$font}':textfile='".self::escape("{$dir}/{$file}")."':fontsize={$size}:fontcolor=white:borderw=4:bordercolor=black@0.7"
+                .":box=1:boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y={$y}"
+                .($between ? ':enable=\'between(t,'.self::seconds($between[0]).','.self::seconds($between[1]).')\'' : '');
+        };
+        $filters = [];
+        $title = trim((string) ($options['title'] ?? ''));
+        if ($title !== '') {
+            $filters[] = $draw($title, 'overlay-title.txt', (int) min(64, floor(($w - 120) / max(1, mb_strlen($title) * 0.55))), 'h*0.12');
+        }
+        if ($options['labels'] ?? false) {
+            $shots = $episode->shots()->get(['id', 'label'])->keyBy('id');
+            $spans = [];
+            foreach ($plan as $segment) {
+                $label = trim((string) ($shots[$segment['shot_id'] ?? 0]->label ?? ''));
+                $last = array_key_last($spans);
+                if ($label !== '' && $last !== null && $spans[$last][2] === $label && $spans[$last][1] === $segment['offset_ms']) {
+                    $spans[$last][1] += $segment['duration_ms'];
+                } elseif ($label !== '') {
+                    $spans[] = [$segment['offset_ms'], $segment['offset_ms'] + $segment['duration_ms'], $label];
+                }
+            }
+            foreach (array_slice($spans, 0, 40) as $i => [$from, $to, $label]) {
+                $filters[] = $draw($label, "overlay-label-{$i}.txt", (int) min(58, floor(($w - 120) / max(1, mb_strlen($label) * 0.55))), 'h*0.70', [$from, $to]);
+            }
+        }
+
+        return implode(',', $filters);
     }
 
     /**

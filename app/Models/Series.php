@@ -94,7 +94,7 @@ class Series extends Model
     public const AGE_MAX = 17;
 
     protected $fillable = [
-        'user_id', 'title', 'idea', 'format', 'audio_track_id', 'song_start_ms', 'song_end_ms', 'lyrics', 'mv_options', 'seed_characters', 'seed_episodes', 'genre', 'age_min', 'age_max', 'audience', 'made_for_kids', 'style', 'aspect_ratio',
+        'user_id', 'title', 'idea', 'format', 'audio_track_id', 'virtual_band_id', 'song_start_ms', 'song_end_ms', 'lyrics', 'mv_options', 'seed_characters', 'seed_episodes', 'genre', 'age_min', 'age_max', 'audience', 'made_for_kids', 'style', 'aspect_ratio',
         'episode_count', 'episode_seconds', 'clip_budget', 'language', 'subtitle_languages', 'intro_path', 'outro_path',
         'bible', 'status', 'error', 'autopilot',
     ];
@@ -129,6 +129,12 @@ class Series extends Model
     public function musicVideo(): bool
     {
         return $this->format === 'music_video';
+    }
+
+    /** Ban nhạc ảo của MV ngắn trong series Shorts nhạc. */
+    public function virtualBand(): BelongsTo
+    {
+        return $this->belongsTo(VirtualBand::class);
     }
 
     /** Bài hát của MV. */

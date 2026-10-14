@@ -7,7 +7,7 @@ import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { Copy, Download, Loader2, Mic2, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, ClipboardCopy, Copy, Download, Loader2, Mic2, Pencil, Play, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'MV ca nhạc', href: '/music-videos' }];
@@ -29,6 +29,11 @@ type MusicVideo = {
     video_url: string | null;
     continue_url: string;
     download_url: string | null;
+    band_id: number | null;
+    template: string | null;
+    post: { title: string; description: string; hashtags: string[] } | null;
+    autopilot: boolean;
+    autopilot_note: string | null;
     updated_at: string;
     created_at: string;
 };
@@ -66,7 +71,11 @@ export default function MusicVideoIndex({
     groups,
     stylePresets,
     drafts,
+    bands,
+    bandFilter,
 }: {
+    bands: { id: number; name: string }[];
+    bandFilter: number | null;
     musicVideos: MusicVideo[];
     groups: Record<string, string>;
     stylePresets: Record<string, string>;
@@ -77,6 +86,17 @@ export default function MusicVideoIndex({
     const [query, setQuery] = useState('');
     const [group, setGroup] = useState('');
     const [style, setStyle] = useState('');
+    const [band, setBand] = useState(bandFilter ? String(bandFilter) : '');
+    const [copied, setCopied] = useState<number | null>(null);
+    const copyPost = (mv: MusicVideo) => {
+        if (mv.post) {
+            void navigator.clipboard.writeText(`${mv.post.title}\n\n${mv.post.description}`);
+            setCopied(mv.id);
+            setTimeout(() => setCopied(null), 1500);
+        }
+    };
+    const toggleAutopilot = (mv: MusicVideo) =>
+        router.post(route('music-videos.autopilot', mv.id), { on: mv.autopilot ? 0 : 1 }, { preserveScroll: true });
     const [sort, setSort] = useState<'updated' | 'created' | 'title'>('updated');
     const [watching, setWatching] = useState<MusicVideo | null>(null);
 
@@ -85,6 +105,7 @@ export default function MusicVideoIndex({
         return musicVideos
             .filter((mv) => !q || mv.title.toLowerCase().includes(q) || (mv.song ?? '').toLowerCase().includes(q))
             .filter((mv) => !group || mv.stage.group === group)
+            .filter((mv) => !band || String(mv.band_id) === band)
             .filter((mv) => !style || (style === 'custom' ? !mv.style_preset : mv.style_preset === style))
             .sort((a, b) =>
                 sort === 'title'
@@ -92,7 +113,7 @@ export default function MusicVideoIndex({
                     : new Date(sort === 'created' ? b.created_at : b.updated_at).getTime() -
                       new Date(sort === 'created' ? a.created_at : a.updated_at).getTime(),
             );
-    }, [musicVideos, query, group, style, sort]);
+    }, [musicVideos, query, group, style, sort, band]);
 
     const rename = (mv: MusicVideo) => {
         const title = prompt('Tên mới của MV', mv.title);
@@ -119,11 +140,18 @@ export default function MusicVideoIndex({
             <div className="space-y-6 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <Heading title="MV ca nhạc" description="Các MV đang làm và đã xong. Bấm một MV để làm tiếp đúng bước đang dừng." />
-                    <Button asChild>
-                        <Link href={route('music-videos.create')}>
-                            <Plus /> Tạo MV mới
-                        </Link>
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="outline" asChild>
+                            <Link href={route('shorts.index')}>
+                                <Zap /> Shorts nhạc hàng loạt
+                            </Link>
+                        </Button>
+                        <Button asChild>
+                            <Link href={route('music-videos.create')}>
+                                <Plus /> Tạo MV mới
+                            </Link>
+                        </Button>
+                    </div>
                 </div>
                 <FlashStatus />
 
@@ -160,6 +188,16 @@ export default function MusicVideoIndex({
                                     </option>
                                 ))}
                             </select>
+                            {bands.length > 0 && (
+                                <select className={select} value={band} onChange={(e) => setBand(e.target.value)}>
+                                    <option value="">Mọi ban nhạc / MV lẻ</option>
+                                    {bands.map((b) => (
+                                        <option key={b.id} value={b.id}>
+                                            Series: {b.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                             <select className={select} value={style} onChange={(e) => setStyle(e.target.value)}>
                                 <option value="">Mọi phong cách</option>
                                 {Object.entries(stylePresets).map(([key, label]) => (
@@ -216,6 +254,9 @@ export default function MusicVideoIndex({
                                             {mv.stage.group === 'failed' && mv.error && (
                                                 <p className="text-destructive line-clamp-1 text-xs">{mv.error}</p>
                                             )}
+                                            {mv.autopilot_note && !mv.autopilot && (
+                                                <p className="text-muted-foreground line-clamp-1 text-xs">Tự động: {mv.autopilot_note}</p>
+                                            )}
                                         </Link>
                                         <div className="flex shrink-0 flex-col items-end gap-2">
                                             <Badge
@@ -250,6 +291,28 @@ export default function MusicVideoIndex({
                                                         <a href={mv.download_url}>
                                                             <Download />
                                                         </a>
+                                                    </Button>
+                                                )}
+                                                {mv.stage.group !== 'done' && (
+                                                    <Button
+                                                        variant={mv.autopilot ? 'secondary' : 'ghost'}
+                                                        size="icon"
+                                                        aria-label="Chạy tự động"
+                                                        title={mv.autopilot ? 'Đang chạy tự động (bấm để tắt)' : 'Chạy tự động tới khi ghép xong'}
+                                                        onClick={() => toggleAutopilot(mv)}
+                                                    >
+                                                        <Zap />
+                                                    </Button>
+                                                )}
+                                                {mv.post && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        aria-label="Copy nội dung đăng"
+                                                        title="Copy tên + mô tả + hashtag để đăng"
+                                                        onClick={() => copyPost(mv)}
+                                                    >
+                                                        {copied === mv.id ? <Check /> : <ClipboardCopy />}
                                                     </Button>
                                                 )}
                                                 <Button variant="ghost" size="icon" aria-label="Đổi tên" title="Đổi tên" onClick={() => rename(mv)}>

@@ -73,6 +73,11 @@ class User extends Authenticatable
         return $this->hasMany(SocialAccount::class);
     }
 
+    public function virtualBands(): HasMany
+    {
+        return $this->hasMany(VirtualBand::class);
+    }
+
     public function songDrafts(): HasMany
     {
         return $this->hasMany(SongDraft::class);

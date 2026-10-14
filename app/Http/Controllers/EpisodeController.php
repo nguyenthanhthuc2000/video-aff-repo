@@ -874,13 +874,13 @@ class EpisodeController extends Controller
         return $options;
     }
 
-    private static function queueClip(Shot $shot, ?string $notes = null): void
+    public static function queueClip(Shot $shot, ?string $notes = null): void
     {
         $shot->update(['clip_status' => 'pending', 'clip_stage' => 'voice', 'clip_request_id' => null, 'clip_error' => null]);
         AnimateShotJob::dispatch($shot, $notes);
     }
 
-    private static function queueImage(Shot $shot, ?string $notes = null): void
+    public static function queueImage(Shot $shot, ?string $notes = null): void
     {
         $shot->update(['image_status' => 'pending', 'request_id' => null, 'error' => null]);
         GenerateShotImageJob::dispatch($shot, ShotPrompt::build($shot, $notes));

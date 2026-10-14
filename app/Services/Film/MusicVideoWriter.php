@@ -28,6 +28,7 @@ final class MusicVideoWriter
       The first shot starts at 0; shots are in order; the last shot runs until the end of the excerpt. Cut on the beat and on lyric lines:
       a new lyric line or section is a good place to cut. Shots last 2–10 seconds (most 3–6 s; slower in verses, faster in the chorus).
     - "lyric": the exact lyric sung during the shot (copy from the timed lyrics, empty for instrumental parts).
+    - "label": short on-screen text for the shot when the creator's shot plan asks for it (a name, a year, "A VS B"), otherwise empty.
     - "lip_sync": true when the singer is on screen, facing the camera enough to see the mouth, and sings in this shot. Mix performance
       shots (lip_sync) with story shots and b-roll (no lip sync). Use lip sync for most of the chorus and some verse lines; never in instrumental parts.
     - Tell a visual story that follows the meaning and emotion of the lyrics: intro, verses, chorus (bigger, more energy), bridge, final chorus, outro.
@@ -56,11 +57,12 @@ final class MusicVideoWriter
                 'shots' => ['type' => 'array', 'items' => [
                     'type' => 'object',
                     'additionalProperties' => false,
-                    'required' => ['start', 'section', 'lyric', 'lip_sync', 'characters', 'location', 'camera', 'camera_move', 'action', 'motion'],
+                    'required' => ['start', 'section', 'lyric', 'label', 'lip_sync', 'characters', 'location', 'camera', 'camera_move', 'action', 'motion'],
                     'properties' => [
                         'start' => ['type' => 'number'],
                         'section' => $string,
                         'lyric' => $string,
+                        'label' => $string,
                         'lip_sync' => ['type' => 'boolean'],
                         'characters' => ['type' => 'array', 'items' => $string],
                         'location' => $string,
@@ -223,6 +225,7 @@ final class MusicVideoWriter
                     'duration_ms' => $partEnd - $partStart,
                     'song_ms' => $from + $partStart,
                     'lyric' => $lyric !== '' ? $lyric : null,
+                    'label' => mb_substr(trim((string) ($source['label'] ?? '')), 0, 60) ?: null,
                     'lip_sync' => $lipSync,
                     'continues_previous' => $p > 0,
                     'camera_move' => isset(EpisodeWriter::CAMERA_MOVES[$source['camera_move'] ?? '']) ? $source['camera_move'] : 'push_in',
