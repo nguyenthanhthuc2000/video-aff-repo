@@ -106,8 +106,8 @@ class MusicVideoTest extends TestCase
             ->where('songs.0.lines.2.text', 'Light me up')
             ->has('songs.0.url')
             ->where('lipSyncModes.chorus', 'Chỉ điệp khúc')
-            ->where('drivers.browser.available', false)
-            ->where('drivers.fal.available', false)
+            ->where('drivers.muse.available', false)
+            ->where('drivers.minimax.available', false)
             ->where('drivers.fake.available', true)
             ->where('defaultDriver', 'fake'));
     }
@@ -149,7 +149,7 @@ class MusicVideoTest extends TestCase
     {
         $this->actingAs($this->user)->post(route('music-videos.store'), [
             'idea' => 'Một MV về mưa đêm và ánh đèn neon trong thành phố.',
-            'style_preset' => 'cinematic', 'aspect_ratio' => '16:9', 'lip_sync' => 'chorus', 'driver' => 'browser',
+            'style_preset' => 'cinematic', 'aspect_ratio' => '16:9', 'lip_sync' => 'chorus', 'driver' => 'minimax',
         ])->assertSessionHasErrors(['song', 'audio_track_id', 'rights', 'driver']);
 
         $this->actingAs($this->user)->post(route('music-videos.store'), [

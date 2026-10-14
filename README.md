@@ -95,6 +95,10 @@ MV là một bộ phim một tập nên dùng chung các trang của phim hoạt
 
 Đọc link YouTube cần build lại dịch vụ audio: `docker compose build audio && docker compose up -d audio`.
 
+**Shorts nhạc theo series** (`/music-videos/shorts`, nút "Shorts nhạc hàng loạt" ở danh sách MV): tạo **ban nhạc / ca sĩ ảo** (Claude nghĩ ra từ thể loại + thời kỳ, tự nhập, hoặc "Thêm 3 ban nhạc mẫu"), chọn mẫu Shorts (Classic Lineup, A VS B, Trẻ VS Già, Hành trình qua các năm, Fan đi phố), một đoạn bài hát 15–40 giây và các biến thể (mỗi dòng một MV, tối đa 10) → tạo hàng loạt MV ngắn 9:16 có tên video + chữ trên hình, nội dung đăng (mô tả có dòng AI-generated, hashtag). Tick "Chạy tự động" để mỗi MV tự đi hết phân cảnh → khung hình → clip → ghép. Chỉ nhân vật hư cấu: tên nghệ sĩ / ban nhạc thật bị chặn. Ảnh thành viên chốt ở MV đầu được dùng lại cho các MV sau.
+
+**Kết nối AI** (Quản trị → Kết nối AI): nhập khoá MiniMax (vùng Global / China), fal, Claude API (lưu mã hoá, .env là dự phòng), "Kiểm tra kết nối" (chỉ gọi lệnh liệt kê model, miễn phí), chọn công cụ cho từng bước kèm giá ước tính: ảnh nhân vật / khung hình (MiniMax image-01 hoặc Muse), clip (Hailuo hoặc Muse; Hailuo không hát nhép theo file nhạc), nhạc (MiniMax Music 3 / ElevenLabs / ACE-Step qua fal, MiniMax Music trực tiếp cho tài khoản cũ, hoặc tự làm trên Suno / Udio). Mặc định dùng MiniMax khi khoá MiniMax kiểm tra được.
+
 Công cụ: Muse qua trình duyệt ngầm (`MUSE_DRIVER=browser`). fal trong app mới tạo ảnh, chưa làm clip nên chưa chọn được cho MV.
 
 ## Luồng dùng

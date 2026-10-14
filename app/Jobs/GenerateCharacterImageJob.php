@@ -43,7 +43,7 @@ class GenerateCharacterImageJob implements ShouldQueue
         $character = $image->character;
         $series = $character->series;
         /** @var AsyncImageGenerator $generator */
-        $generator = app('film.image');
+        $generator = app('film.character_image');
         $references = $this->references();
 
         try {

@@ -15,6 +15,7 @@ use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\SongAnalysis;
 use App\Services\Video\VideoProbe;
+use App\Support\AiProviders;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
@@ -183,12 +184,14 @@ class MusicVideoController extends Controller
                 'music_provider' => $d->music_provider, 'music_status' => $d->music_status, 'music_error' => $d->music_error, 'audio_track_id' => $d->audio_track_id,
             ]),
             'musicProviders' => SongDraftController::providers(),
+            // Công cụ tạo nhạc mặc định (trang Kết nối AI).
+            'musicDefault' => AiProviders::selected('music'),
             // Mở từ tab "Bài Claude sáng tác" của danh sách MV.
             'openDraft' => $request->integer('draft') ?: null,
             'stylePresets' => collect(Series::MV_STYLE_PRESETS)->map(fn ($p) => ['label' => $p['label'], 'style' => $p['style']]),
             'lipSyncModes' => Series::LIP_SYNC_MODES,
             'drivers' => $drivers,
-            'defaultDriver' => collect($drivers)->filter(fn ($d) => $d['available'])->keys()->first(),
+            'defaultDriver' => AiProviders::selected('clip'),
             'maxMb' => (int) (config('videoaff.audio_max_kb') / 1024),
             'estimate' => CreditPricing::aiEstimates()['film_plan'],
         ]);
@@ -228,6 +231,7 @@ class MusicVideoController extends Controller
             return back()->withErrors(['idea' => $message])->withInput();
         }
 
+        self::useDriver($validated['driver']);
         $user = $request->user();
         if ($file = $request->file('song')) {
             $track = $user->audioTracks()->create([
@@ -385,33 +389,18 @@ class MusicVideoController extends Controller
     }
 
     /**
-     * Công cụ tạo ảnh + clip cho MV và có dùng được không (theo cấu hình .env).
+     * Công cụ tạo ảnh + clip cho MV (theo bước "Clip chuyển động" của trang Kết nối AI). Chọn ở trang tạo MV / Shorts cũng đổi lựa chọn chung.
      *
-     * @return array<string, array{label: string, available: bool, note: string}>
+     * @return array<string, array{label: string, available: bool, note: string, cost: string}>
      */
     public static function drivers(): array
     {
-        $configured = config('videoaff.image_driver');
-        $drivers = [
-            'browser' => [
-                'label' => 'Muse qua trình duyệt ngầm (miễn phí, vài phút mỗi clip)',
-                'available' => $configured === 'browser',
-                'note' => $configured === 'browser'
-                    ? 'Đang bật. Cần đăng nhập Muse ở menu Xác thực Muse.'
-                    : 'Chưa bật: đặt MUSE_DRIVER=browser trong .env rồi chạy lại app và queue.',
-            ],
-            'fal' => [
-                'label' => 'fal API (trả phí theo lượt)',
-                'available' => false,
-                'note' => (filled(config('videoaff.fal.key')) ? 'Đã có FAL_KEY' : 'Chưa đặt FAL_KEY')
-                    .'; fal trong app mới tạo được ảnh, chưa làm được clip chuyển động / hát nhép cho MV.',
-            ],
-        ];
-        // Máy chưa nối Muse (test, phát triển): ảnh và clip giả để đi hết luồng.
-        if (in_array($configured, ['fake', 'web'], true)) {
-            $drivers['fake'] = ['label' => 'Giả lập (ảnh / clip mẫu, không tạo thật)', 'available' => true, 'note' => 'Chỉ để thử luồng khi chưa nối Muse.'];
-        }
+        return AiProviders::options('clip');
+    }
 
-        return $drivers;
+    /** Dùng công cụ đã chọn cho ảnh nhân vật, khung hình và clip (lựa chọn chung). */
+    public static function useDriver(string $driver): void
+    {
+        AiProviders::save(['character_image' => $driver, 'keyframe' => $driver, 'clip' => $driver]);
     }
 }

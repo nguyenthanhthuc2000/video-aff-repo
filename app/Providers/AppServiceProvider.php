@@ -5,9 +5,6 @@ namespace App\Providers;
 use Anthropic\Client;
 use App\Services\Audio\MusicAnalyzer;
 use App\Services\Claude\ClaudeCli;
-use App\Services\Film\FakeFilmClipGenerator;
-use App\Services\Film\FakeFilmImageGenerator;
-use App\Services\Film\FilmMuseClipGenerator;
 use App\Services\Film\FilmMuseImageGenerator;
 use App\Services\Image\FakeImageGenerator;
 use App\Services\Image\FalMuseImageGenerator;
@@ -41,6 +38,8 @@ use App\Services\Video\SampleAudio;
 use App\Services\Video\ShotDetector;
 use App\Services\Video\VideoProbe;
 use App\Services\Video\VideoRenderer;
+use App\Support\AiKeys;
+use App\Support\AiProviders;
 use App\Support\ScriptDriver;
 use Illuminate\Support\ServiceProvider;
 
@@ -104,14 +103,12 @@ class AppServiceProvider extends ServiceProvider
 
         // Ảnh phim hoạt hình: Muse với lời nhắn riêng cho phim; driver khác dùng ảnh giả.
         $this->app->bind(FilmMuseImageGenerator::class, fn () => new FilmMuseImageGenerator($this->app->make(MuseBrowserClient::class)));
-        $this->app->bind('film.image', fn () => config('videoaff.image_driver') === 'browser'
-            ? $this->app->make(FilmMuseImageGenerator::class)
-            : new FakeFilmImageGenerator);
+        // Công cụ theo bước chọn ở trang Kết nối AI (MiniMax / Muse / giả lập).
+        $this->app->bind('film.image', fn () => AiProviders::imageGenerator('keyframe'));
+        $this->app->bind('film.character_image', fn () => AiProviders::imageGenerator('character_image'));
 
         // Clip phim hoạt hình: Muse giữ nét vẽ 2D, khổ ngang; không có Muse thì clip giả bằng ffmpeg.
-        $this->app->bind('film.clip', fn () => config('videoaff.image_driver') === 'browser'
-            ? new FilmMuseClipGenerator($this->app->make(MuseBrowserClient::class))
-            : new FakeFilmClipGenerator);
+        $this->app->bind('film.clip', fn () => AiProviders::clipGenerator());
 
         // Clip chuyển động tự động chỉ có khi tạo ảnh bằng muse.ai qua trình duyệt ngầm.
         $this->app->bind(ClipGenerator::class, fn () => match (config('videoaff.image_driver')) {
@@ -143,6 +140,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Khoá AI nhập ở trang Kết nối AI ghi đè .env.
+        AiKeys::apply();
     }
 }

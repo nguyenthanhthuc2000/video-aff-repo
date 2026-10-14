@@ -96,6 +96,22 @@ return [
         'client_secret' => env('TIKTOK_CLIENT_SECRET'),
     ],
 
+    // MiniMax trực tiếp (Hailuo video, image-01, Music): khoá nhập ở trang Kết nối AI hoặc MINIMAX_API_KEY. Vùng: global (api.minimax.io) hoặc china (api.minimaxi.com).
+    'minimax' => [
+        'key' => env('MINIMAX_API_KEY'),
+        'region' => env('MINIMAX_REGION', 'global'),
+        'video_model' => env('MINIMAX_VIDEO_MODEL', 'MiniMax-Hailuo-02'),
+        'video_resolution' => env('MINIMAX_VIDEO_RESOLUTION', '768P'),
+        'image_model' => env('MINIMAX_IMAGE_MODEL', 'image-01'),
+        'music_model' => env('MINIMAX_MUSIC_MODEL', 'music-3.0'),
+        // Giá niêm yết (USD, platform.minimax.io/docs/pricing, 10/2026) để ước tính trước khi tạo.
+        'prices' => [
+            'image' => 0.0035,
+            'video' => ['MiniMax-Hailuo-02' => [6 => 0.28, 10 => 0.56], 'MiniMax-Hailuo-2.3' => [6 => 0.28, 10 => 0.56], 'MiniMax-Hailuo-2.3-Fast' => [6 => 0.19, 10 => 0.32]],
+            'music' => 0.15,
+        ],
+    ],
+
     'muse_browser' => [
         'url' => env('MUSE_BROWSER_URL', 'http://browser:3000'),
         'token' => env('MUSE_BROWSER_TOKEN'),

@@ -91,6 +91,14 @@ export default function Shorts({
                         <h2 className="flex items-center gap-2 font-medium">
                             <Users className="size-4" /> Ban nhạc ảo
                         </h2>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto"
+                            onClick={() => router.post(route('shorts.bands.examples'), {}, { preserveScroll: true })}
+                        >
+                            <Sparkles /> Thêm 3 ban nhạc mẫu
+                        </Button>
                         <Button variant="outline" size="sm" onClick={() => setCreating(!creating)}>
                             {creating ? <X /> : <Plus />} {creating ? 'Đóng' : 'Tạo ban nhạc'}
                         </Button>
@@ -220,6 +228,7 @@ function BandCreate({ stylePresets, onDone }: { stylePresets: Record<string, str
         lore: '',
         style_preset: 'cinematic',
         members: [emptyMember()] as Member[],
+        fictional: false as boolean,
     });
     const errorsOf = errors as Record<string, string | undefined>;
     return (
@@ -266,7 +275,19 @@ function BandCreate({ stylePresets, onDone }: { stylePresets: Record<string, str
                     <MemberFields members={data.members} onChange={(members) => setData('members', members)} />
                 </>
             )}
-            <InputError message={errors.genre || errors.era || errors.name || Object.entries(errorsOf).find(([k]) => k.startsWith('members'))?.[1]} />
+            <label className="flex items-center gap-2 text-xs">
+                <Checkbox checked={data.fictional} onCheckedChange={(c) => setData('fictional', c === true)} />
+                Nhân vật hư cấu, không mô phỏng người thật (tên, khuôn mặt, phong cách đặc trưng của nghệ sĩ có thật).
+            </label>
+            <InputError
+                message={
+                    errors.genre ||
+                    errors.era ||
+                    errors.name ||
+                    errorsOf.fictional ||
+                    Object.entries(errorsOf).find(([k]) => k.startsWith('members'))?.[1]
+                }
+            />
             <Button
                 type="button"
                 size="sm"
@@ -352,6 +373,7 @@ function BatchForm({
         seconds: '25',
         driver: firstDriver,
         autopilot: true as boolean,
+        fictional: false as boolean,
     });
     const band = bands.find((b) => String(b.id) === data.band_id) ?? bands[0];
     // Đổi ban / mẫu: điền biến thể gợi ý.
@@ -390,7 +412,7 @@ function BatchForm({
                     `Khoảng ${total} Credits cho lên ý tưởng + phân cảnh${data.autopilot ? '; sau đó tự vẽ khung hình, làm clip bằng Muse và ghép' : ''}.`,
             )
         ) {
-            transform((d) => ({ ...d, autopilot: d.autopilot ? 1 : 0, confirm: 1 }));
+            transform((d) => ({ ...d, autopilot: d.autopilot ? 1 : 0, fictional: d.fictional ? 1 : 0, confirm: 1 }));
             post(route('shorts.batch'));
         }
     };
@@ -473,6 +495,10 @@ function BatchForm({
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                 <label className="flex items-center gap-2">
+                    <Checkbox checked={data.fictional} onCheckedChange={(c) => setData('fictional', c === true)} /> Nhân vật hư cấu, không mô phỏng
+                    người thật
+                </label>
+                <label className="flex items-center gap-2">
                     <Checkbox checked={data.autopilot} onCheckedChange={(c) => setData('autopilot', c === true)} /> Chạy tự động tới khi ghép xong
                 </label>
                 <select
@@ -494,7 +520,11 @@ function BatchForm({
                 <Button type="button" variant="outline" onClick={showPreview} disabled={count === 0 || !data.audio_track_id}>
                     <Eye /> Xem trước tên & hashtag
                 </Button>
-                <Button type="button" onClick={create} disabled={processing || count === 0 || !data.audio_track_id || !data.driver}>
+                <Button
+                    type="button"
+                    onClick={create}
+                    disabled={processing || count === 0 || !data.audio_track_id || !data.driver || !data.fictional}
+                >
                     {processing ? <Loader2 className="animate-spin" /> : <Zap />} Tạo {Math.min(count, 10)} MV ngắn
                 </Button>
                 <span className={`text-xs ${total > credits ? 'text-destructive' : 'text-muted-foreground'}`}>

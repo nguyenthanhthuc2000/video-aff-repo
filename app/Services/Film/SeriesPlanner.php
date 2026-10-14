@@ -6,6 +6,7 @@ use App\Models\Series;
 use App\Models\SeriesCharacter;
 use App\Services\Script\ScriptWriterException;
 use App\Support\Media;
+use App\Support\RealArtists;
 
 /**
  * Claude lên kế hoạch bộ phim từ ý tưởng: kinh thánh (logline, thế giới, giọng kể, chủ đề),
@@ -202,6 +203,10 @@ final class SeriesPlanner
     /** Ý tưởng có nhắc tên nhân vật / phim có bản quyền thì trả tên đó. */
     public static function blockedName(string $idea): ?string
     {
+        // Nghệ sĩ / ban nhạc thật (MV, Shorts nhạc): không mô phỏng người thật.
+        if ($artist = RealArtists::find($idea)) {
+            return $artist;
+        }
         $text = mb_strtolower($idea);
         foreach (self::BLOCKED_NAMES as $name) {
             if (preg_match('/(?<![\p{L}\p{N}])'.preg_quote($name, '/').'(?![\p{L}\p{N}])/u', $text)) {

@@ -52,7 +52,7 @@ class ShortsTest extends TestCase
 
     public function test_claude_creates_a_virtual_band_and_real_names_are_blocked()
     {
-        $this->actingAs($this->user)->post(route('shorts.bands.store'), ['mode' => 'ai', 'genre' => 'hard rock', 'era' => '1970s'])->assertSessionHasNoErrors();
+        $this->actingAs($this->user)->post(route('shorts.bands.store'), ['mode' => 'ai', 'genre' => 'hard rock', 'era' => '1970s', 'fictional' => 1])->assertSessionHasNoErrors();
         $band = $this->user->virtualBands()->first();
         $this->assertSame('ready', $band->status);
         $this->assertSame('Velvet Thunder', $band->name);
@@ -60,8 +60,16 @@ class ShortsTest extends TestCase
         $this->assertNotEmpty($band->members[0]['look_old']);
 
         $this->actingAs($this->user)->post(route('shorts.bands.store'), [
-            'mode' => 'manual', 'genre' => 'rock', 'era' => '1980s', 'name' => 'Pikachu Band', 'members' => [['name' => 'A', 'look' => 'x']],
+            'mode' => 'manual', 'genre' => 'rock', 'era' => '1980s', 'name' => 'Pikachu Band', 'members' => [['name' => 'A', 'look' => 'x']], 'fictional' => 1,
         ])->assertSessionHasErrors('name');
+        // Nghệ sĩ thật trong tên / ngoại hình bị chặn; phải xác nhận nhân vật hư cấu.
+        $this->actingAs($this->user)->post(route('shorts.bands.store'), [
+            'mode' => 'manual', 'genre' => 'metal', 'era' => '1980s', 'name' => 'Night Owls', 'members' => [['name' => 'Rex', 'look' => 'looks exactly like James Hetfield']], 'fictional' => 1,
+        ])->assertSessionHasErrors('name');
+        $this->actingAs($this->user)->post(route('shorts.bands.store'), ['mode' => 'ai', 'genre' => 'metal', 'era' => '1980s'])->assertSessionHasErrors('fictional');
+        $this->actingAs($this->user)->post(route('shorts.bands.store'), ['mode' => 'ai', 'genre' => 'metal', 'era' => '1980s', 'notes' => 'like Metallica', 'fictional' => 1])
+            ->assertSessionHasErrors('name');
+        $this->assertSame(1, $this->user->virtualBands()->count());
 
         $this->actingAs($this->user)->get(route('shorts.index'))->assertInertia(fn (Assert $page) => $page
             ->component('music-videos/shorts')
@@ -99,7 +107,7 @@ class ShortsTest extends TestCase
     {
         $band = $this->band();
         $song = $this->song();
-        $payload = ['band_id' => $band->id, 'template' => 'lineup', 'variations' => "1971\n1977\n", 'audio_track_id' => $song, 'song_start' => 60, 'seconds' => 25, 'driver' => 'fake'];
+        $payload = ['band_id' => $band->id, 'template' => 'lineup', 'variations' => "1971\n1977\n", 'audio_track_id' => $song, 'song_start' => 60, 'seconds' => 25, 'driver' => 'fake', 'fictional' => 1];
 
         $this->actingAs($this->user)->post(route('shorts.batch'), $payload)->assertSessionHasErrors('confirm');
         $this->actingAs($this->user)->postJson(route('shorts.preview'), $payload)->assertOk()
@@ -132,7 +140,7 @@ class ShortsTest extends TestCase
     {
         $band = $this->band();
         $song = $this->song();
-        $payload = ['band_id' => $band->id, 'template' => 'lineup', 'variations' => '1971', 'audio_track_id' => $song, 'seconds' => 25, 'driver' => 'fake', 'confirm' => 1];
+        $payload = ['band_id' => $band->id, 'template' => 'lineup', 'variations' => '1971', 'audio_track_id' => $song, 'seconds' => 25, 'driver' => 'fake', 'confirm' => 1, 'fictional' => 1];
         $this->actingAs($this->user)->post(route('shorts.batch'), $payload);
         $first = $band->musicVideos()->first();
         $first->characters()->where('name', 'Jax Rivera')->first()?->update(['main_image_path' => 'series/jax.png', 'locked_at' => now()])
@@ -151,7 +159,7 @@ class ShortsTest extends TestCase
         $band = $this->band();
         $this->actingAs($this->user)->post(route('shorts.batch'), [
             'band_id' => $band->id, 'template' => 'versus', 'variations' => 'Jax Rivera | Mona Kade', 'audio_track_id' => $this->song(),
-            'seconds' => 25, 'driver' => 'fake', 'confirm' => 1, 'autopilot' => 1,
+            'seconds' => 25, 'driver' => 'fake', 'confirm' => 1, 'autopilot' => 1, 'fictional' => 1,
         ]);
         Queue::assertPushed(MusicVideoAutopilotJob::class);
         $mv = $band->musicVideos()->first();

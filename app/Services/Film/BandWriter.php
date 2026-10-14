@@ -13,6 +13,8 @@ final class BandWriter
 
     Rules:
     - Completely original: the name must not be, resemble or pun on any real band or artist; members are not based on real musicians.
+    - Build every member from genre / era ARCHETYPES (the general fashion of the era), never from a specific real musician: no famous signature
+      hairstyles, face paint, outfits, guitars, tattoos, logos or band T-shirts of real acts. Mix features so no member looks like a known person.
     - lore: 2–3 sentences: where they come from, their rise, a signature trait fans love (written in English).
     - members: 1–5 people. name: a memorable stage name. role: instrument / position (e.g. "lead vocals", "lead guitar").
       look: the look at the band's peak era, 35–60 words: age, build, face, skin tone, hair, outfit with colors, one signature item;

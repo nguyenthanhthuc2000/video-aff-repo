@@ -73,9 +73,11 @@ export default function SongDrafts({
     maxMb,
     onUse,
     initialOpen,
+    defaultProvider,
 }: {
     drafts: Draft[];
     initialOpen?: number | null;
+    defaultProvider?: string;
     providers: Record<string, MusicProvider>;
     maxMb: number;
     onUse: (trackId: number) => void;
@@ -127,6 +129,7 @@ export default function SongDrafts({
                     providers={providers}
                     maxMb={maxMb}
                     onUse={onUse}
+                    defaultProvider={defaultProvider}
                 />
             ))}
         </div>
@@ -140,6 +143,7 @@ function DraftCard({
     providers,
     maxMb,
     onUse,
+    defaultProvider,
 }: {
     draft: Draft;
     open: boolean;
@@ -147,6 +151,7 @@ function DraftCard({
     providers: Record<string, MusicProvider>;
     maxMb: number;
     onUse: (trackId: number) => void;
+    defaultProvider?: string;
 }) {
     return (
         <div className="space-y-3 rounded-md border p-3 text-sm">
@@ -177,7 +182,9 @@ function DraftCard({
                     {draft.error && <p className="text-destructive text-xs">{draft.error}</p>}
                     {draft.profile && <ProfileView draft={draft} />}
                     {draft.song && !['writing'].includes(draft.status) && <SongEditor key={JSON.stringify(draft.song)} draft={draft} />}
-                    {draft.song && draft.status === 'ready' && <MakeMusic draft={draft} providers={providers} maxMb={maxMb} onUse={onUse} />}
+                    {draft.song && draft.status === 'ready' && (
+                        <MakeMusic draft={draft} providers={providers} maxMb={maxMb} onUse={onUse} defaultProvider={defaultProvider} />
+                    )}
                 </>
             )}
         </div>
@@ -329,15 +336,17 @@ function MakeMusic({
     providers,
     maxMb,
     onUse,
+    defaultProvider,
 }: {
     draft: Draft;
     providers: Record<string, MusicProvider>;
     maxMb: number;
     onUse: (trackId: number) => void;
+    defaultProvider?: string;
 }) {
-    // Mặc định: model fal đầu tiên dùng được (MiniMax Music 3), không có FAL_KEY thì tự làm ở công cụ ngoài.
+    // Mặc định: công cụ chọn ở trang Kết nối AI (MiniMax Music 3 qua fal khi có khoá fal), không thì tự làm ở công cụ ngoài.
     const [provider, setProvider] = useState(
-        draft.music_provider ?? Object.entries(providers).find(([, p]) => p.api && p.available)?.[0] ?? 'manual',
+        draft.music_provider ?? (defaultProvider && providers[defaultProvider]?.available ? defaultProvider : 'manual'),
     );
     const seconds = Math.min(draft.target_seconds, providers[provider]?.max_seconds ?? draft.target_seconds);
     const cost = draft.estimates[provider];

@@ -112,9 +112,9 @@ class SongDraftController extends Controller
         $songDraft->update(['music_provider' => $validated['provider'], 'music_status' => 'pending', 'music_request_id' => null, 'music_error' => null]);
         GenerateSongJob::dispatch($songDraft);
 
-        $model = FalSongGenerator::MODELS[$validated['provider']];
+        $label = self::providers()[$validated['provider']]['label'];
 
-        return back()->with('status', "Đang tạo bài hát bằng {$model['label']} (vài phút, ước tính ~".self::estimates($songDraft)[$validated['provider']].' USD)...');
+        return back()->with('status', "Đang tạo bài hát bằng {$label} (vài phút, ước tính ~".self::estimates($songDraft)[$validated['provider']].' USD)...');
     }
 
     /**
@@ -172,8 +172,17 @@ class SongDraftController extends Controller
             'max_seconds' => $m['max_seconds'],
         ])->all();
 
+        $minimax = filled(config('videoaff.minimax.key'));
+
         return [
             ...$models,
+            'minimax-direct' => [
+                'label' => 'MiniMax Music trực tiếp (khoá MiniMax)',
+                'available' => $minimax,
+                'api' => true,
+                'note' => ($minimax ? '' : 'Chưa có khoá MiniMax. ').'Chỉ tài khoản MiniMax đã trả phí trước 20/08/2026; tài khoản mới dùng MiniMax Music 3 qua fal.',
+                'max_seconds' => 300,
+            ],
             'manual' => [
                 'label' => 'Tự tạo ở công cụ ngoài (Suno, Udio...) rồi tải lên',
                 'available' => true,
@@ -187,7 +196,10 @@ class SongDraftController extends Controller
     /** Ước tính chi phí (USD) mỗi model fal cho bài này. @return array<string, float> */
     public static function estimates(SongDraft $draft): array
     {
-        return collect(FalSongGenerator::MODELS)->keys()->mapWithKeys(fn ($m) => [$m => FalSongGenerator::estimate($m, $draft->targetSeconds())])->all();
+        return [
+            ...collect(FalSongGenerator::MODELS)->keys()->mapWithKeys(fn ($m) => [$m => FalSongGenerator::estimate($m, $draft->targetSeconds())])->all(),
+            'minimax-direct' => (float) config('videoaff.minimax.prices.music'),
+        ];
     }
 
     private function authorizeDraft(Request $request, SongDraft $draft): void

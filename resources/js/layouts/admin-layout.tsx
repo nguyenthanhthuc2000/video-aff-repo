@@ -11,6 +11,7 @@ import {
     LayoutDashboard,
     ListChecks,
     type LucideIcon,
+    PlugZap,
     SlidersHorizontal,
     Sparkles,
     Tags,
@@ -34,6 +35,7 @@ const groups: { title: string; items: { title: string; url: string; icon: Lucide
         title: 'Cài đặt hệ thống',
         items: [
             { title: 'Cài đặt video', url: '/admin/settings/video', icon: SlidersHorizontal },
+            { title: 'Kết nối AI', url: '/admin/settings/ai-connections', icon: PlugZap },
             { title: 'Model AI', url: '/admin/settings/ai-models', icon: Cpu },
             { title: 'Giá bán Credits', url: '/admin/settings/credit-pricing', icon: BadgePercent },
             { title: 'Xác thực Claude', url: '/admin/settings/claude', icon: Sparkles },

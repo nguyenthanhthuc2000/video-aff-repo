@@ -17,6 +17,10 @@ class ScriptDriver
         if ($driver === 'web' && self::claudeOauthToken() !== null) {
             return 'claude_cli';
         }
+        // Khoá Claude API nhập ở trang Kết nối AI (khi chưa đăng nhập gói Claude).
+        if ($driver === 'web' && filled(config('videoaff.claude.api_key'))) {
+            return 'claude';
+        }
 
         return $driver;
     }

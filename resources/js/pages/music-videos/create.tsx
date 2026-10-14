@@ -44,7 +44,7 @@ type Song = {
     analysis_status: string | null;
     analysis_error: string | null;
 };
-type Driver = { label: string; available: boolean; note: string };
+type Driver = { label: string; available: boolean; note: string; cost?: string };
 
 type Form = {
     source: 'upload' | 'library' | 'inspire';
@@ -78,6 +78,7 @@ export default function MusicVideoCreate({
     sections,
     drafts,
     musicProviders,
+    musicDefault,
     openDraft,
     stylePresets,
     lipSyncModes,
@@ -90,6 +91,7 @@ export default function MusicVideoCreate({
     sections: string[];
     drafts: Draft[];
     musicProviders: Record<string, MusicProvider>;
+    musicDefault: string;
     openDraft: number | null;
     stylePresets: Record<string, { label: string; style: string }>;
     lipSyncModes: Record<string, string>;
@@ -283,6 +285,7 @@ export default function MusicVideoCreate({
                         <SongDrafts
                             drafts={drafts}
                             initialOpen={openDraft}
+                            defaultProvider={musicDefault}
                             providers={musicProviders}
                             maxMb={maxMb}
                             onUse={(trackId) =>
@@ -606,6 +609,9 @@ export default function MusicVideoCreate({
 
                 <section className="space-y-3 rounded-lg border p-4">
                     <Label className="text-base">4. Công cụ tạo ảnh và clip</Label>
+                    <p className="text-muted-foreground text-xs">
+                        Áp dụng chung cho ảnh nhân vật, khung hình và clip; đổi riêng từng bước ở Quản trị → Kết nối AI.
+                    </p>
                     {Object.entries(drivers).map(([key, driver]) => (
                         <label
                             key={key}
@@ -620,6 +626,7 @@ export default function MusicVideoCreate({
                             />
                             <span>
                                 <span className="font-medium">{driver.label}</span>
+                                {driver.cost && <span className="text-muted-foreground"> · {driver.cost}</span>}
                                 <span className="text-muted-foreground block text-xs">{driver.note}</span>
                             </span>
                         </label>

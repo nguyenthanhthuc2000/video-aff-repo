@@ -107,6 +107,7 @@ Route::middleware(['auth'])->group(function () {
     // Series Shorts nhạc: ban nhạc ảo + mẫu Shorts → tạo hàng loạt MV ngắn.
     Route::get('music-videos/shorts', [ShortsController::class, 'index'])->name('shorts.index');
     Route::post('music-videos/shorts/bands', [ShortsController::class, 'storeBand'])->name('shorts.bands.store');
+    Route::post('music-videos/shorts/bands/examples', [ShortsController::class, 'seedBands'])->name('shorts.bands.examples');
     Route::put('music-videos/shorts/bands/{band}', [ShortsController::class, 'updateBand'])->name('shorts.bands.update');
     Route::delete('music-videos/shorts/bands/{band}', [ShortsController::class, 'destroyBand'])->name('shorts.bands.destroy');
     Route::post('music-videos/shorts/preview', [ShortsController::class, 'preview'])->name('shorts.preview');
@@ -209,6 +210,11 @@ Route::middleware(['auth'])->group(function () {
         Route::get('settings/credit-pricing', [Admin\CreditPricingController::class, 'show'])->name('admin.credit-pricing.show');
         Route::put('settings/credit-pricing', [Admin\CreditPricingController::class, 'update'])->name('admin.credit-pricing.update');
         Route::get('settings/ai-models', [Admin\AiModelController::class, 'show'])->name('admin.ai-models.show');
+        // Kết nối AI: khoá MiniMax / fal / Claude API, kiểm tra kết nối, công cụ cho từng bước.
+        Route::get('settings/ai-connections', [Admin\AiConnectionController::class, 'show'])->name('admin.ai-connections.show');
+        Route::put('settings/ai-connections/keys', [Admin\AiConnectionController::class, 'updateKeys'])->name('admin.ai-connections.keys');
+        Route::post('settings/ai-connections/{provider}/check', [Admin\AiConnectionController::class, 'check'])->name('admin.ai-connections.check');
+        Route::put('settings/ai-connections/providers', [Admin\AiConnectionController::class, 'updateProviders'])->name('admin.ai-connections.providers');
         Route::put('settings/ai-models', [Admin\AiModelController::class, 'update'])->name('admin.ai-models.update');
 
         Route::get('settings/claude', [ClaudeAuthController::class, 'show'])->name('claude.auth');

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Http\Controllers\SongDraftController;
 use App\Models\SongDraft;
+use App\Services\MiniMax\MiniMaxSongGenerator;
 use App\Services\Music\FalSongGenerator;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -33,7 +34,7 @@ class GenerateSongJob implements ShouldQueue
         if ($draft === null || $draft->music_status !== 'pending') {
             return;
         }
-        $generator = FalSongGenerator::for((string) $draft->music_provider);
+        $generator = $draft->music_provider === 'minimax-direct' ? new MiniMaxSongGenerator : FalSongGenerator::for((string) $draft->music_provider);
         try {
             if ($draft->music_request_id === null) {
                 $draft->update(['music_request_id' => $generator->start($draft->song['lyrics'], $draft->song['style_prompt'], $draft->targetSeconds())]);
