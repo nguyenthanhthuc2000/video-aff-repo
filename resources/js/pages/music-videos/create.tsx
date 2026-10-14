@@ -9,10 +9,17 @@ import AppLayout from '@/layouts/app-layout';
 import { formatNumber } from '@/lib/pricing';
 import { type BreadcrumbItem } from '@/types';
 import { Head, useForm } from '@inertiajs/react';
-import { ImagePlus, Info, Loader2, Music, Sparkles, X } from 'lucide-react';
-import { type FormEvent } from 'react';
+import { Check, ImagePlus, Info, Lightbulb, Loader2, Music, RefreshCw, Sparkles, X } from 'lucide-react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Tạo MV ca nhạc', href: '/music-videos/create' }];
+
+type Idea = { title: string; message: string; story: string; mood: string; singer: string; locations: string[] };
+
+/** Ý tưởng Claude đề xuất → nội dung ô "Ý tưởng" (vẫn sửa được). */
+const ideaText = (idea: Idea) => `${idea.title}: ${idea.message}\n${idea.story}\nKhông khí: ${idea.mood}\nBối cảnh: ${idea.locations.join(', ')}`;
+
+const xsrf = () => decodeURIComponent(document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/)?.[1] ?? '');
 
 type Song = { id: number; name: string; duration_ms: number | null; lyrics: string | null };
 type Driver = { label: string; available: boolean; note: string };
@@ -81,6 +88,69 @@ export default function MusicVideoCreate({
     });
     const errorsOf = errors as Record<string, string | undefined>;
     const selected = songs.find((song) => String(song.id) === data.audio_track_id);
+
+    const [ideas, setIdeas] = useState<Idea[]>([]);
+    const [seen, setSeen] = useState<string[]>([]);
+    const [picked, setPicked] = useState<number | null>(null);
+    const [suggesting, setSuggesting] = useState(false);
+    const [ideaError, setIdeaError] = useState<string | null>(null);
+    const poll = useRef<number | null>(null);
+    useEffect(() => () => void (poll.current && window.clearTimeout(poll.current)), []);
+
+    // Claude đề xuất ý tưởng: gửi yêu cầu (chạy nền) rồi hỏi lại vài giây một lần.
+    const suggest = async () => {
+        setSuggesting(true);
+        setIdeaError(null);
+        const songName = data.source === 'upload' ? data.song?.name.replace(/\.[^.]+$/, '') : selected?.name;
+        try {
+            const response = await fetch(route('music-videos.ideas'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': xsrf() },
+                body: JSON.stringify({
+                    song_name: songName ?? null,
+                    lyrics: data.lyrics,
+                    style_preset: data.style_preset,
+                    style: data.style,
+                    aspect_ratio: data.aspect_ratio,
+                    singer: data.singer,
+                    previous: seen,
+                }),
+            });
+            const body = await response.json();
+            if (!response.ok) {
+                throw new Error(body.message ?? 'Không gửi được yêu cầu.');
+            }
+            const check = async () => {
+                const result = await (await fetch(route('music-videos.ideas.show', body.token), { headers: { Accept: 'application/json' } })).json();
+                if (result.status === 'pending') {
+                    poll.current = window.setTimeout(check, 3000);
+                    return;
+                }
+                setSuggesting(false);
+                if (result.status === 'done') {
+                    setIdeas(result.ideas);
+                    setPicked(null);
+                    setSeen((current) => [...current, ...result.ideas.map((idea: Idea) => idea.title)]);
+                } else {
+                    setIdeaError(result.error ?? 'Chưa đề xuất được ý tưởng.');
+                }
+            };
+            await check();
+        } catch (error) {
+            setSuggesting(false);
+            setIdeaError(error instanceof Error ? error.message : 'Chưa đề xuất được ý tưởng.');
+        }
+    };
+    const pick = (index: number) => {
+        const idea = ideas[index];
+        setPicked(index);
+        // Ca sĩ: chỉ điền khi ô còn trống hoặc đang là mô tả của ý tưởng chọn trước.
+        setData((current) => ({
+            ...current,
+            idea: ideaText(idea),
+            singer: !current.singer || ideas.some((other) => other.singer === current.singer) ? idea.singer : current.singer,
+        }));
+    };
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
@@ -216,8 +286,52 @@ export default function MusicVideoCreate({
 
                 <section className="space-y-4 rounded-lg border p-4">
                     <Label className="text-base">2. Ý tưởng và ca sĩ</Label>
+                    <div className="space-y-3 rounded-md border border-dashed p-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Lightbulb className="text-muted-foreground size-5 shrink-0" />
+                            <span className="min-w-0 flex-1 text-sm">
+                                Chưa có ý tưởng? Claude đọc lời bài hát, tên bài, phong cách và khung hình rồi đề xuất 3 ý tưởng khác nhau.
+                            </span>
+                            <Button type="button" variant="outline" size="sm" onClick={suggest} disabled={suggesting}>
+                                {suggesting ? <Loader2 className="animate-spin" /> : ideas.length ? <RefreshCw /> : <Sparkles />}
+                                {suggesting ? 'Claude đang nghĩ...' : ideas.length ? 'Đề xuất lại' : 'Claude đề xuất ý tưởng'}
+                            </Button>
+                        </div>
+                        {ideaError && <p className="text-destructive text-xs">{ideaError}</p>}
+                        {ideas.length > 0 && (
+                            <div className="grid gap-2 md:grid-cols-3">
+                                {ideas.map((idea, i) => (
+                                    <button
+                                        key={`${idea.title}-${i}`}
+                                        type="button"
+                                        onClick={() => pick(i)}
+                                        className={`space-y-1.5 rounded-lg border p-3 text-left text-xs transition ${picked === i ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}
+                                    >
+                                        <span className="flex items-center gap-1 text-sm font-medium">
+                                            {picked === i && <Check className="text-primary size-4 shrink-0" />}
+                                            {idea.title}
+                                        </span>
+                                        <span className="block italic">{idea.message}</span>
+                                        <span className="text-muted-foreground block">{idea.story}</span>
+                                        <span className="block">
+                                            <span className="font-medium">Không khí:</span> {idea.mood}
+                                        </span>
+                                        <span className="block">
+                                            <span className="font-medium">Ca sĩ:</span> {idea.singer}
+                                        </span>
+                                        <span className="block">
+                                            <span className="font-medium">Bối cảnh:</span> {idea.locations.join(', ')}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {ideas.length > 0 && (
+                            <p className="text-muted-foreground text-xs">Bấm một ý tưởng để điền vào ô bên dưới, sau đó sửa tuỳ ý.</p>
+                        )}
+                    </div>
                     <div className="space-y-2">
-                        <Label htmlFor="idea">Ý tưởng / câu chuyện của MV</Label>
+                        <Label htmlFor="idea">Ý tưởng / câu chuyện của MV (không bắt buộc)</Label>
                         <Textarea
                             id="idea"
                             rows={5}
@@ -225,6 +339,7 @@ export default function MusicVideoCreate({
                             onChange={(e) => setData('idea', e.target.value)}
                             placeholder="Ví dụ: Cô gái đi một mình trong thành phố mưa đêm, nhớ lại mối tình cũ qua những khung cảnh quen. Điệp khúc ánh đèn neon bừng sáng, cuối MV cô đứng trên sân thượng mỉm cười. Màu xanh ngọc và hồng tím."
                         />
+                        <p className="text-muted-foreground text-xs">Để trống thì Claude tự chọn ý tưởng hợp nhất với bài hát khi lên kế hoạch.</p>
                         <InputError message={errors.idea} />
                     </div>
                     <div className="flex flex-wrap items-start gap-3">

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Film\EpisodeRenderer;
 use App\Services\Film\FilmMuseClipGenerator;
 use App\Services\Film\FilmMuseImageGenerator;
+use App\Services\Film\MusicVideoIdeas;
 use App\Services\Film\MusicVideoWriter;
 use App\Services\Film\SeriesPlanner;
 use App\Services\Film\ShotClipPrompt;
@@ -156,6 +157,38 @@ class MusicVideoTest extends TestCase
         $this->assertStringContainsString('excerpt of 30 seconds', $text);
         $this->assertStringContainsString('The singer (main character) is named Lan', $text);
         $this->assertStringContainsString('lip-syncs only the chorus', $text);
+    }
+
+    public function test_claude_suggests_ideas_from_lyrics_and_style()
+    {
+        $token = $this->actingAs($this->user)->postJson(route('music-videos.ideas'), [
+            'song_name' => 'Mua Dem', 'lyrics' => 'Light me up, light me up again', 'style_preset' => '2d', 'aspect_ratio' => '9:16',
+            'previous' => ['Ý tưởng cũ'],
+        ])->assertOk()->json('token');
+
+        // Hàng đợi chạy ngay trong test: đã có 3 ý tưởng (Claude mẫu).
+        $this->actingAs($this->user)->getJson(route('music-videos.ideas.show', $token))
+            ->assertOk()->assertJsonPath('status', 'done')->assertJsonCount(3, 'ideas')
+            ->assertJsonStructure(['ideas' => [['title', 'message', 'story', 'mood', 'singer', 'locations']]]);
+        // Người khác không xem được.
+        $this->actingAs(User::factory()->create())->getJson(route('music-videos.ideas.show', $token))->assertNotFound();
+
+        $text = MusicVideoIdeas::text(['song_name' => 'Mua Dem', 'lyrics' => 'Light me up', 'style' => Series::MV_STYLE_PRESETS['2d']['style'], 'aspect_ratio' => '9:16', 'previous' => ['Ý tưởng cũ']]);
+        $this->assertStringContainsString('Song title: Mua Dem', $text);
+        $this->assertStringContainsString('vertical 9:16', $text);
+        $this->assertStringContainsString('2D anime', $text);
+        $this->assertStringContainsString("Already suggested (pitch different concepts):\n- Ý tưởng cũ", $text);
+    }
+
+    public function test_empty_idea_lets_claude_choose_the_concept()
+    {
+        Queue::fake([AnalyzeVocalsJob::class, PlanSeriesJob::class]);
+        $series = $this->createMusicVideo(['idea' => null, 'singer' => null]);
+
+        $this->assertSame('', $series->idea);
+        $text = SeriesPlanner::userText($series);
+        $this->assertStringContainsString('The artist has no idea yet', $text);
+        $this->assertStringNotContainsString('The singer (main character) is named', $text);
     }
 
     public function test_writing_cuts_shots_on_the_song_timeline_and_marks_lip_sync()

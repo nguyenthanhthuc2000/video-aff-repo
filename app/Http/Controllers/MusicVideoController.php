@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\SeriesStatus;
 use App\Jobs\PlanSeriesJob;
+use App\Jobs\SuggestMusicVideoIdeasJob;
 use App\Models\AudioTrack;
 use App\Models\Series;
 use App\Services\Film\SeriesPlanner;
@@ -11,8 +12,10 @@ use App\Services\Video\VideoProbe;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\Media;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -50,7 +53,8 @@ class MusicVideoController extends Controller
             'song_start' => ['nullable', 'numeric', 'min:0'],
             'song_end' => ['nullable', 'numeric', 'min:1'],
             'lyrics' => ['nullable', 'string', 'max:20000'],
-            'idea' => ['required', 'string', 'min:20', 'max:8000'],
+            // Để trống: Claude tự đề xuất ý tưởng ở bước lên kế hoạch.
+            'idea' => ['nullable', 'string', 'max:8000'],
             'singer_name' => ['nullable', 'string', 'max:80'],
             'singer' => ['nullable', 'string', 'max:1000'],
             'singer_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
@@ -63,11 +67,10 @@ class MusicVideoController extends Controller
             'song.required_without' => 'Tải bài hát lên (mp3, wav, m4a) hoặc chọn một bài trong thư viện.',
             'audio_track_id.required_without' => 'Tải bài hát lên (mp3, wav, m4a) hoặc chọn một bài trong thư viện.',
             'rights.accepted' => 'Cần xác nhận bạn có quyền dùng bài hát này cho MV.',
-            'idea.min' => 'Viết ý tưởng dài hơn một chút (ít nhất 20 ký tự): bài hát nói về gì, câu chuyện, màu sắc, cảm xúc.',
             'driver.in' => 'Công cụ này chưa dùng được cho MV.',
         ], ['song' => 'file bài hát', 'idea' => 'ý tưởng', 'singer_image' => 'ảnh ca sĩ']);
 
-        if ($name = SeriesPlanner::blockedName($validated['idea'].' '.($validated['singer'] ?? ''))) {
+        if ($name = SeriesPlanner::blockedName(($validated['idea'] ?? '').' '.($validated['singer'] ?? ''))) {
             return back()->withErrors(['idea' => "Ý tưởng nhắc \"{$name}\" là nhân vật / phim có bản quyền. Hãy tạo nhân vật riêng."])->withInput();
         }
         if ($message = Credits::shortfall($request->user(), CreditPricing::aiEstimates()['film_plan'], 'lên kế hoạch MV')) {
@@ -103,7 +106,7 @@ class MusicVideoController extends Controller
         $singerName = trim((string) ($validated['singer_name'] ?? '')) ?: 'Singer';
         $series = $user->series()->create([
             'title' => Str::limit($track->name, 60),
-            'idea' => trim($validated['idea']),
+            'idea' => trim((string) ($validated['idea'] ?? '')),
             'format' => 'music_video',
             'audio_track_id' => $track->id,
             'song_start_ms' => $start > 0 ? $start : null,
@@ -142,6 +145,43 @@ class MusicVideoController extends Controller
 
         return to_route('series.show', $series)->with('status', 'Claude đang lên ý tưởng MV (ca sĩ / nhân vật, bối cảnh, câu chuyện), khoảng 1–3 phút. '
             .'Dịch vụ audio đang tách lời bài hát theo thời gian để cắt shot đúng câu hát.');
+    }
+
+    /** Claude đề xuất vài ý tưởng MV (chạy nền): trả mã để trang hỏi lại kết quả. */
+    public function ideas(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'song_name' => ['nullable', 'string', 'max:255'],
+            'lyrics' => ['nullable', 'string', 'max:20000'],
+            'style_preset' => ['nullable', Rule::in(array_keys(Series::MV_STYLE_PRESETS))],
+            'style' => ['nullable', 'string', 'max:500'],
+            'aspect_ratio' => ['nullable', Rule::in(['16:9', '9:16'])],
+            'singer' => ['nullable', 'string', 'max:1000'],
+            'hint' => ['nullable', 'string', 'max:2000'],
+            'previous' => ['array', 'max:12'],
+            'previous.*' => ['nullable', 'string', 'max:120'],
+        ]);
+        if ($message = Credits::shortfall($request->user(), CreditPricing::aiEstimates()['film_plan'], 'đề xuất ý tưởng MV')) {
+            return response()->json(['message' => $message], 422);
+        }
+        $token = (string) Str::uuid();
+        $input = [
+            ...collect($validated)->except(['style_preset', 'style'])->all(),
+            'style' => filled($validated['style'] ?? null) ? $validated['style'] : Series::MV_STYLE_PRESETS[$validated['style_preset'] ?? 'cinematic']['style'],
+        ];
+        Cache::put(SuggestMusicVideoIdeasJob::key($token), ['user_id' => $request->user()->id, 'status' => 'pending'], now()->addMinutes(SuggestMusicVideoIdeasJob::TTL_MINUTES));
+        SuggestMusicVideoIdeasJob::dispatch($request->user()->id, $token, $input);
+
+        return response()->json(['token' => $token]);
+    }
+
+    /** Kết quả đề xuất ý tưởng: pending / done (kèm ý tưởng) / failed (kèm lỗi). */
+    public function ideasStatus(Request $request, string $token): JsonResponse
+    {
+        $result = Cache::get(SuggestMusicVideoIdeasJob::key($token));
+        abort_if($result === null || $result['user_id'] !== $request->user()->id, 404);
+
+        return response()->json(collect($result)->except('user_id')->all());
     }
 
     /**

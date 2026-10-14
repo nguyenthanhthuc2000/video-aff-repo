@@ -83,7 +83,7 @@ Có thể ép chế độ bằng `SCRIPT_DRIVER=web|claude|fake` và `MUSE_DRIVE
 
 ## MV ca nhạc
 
-Menu **Tạo MV ca nhạc** (`/music-videos/create`): tải bài hát lên (mp3, wav, m4a) hoặc chọn bài trong thư viện Âm thanh, dán lời, chọn đoạn bài hát (để trống là cả bài), phong cách (người thật kiểu điện ảnh, 2D anime, 3D), khung hình (16:9 mặc định hoặc 9:16), ca sĩ (mô tả, ảnh không bắt buộc), ý tưởng, kiểu hát nhép (chỉ điệp khúc mặc định, cả bài, không) và công cụ tạo ảnh / clip.
+Menu **Tạo MV ca nhạc** (`/music-videos/create`): tải bài hát lên (mp3, wav, m4a) hoặc chọn bài trong thư viện Âm thanh, dán lời, chọn đoạn bài hát (để trống là cả bài), phong cách (người thật kiểu điện ảnh, 2D anime, 3D), khung hình (16:9 mặc định hoặc 9:16), ca sĩ (mô tả, ảnh không bắt buộc), ý tưởng (nút **Claude đề xuất ý tưởng** cho 3 ý tưởng để chọn; để trống thì Claude tự chọn khi lên kế hoạch), kiểu hát nhép (chỉ điệp khúc mặc định, cả bài, không) và công cụ tạo ảnh / clip.
 
 MV là một bộ phim một tập nên dùng chung các trang của phim hoạt hình:
 

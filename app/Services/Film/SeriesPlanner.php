@@ -177,7 +177,10 @@ final class SeriesPlanner
         $options = $series->mv_options ?? [];
         $lyrics = filled($series->lyrics) ? $series->lyrics : ($series->song?->lyrics ?: collect($series->song?->vocal_analysis['words'] ?? [])->pluck('text')->implode(' '));
 
-        return "Idea from the artist (may be in Vietnamese, write the plan in English):\n{$series->idea}\n\n"
+        return (filled($series->idea)
+            ? "Idea from the artist (may be in Vietnamese, write the plan in English):\n{$series->idea}\n\n"
+            : 'The artist has no idea yet: invent the best original concept for this song from the meaning and emotion of the lyrics, '
+                ."feasible with AI video (few characters, simple actions, no crowds).\n\n")
             .'Song: '.($series->song?->name ?? 'untitled').', excerpt of '.round(($to - $from) / 1000).' seconds.'."\n"
             .'Audience: '.($series->audience ?: Series::MV_AUDIENCE).".\n"
             ."Art style (for the appearance descriptions): {$series->style}.\n"
