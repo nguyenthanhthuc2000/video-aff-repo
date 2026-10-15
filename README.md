@@ -16,9 +16,12 @@ docker compose run --rm app php artisan key:generate
 docker compose up -d
 docker compose exec app php artisan migrate --seed
 docker compose exec app php artisan storage:link
+docker compose exec node npm run build
 ```
 
 Mở http://localhost:8080. Vite (hot reload) chạy ở cổng 5173.
+
+**Lỗi `Vite manifest not found`:** service `node` chạy `npm install` khoảng 1 phút rồi mới bật Vite. Trong lúc đó (hoặc khi `node` đang dừng) chưa có `public/hot`, Laravel tìm `public/build/manifest.json` và báo lỗi. `docker compose exec node npm run build` tạo bản build dự phòng; khi Vite dev chạy, Laravel vẫn ưu tiên Vite. Bản build không tự cập nhật, nên chạy lại lệnh này sau khi sửa giao diện nếu dùng app lúc Vite tắt. Nếu báo `service "node" is not running`, dùng `docker compose run --rm node sh -c "npm install && npm run build"`.
 
 | Dịch vụ | Việc | Cổng |
 | --- | --- | --- |
@@ -40,6 +43,7 @@ Lệnh hay dùng:
 docker compose exec app php artisan test
 docker compose exec app php artisan tinker
 docker compose logs -f queue
+docker compose exec node npm run build   # build giao diện (public/build)
 docker compose down        # dừng
 docker compose down -v     # dừng và xoá dữ liệu MySQL
 ```
