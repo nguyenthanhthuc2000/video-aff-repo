@@ -23,7 +23,7 @@ class ShortWriter
     - Write narration, on_screen_text, title and caption in the requested language. Write image_query and image_prompt in English.
     - Split into scenes of 4–7 seconds of speech each. Each scene shows one picture.
     - on_screen_text: at most 5 words, punchy, shown big on screen.
-    - image_query: 2–5 English keywords to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan Namek"). Use official character names here.
+    - image_query: 2–3 English keywords, most important first, to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan"). Use official character names here.
     - image_prompt: English prompt for an AI image generator to draw the same picture as an original anime-style illustration, vertical 9:16. Describe appearance, pose, setting, lighting and mood; do NOT use franchise or character names.
     - caption: 1–2 sentences for the post, plus hashtags in hashtags.
     PROMPT;

@@ -34,18 +34,19 @@ class FindTopicSceneImageJob implements ShouldQueue
         }
         $short = $scene->topicShort;
 
-        try {
-            $candidates = $search->search($short->wiki, (string) $scene->image_query);
-        } catch (RuntimeException) {
-            // Wiki chính chặn / lỗi: vẫn thử Commons.
-            $candidates = [];
-        }
-        // Wiki chính không có ảnh: thử Wikimedia Commons; Commons cũng lỗi thì coi như không có ảnh (Muse vẽ thay).
-        if ($candidates === [] && $short->wiki !== 'commons') {
-            try {
-                $candidates = $search->search('commons', (string) $scene->image_query);
-            } catch (RuntimeException) {
-                $candidates = [];
+        // Wiki chính trước, rồi Commons; mỗi wiki thử từ khoá đầy đủ rồi bớt dần chữ cuối (tên file wiki thường ngắn).
+        // Wiki lỗi / chặn thì bỏ qua; không đâu có ảnh thì Muse vẽ thay.
+        $candidates = [];
+        foreach (array_unique([$short->wiki, 'commons']) as $wiki) {
+            foreach (self::queries((string) $scene->image_query) as $query) {
+                try {
+                    $candidates = $search->search($wiki, $query);
+                } catch (RuntimeException) {
+                    continue 2;
+                }
+                if ($candidates !== []) {
+                    break 2;
+                }
             }
         }
         $scene->update(['candidates' => $candidates]);
@@ -72,6 +73,22 @@ class FindTopicSceneImageJob implements ShouldQueue
             'image_status' => 'failed',
             'image_error' => $candidates === [] ? 'Không tìm thấy ảnh trên wiki. Sửa từ khoá, cho Muse vẽ hoặc tải ảnh lên.' : 'Không tải được ảnh nào trong kết quả tìm.',
         ]);
+    }
+
+    /**
+     * Từ khoá đầy đủ, rồi bớt dần từ cuối, ít nhất 2 từ (1 từ nếu từ khoá chỉ có 1 từ).
+     *
+     * @return list<string>
+     */
+    public static function queries(string $query): array
+    {
+        $words = preg_split('/\s+/u', trim($query), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $queries = [];
+        for ($n = count($words); $n >= min(2, count($words)) && $n > 0; $n--) {
+            $queries[] = implode(' ', array_slice($words, 0, $n));
+        }
+
+        return $queries;
     }
 
     /**

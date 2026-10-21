@@ -135,6 +135,13 @@ class TopicShortTest extends TestCase
         $this->assertStringContainsString('Không tìm thấy ảnh', $other->image_error);
     }
 
+    public function test_search_queries_drop_words_from_the_end()
+    {
+        $this->assertSame(['Goku Super Saiyan Namek', 'Goku Super Saiyan', 'Goku Super'], FindTopicSceneImageJob::queries(' Goku  Super Saiyan Namek '));
+        $this->assertSame(['Goku'], FindTopicSceneImageJob::queries('Goku'));
+        $this->assertSame([], FindTopicSceneImageJob::queries(''));
+    }
+
     public function test_remote_image_only_allows_wiki_hosts()
     {
         $this->assertTrue(RemoteImage::allowed('https://static.wikia.nocookie.net/a.png'));
