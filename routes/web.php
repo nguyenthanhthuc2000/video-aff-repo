@@ -98,6 +98,8 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('topic-shorts/{short}', [TopicShortController::class, 'destroy'])->name('topic-shorts.destroy');
     Route::post('topic-shorts/{short}/rewrite', [TopicShortController::class, 'rewrite'])->name('topic-shorts.rewrite');
     Route::post('topic-shorts/{short}/render', [TopicShortController::class, 'render'])->name('topic-shorts.render');
+    Route::post('topic-shorts/{short}/characters/{index}/image', [TopicShortController::class, 'characterImage'])->whereNumber('index')->name('topic-shorts.character-image');
+    Route::post('topic-shorts/{short}/muse-all', [TopicShortController::class, 'museAll'])->name('topic-shorts.muse-all');
     Route::get('topic-shorts/{short}/download', [TopicShortController::class, 'download'])->name('topic-shorts.download');
     Route::post('topic-short-scenes/{scene}/search', [TopicShortController::class, 'search'])->name('topic-short-scenes.search');
     Route::post('topic-short-scenes/{scene}/pick', [TopicShortController::class, 'pick'])->name('topic-short-scenes.pick');

@@ -17,7 +17,7 @@ class TopicShortScene extends Model
     use HasFactory;
 
     protected $fillable = [
-        'position', 'narration', 'on_screen_text', 'image_query', 'image_prompt', 'image_source', 'image_status',
+        'position', 'narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'image_source', 'image_status',
         'image_path', 'image_url', 'image_error', 'request_id', 'candidates',
     ];
 
@@ -26,6 +26,7 @@ class TopicShortScene extends Model
         return [
             'position' => 'integer',
             'candidates' => 'array',
+            'characters' => 'array',
         ];
     }
 

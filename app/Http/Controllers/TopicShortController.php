@@ -78,6 +78,8 @@ class TopicShortController extends Controller
                 'status' => $short->status,
                 'error' => $short->error,
                 'caption' => $short->content['caption'] ?? '',
+                'art_style' => $short->art_style,
+                'characters' => collect($short->characters ?? [])->map(fn ($c) => ['name' => $c['name'], 'look' => $c['look'] ?? '', 'image_url' => Media::url($c['image_path'] ?? null)])->all(),
                 'hashtags' => $short->content['hashtags'] ?? [],
                 'video_status' => $short->video_status,
                 'video_error' => $short->video_error,
@@ -93,6 +95,7 @@ class TopicShortController extends Controller
                     'on_screen_text' => $scene->on_screen_text,
                     'image_query' => $scene->image_query,
                     'image_prompt' => $scene->image_prompt,
+                    'characters' => $scene->characters ?? [],
                     'image_source' => $scene->image_source,
                     'image_status' => $scene->image_status,
                     'image_url' => Media::url($scene->image_path),
@@ -120,15 +123,32 @@ class TopicShortController extends Controller
             'scenes.*.on_screen_text' => ['nullable', 'string', 'max:120'],
             'scenes.*.image_query' => ['nullable', 'string', 'max:200'],
             'scenes.*.image_prompt' => ['nullable', 'string', 'max:2000'],
+            'scenes.*.characters' => ['nullable', 'array'],
+            'scenes.*.characters.*' => ['string', Rule::in(array_column($short->characters ?? [], 'name'))],
+            'art_style' => ['nullable', 'string', 'max:300'],
+            'characters' => ['nullable', 'array'],
+            'characters.*.look' => ['nullable', 'string', 'max:600'],
         ], [], ['scenes.*.narration' => 'lời kể']);
 
-        $short->update(['title' => $validated['title'] ?? '', 'content' => [...($short->content ?? []), 'caption' => $validated['caption'] ?? '']]);
+        $characters = $short->characters ?? [];
+        foreach ($validated['characters'] ?? [] as $i => $data) {
+            if (isset($characters[$i])) {
+                $characters[$i]['look'] = $data['look'] ?? '';
+            }
+        }
+        $short->update([
+            'title' => $validated['title'] ?? '',
+            'content' => [...($short->content ?? []), 'caption' => $validated['caption'] ?? ''],
+            'art_style' => $validated['art_style'] ?? $short->art_style,
+            'characters' => $characters,
+        ]);
         foreach ($validated['scenes'] as $data) {
             $short->scenes()->whereKey($data['id'])->update([
                 'narration' => $data['narration'],
                 'on_screen_text' => $data['on_screen_text'] ?? '',
                 'image_query' => $data['image_query'] ?? '',
                 'image_prompt' => $data['image_prompt'] ?? '',
+                ...array_key_exists('characters', $data) ? ['characters' => array_values($data['characters'] ?? [])] : [],
             ]);
         }
 
@@ -218,6 +238,41 @@ class TopicShortController extends Controller
         return back()->with('status', "Đã tải ảnh cảnh {$scene->position}.");
     }
 
+    /** Ảnh mẫu của một nhân vật: Muse nhận kèm để vẽ đúng mặt, tóc, trang phục. */
+    public function characterImage(Request $request, TopicShort $short, int $index): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $characters = $short->characters ?? [];
+        abort_unless(isset($characters[$index]), 404);
+        $request->validate(['image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:15360']], [], ['image' => 'ảnh']);
+
+        $old = $characters[$index]['image_path'] ?? null;
+        $characters[$index]['image_path'] = Media::store($request->file('image'), "topic-shorts/{$short->id}/characters");
+        $short->update(['characters' => $characters]);
+        Media::delete($old);
+
+        return back()->with('status', "Đã lưu ảnh mẫu {$characters[$index]['name']}.");
+    }
+
+    /** Muse vẽ lại mọi cảnh (trừ ảnh bạn tự tải lên và cảnh đang tạo ảnh). */
+    public function museAll(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $scenes = $short->scenes()->get()->reject(fn (TopicShortScene $scene) => $scene->image_source === 'upload' || $this->busy($scene));
+        if ($scenes->isEmpty()) {
+            return back()->with('status', 'Không có cảnh nào cần vẽ lại.');
+        }
+        if ($message = Credits::shortfall($request->user(), $scenes->count() * CreditPricing::settings()['steps']['image'], 'vẽ ảnh')) {
+            return back()->with('status', $message);
+        }
+        foreach ($scenes as $scene) {
+            $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+            GenerateTopicSceneImageJob::dispatch($scene);
+        }
+
+        return back()->with('status', "Muse đang vẽ lại {$scenes->count()} cảnh...");
+    }
+
     public function render(Request $request, TopicShort $short): RedirectResponse
     {
         $this->authorize('update', $short);
@@ -256,6 +311,7 @@ class TopicShortController extends Controller
         $this->authorize('delete', $short);
         $short->scenes()->get()->each(fn (TopicShortScene $scene) => Media::delete($scene->image_path));
         Media::delete($short->video_path);
+        collect($short->characters ?? [])->each(fn ($c) => Media::delete($c['image_path'] ?? null));
         $short->delete();
 
         return to_route('topic-shorts.index')->with('status', 'Đã xoá short.');

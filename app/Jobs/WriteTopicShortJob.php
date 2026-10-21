@@ -54,6 +54,12 @@ class WriteTopicShortJob implements ShouldQueue
             $short->update([
                 'title' => $script['title'],
                 'content' => ['caption' => $script['caption'], 'hashtags' => $script['hashtags']],
+                // Giữ ảnh mẫu đã tải của nhân vật trùng tên khi viết lại.
+                'characters' => collect($script['characters'])->map(fn ($c) => [
+                    ...$c,
+                    'image_path' => collect($short->characters ?? [])->first(fn ($old) => mb_strtolower($old['name']) === mb_strtolower($c['name']))['image_path'] ?? null,
+                ])->all(),
+                'art_style' => $script['art_style'],
                 'status' => 'ready',
                 'error' => null,
             ]);

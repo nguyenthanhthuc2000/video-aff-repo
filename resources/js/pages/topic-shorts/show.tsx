@@ -29,6 +29,7 @@ interface ShortScene {
     on_screen_text: string | null;
     image_query: string | null;
     image_prompt: string | null;
+    characters: string[];
     image_source: 'web' | 'muse' | 'upload' | null;
     image_status: 'none' | 'searching' | 'pending' | 'ready' | 'failed';
     image_url: string | null;
@@ -47,6 +48,8 @@ interface TopicShort {
     error: string | null;
     caption: string;
     hashtags: string[];
+    art_style: string | null;
+    characters: { name: string; look: string; image_url: string | null }[];
     video_status: 'rendering' | 'done' | 'failed' | null;
     video_error: string | null;
     video_url: string | null;
@@ -85,6 +88,12 @@ export default function TopicShortShow({
             router.delete(route('topic-shorts.destroy', short.id));
         }
     };
+    const museAll = () => {
+        const count = short.scenes.filter((s) => s.image_source !== 'upload').length;
+        if (confirm(`Muse vẽ lại ${count} cảnh (trừ ảnh bạn tự tải lên), khoảng ${formatNumber(count * prices.image)} Credits. Tiếp tục?`)) {
+            router.post(route('topic-shorts.muse-all', short.id), {}, { preserveScroll: true });
+        }
+    };
     const textKey = short.scenes.map((s) => `${s.id}:${s.narration}:${s.on_screen_text}:${s.image_query}:${s.image_prompt}`).join('|') + short.title;
 
     return (
@@ -115,9 +124,16 @@ export default function TopicShortShow({
 
                 {short.scenes.length > 0 && <ScriptForm key={textKey} short={short} />}
 
+                {short.characters.length > 0 && <CharactersPanel short={short} />}
+
                 {short.scenes.length > 0 && (
                     <section className="space-y-4">
-                        <h2 className="text-lg font-semibold">2. Ảnh từng cảnh</h2>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h2 className="text-lg font-semibold">3. Ảnh từng cảnh</h2>
+                            <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
+                                <Wand2 /> Muse vẽ lại tất cả
+                            </Button>
+                        </div>
                         <p className="text-muted-foreground text-sm">
                             Mỗi cảnh chọn một ảnh: ảnh tìm trên wiki (bấm ảnh nhỏ để đổi), Muse vẽ ({formatNumber(prices.image)} Credits / ảnh) hoặc
                             ảnh bạn tải lên.
@@ -210,6 +226,48 @@ function ScriptForm({ short }: { short: TopicShort }) {
     );
 }
 
+function CharactersPanel({ short }: { short: TopicShort }) {
+    const upload = (index: number, file: File | undefined) =>
+        file && router.post(route('topic-shorts.character-image', [short.id, index]), { image: file }, { preserveScroll: true, forceFormData: true });
+
+    return (
+        <section className="space-y-3">
+            <h2 className="text-lg font-semibold">2. Nhân vật</h2>
+            <p className="text-muted-foreground text-sm">
+                Muse vẽ theo tên và mô tả từng nhân vật{short.art_style ? `, phong cách: ${short.art_style}` : ''}. Tải lên một ảnh mẫu rõ mặt mỗi
+                nhân vật (chụp từ phim) để Muse vẽ giống hơn, rồi bấm "Muse vẽ lại tất cả".
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {short.characters.map((character, i) => (
+                    <div key={character.name} className="flex gap-3 rounded-lg border p-3">
+                        <div className="bg-muted flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-md border">
+                            {character.image_url ? (
+                                <img src={character.image_url} alt={character.name} className="h-full w-full object-cover" />
+                            ) : (
+                                <ImageOff className="text-muted-foreground size-5" />
+                            )}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-1">
+                            <p className="text-sm font-medium">{character.name}</p>
+                            <p className="text-muted-foreground line-clamp-3 text-xs">{character.look}</p>
+                            <label className="text-primary inline-flex cursor-pointer items-center gap-1 text-xs font-medium">
+                                <Upload className="size-3.5" /> {character.image_url ? 'Đổi ảnh mẫu' : 'Tải ảnh mẫu'}
+                                <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    aria-label={`Ảnh mẫu ${character.name}`}
+                                    onChange={(e) => upload(i, e.target.files?.[0])}
+                                />
+                            </label>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </section>
+    );
+}
+
 function SceneImageCard({ scene }: { scene: ShortScene }) {
     const upload = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState(scene.image_query ?? '');
@@ -239,6 +297,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                 <div className="text-sm font-medium">
                     Cảnh {scene.position}: {scene.on_screen_text}
                 </div>
+                {scene.characters.length > 0 && <p className="text-muted-foreground text-xs">Nhân vật: {scene.characters.join(', ')}</p>}
                 {scene.image_status === 'searching' && <p className="text-muted-foreground text-xs">Đang tìm ảnh trên wiki...</p>}
                 {scene.image_status === 'pending' && <p className="text-muted-foreground text-xs">Muse đang vẽ...</p>}
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
@@ -299,7 +358,7 @@ function RenderPanel({ short, music, price }: { short: TopicShort; music: { id: 
 
     return (
         <section className="space-y-4">
-            <h2 className="text-lg font-semibold">3. Dựng video</h2>
+            <h2 className="text-lg font-semibold">4. Dựng video</h2>
             {!short.all_images_ready && <p className="text-muted-foreground text-sm">Mọi cảnh cần có ảnh trước khi dựng video.</p>}
             <form onSubmit={submit} className="flex flex-wrap items-end gap-4">
                 <div className="grid gap-2">

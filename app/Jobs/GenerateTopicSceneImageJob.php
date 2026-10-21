@@ -34,9 +34,53 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         return now()->addHours(3);
     }
 
+    /** Nhân vật có trong cảnh (theo danh sách nhân vật của short), kèm ảnh mẫu nếu đã tải. */
+    public static function characters(TopicShortScene $scene): array
+    {
+        $names = array_map('mb_strtolower', $scene->characters ?? []);
+
+        return array_values(array_filter($scene->topicShort->characters ?? [], fn ($c) => in_array(mb_strtolower($c['name']), $names, true)));
+    }
+
+    /** @return list<string> Ảnh mẫu nhân vật, rồi ảnh hiện tại của cảnh (wiki / tải lên) làm mẫu bố cục; Muse nhận tối đa 4 ảnh. */
+    public static function references(TopicShortScene $scene): array
+    {
+        $paths = array_values(array_filter(array_column(self::characters($scene), 'image_path')));
+        if (self::layoutReference($scene)) {
+            $paths = [...array_slice($paths, 0, 3), $scene->image_path];
+        }
+
+        return array_slice($paths, 0, 4);
+    }
+
+    private static function layoutReference(TopicShortScene $scene): bool
+    {
+        return in_array($scene->image_source, ['web', 'upload'], true) && filled($scene->image_path);
+    }
+
     public static function prompt(TopicShortScene $scene): string
     {
-        return "FRAME: vertical 9:16 portrait.\nSTYLE: 2D Japanese anime, dramatic cel shading, high detail.\n\n".trim((string) $scene->image_prompt);
+        $style = trim((string) $scene->topicShort->art_style) ?: '2D Japanese anime, dramatic cel shading';
+        $lines = ['FRAME: vertical 9:16 portrait.', "STYLE: {$style}. High detail, characters drawn exactly on-model like the original anime."];
+
+        $characters = self::characters($scene);
+        if ($characters !== []) {
+            $lines[] = '';
+            $lines[] = 'CHARACTERS (keep each one identical to the original design: face, hair, eyes, outfit, colors):';
+            $ref = 0;
+            foreach ($characters as $character) {
+                $tag = ! empty($character['image_path']) && $ref < 4 ? ' — looks exactly like attached reference image '.(++$ref) : '';
+                $lines[] = "- {$character['name']}{$tag}: {$character['look']}";
+            }
+        }
+        if (self::layoutReference($scene)) {
+            $lines[] = '';
+            $lines[] = 'The LAST attached image is a reference of this scene from the original anime: redraw that moment (composition, pose, setting) as a clean vertical frame.';
+        }
+        $lines[] = '';
+        $lines[] = 'SCENE: '.trim((string) $scene->image_prompt);
+
+        return implode("\n", $lines);
     }
 
     public function handle(): void
@@ -54,13 +98,13 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
                     return;
                 }
-                $scene->update(['request_id' => $generator->start([], self::prompt($scene))]);
+                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene))]);
                 $this->release(15);
 
                 return;
             }
 
-            $result = $generator->poll($scene->request_id, []);
+            $result = $generator->poll($scene->request_id, self::references($scene));
             if ($result === null) {
                 $this->release(self::POLL_SECONDS);
 

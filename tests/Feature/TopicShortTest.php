@@ -239,6 +239,47 @@ class TopicShortTest extends TestCase
         $this->actingAs($this->user)->get(route('topic-shorts.download', $short))->assertDownload();
     }
 
+    public function test_characters_get_reference_images_and_named_prompts()
+    {
+        Queue::fake();
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'writing']);
+        (new WriteTopicShortJob($short))->handle();
+        $short->refresh();
+        $this->assertSame(['Goku', 'Frieza'], array_column($short->characters, 'name'));
+        $this->assertNotEmpty($short->art_style);
+        $last = $short->scenes()->get()->last();
+        $this->assertSame(['Goku', 'Frieza'], $last->characters);
+
+        // Ảnh mẫu nhân vật gửi kèm cho Muse; prompt ghi tên, mô tả và phong cách phim.
+        $this->actingAs($this->user)->post(route('topic-shorts.character-image', [$short, 0]), ['image' => UploadedFile::fake()->image('goku.png', 600, 800)])->assertSessionHasNoErrors();
+        $short->refresh();
+        Storage::disk(config('videoaff.disk'))->assertExists($short->characters[0]['image_path']);
+        $prompt = GenerateTopicSceneImageJob::prompt($last);
+        $this->assertStringContainsString('Goku — looks exactly like attached reference image 1', $prompt);
+        $this->assertStringContainsString('- Frieza: final form', $prompt);
+        $this->assertStringContainsString('Dragon Ball Z', $prompt);
+        $this->assertSame([$short->characters[0]['image_path']], GenerateTopicSceneImageJob::references($last));
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
+            ->where('short.characters.0.name', 'Goku')->whereNot('short.characters.0.image_url', null)->where('short.scenes.2.characters', ['Goku', 'Frieza']));
+
+        // Ảnh wiki / tải lên của cảnh làm mẫu bố cục khi vẽ lại.
+        Storage::disk(config('videoaff.disk'))->put('topic-shorts/test/scene.png', self::png());
+        $last->update(['image_source' => 'upload', 'image_status' => 'ready', 'image_path' => 'topic-shorts/test/scene.png']);
+        $this->assertSame([$short->characters[0]['image_path'], 'topic-shorts/test/scene.png'], GenerateTopicSceneImageJob::references($last->fresh()));
+        $this->assertStringContainsString('LAST attached image', GenerateTopicSceneImageJob::prompt($last->fresh()));
+
+        // Viết lại vẫn giữ ảnh mẫu của nhân vật trùng tên.
+        $short->update(['status' => 'writing']);
+        (new WriteTopicShortJob($short))->handle();
+        $this->assertNotNull($short->fresh()->characters[0]['image_path']);
+
+        // Vẽ lại tất cả: bỏ qua ảnh tự tải lên.
+        $short->scenes()->update(['image_status' => 'ready']);
+        $this->actingAs($this->user)->post(route('topic-shorts.muse-all', $short))->assertSessionHas('status');
+        $this->assertSame($short->scenes()->count(), $short->scenes()->where('image_status', 'pending')->count());
+        $this->actingAs(User::factory()->create())->post(route('topic-shorts.muse-all', $short))->assertForbidden();
+    }
+
     public function test_subtitle_chunks_split_long_narration_in_order()
     {
         $chunks = ShortVideo::chunks('Goku nhìn Krillin ngã xuống, cơn giận dâng trào và mái tóc anh bỗng hoá vàng rực.', 1000, 5000);

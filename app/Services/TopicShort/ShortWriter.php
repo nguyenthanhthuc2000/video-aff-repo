@@ -24,7 +24,10 @@ class ShortWriter
     - Split into scenes of 4–7 seconds of speech each. Each scene shows one picture.
     - on_screen_text: at most 5 words, punchy, shown big on screen.
     - image_query: 2–3 English keywords, most important first, to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan"). Use official character names here.
-    - image_prompt: English prompt for an AI image generator to draw the same picture as an original anime-style illustration, vertical 9:16. Describe appearance, pose, setting, lighting and mood; do NOT use franchise or character names.
+    - characters: the main recurring characters of the short (at most 5), each with the official English name and look: a precise description of their canonical appearance at this point of the story (face, hair style and color, eyes, body, outfit and colors, aura), so an image model can draw them on-model.
+    - art_style: one line naming the original work and its visual style so the image model matches it (e.g. "Dragon Ball Z TV anime (1989), Toei cel animation, Akira Toriyama character design").
+    - scene characters: names (exactly as in characters) of who appears in that scene's picture; empty if nobody.
+    - image_prompt: English prompt for an AI image generator to draw that scene's picture, vertical 9:16. Name the characters by their official names and describe pose, expression, action, camera angle, setting, lighting and mood as in the original scene.
     - caption: 1–2 sentences for the post, plus hashtags in hashtags.
     PROMPT;
 
@@ -51,20 +54,31 @@ class ShortWriter
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['title', 'scenes', 'caption', 'hashtags'],
+            'required' => ['title', 'characters', 'art_style', 'scenes', 'caption', 'hashtags'],
             'properties' => [
                 'title' => $string,
+                'characters' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['name', 'look'],
+                        'properties' => ['name' => $string, 'look' => $string],
+                    ],
+                ],
+                'art_style' => $string,
                 'scenes' => [
                     'type' => 'array',
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt'],
+                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters'],
                         'properties' => [
                             'narration' => $string,
                             'on_screen_text' => $string,
                             'image_query' => $string,
                             'image_prompt' => $string,
+                            'characters' => ['type' => 'array', 'items' => $string],
                         ],
                     ],
                 ],
@@ -77,6 +91,16 @@ class ShortWriter
     /** @throws ScriptWriterException */
     public static function normalize(mixed $data): array
     {
+        $characters = [];
+        foreach ((array) ($data['characters'] ?? []) as $character) {
+            $name = mb_substr(trim((string) ($character['name'] ?? '')), 0, 80);
+            if ($name !== '' && ! collect($characters)->contains(fn ($c) => mb_strtolower($c['name']) === mb_strtolower($name))) {
+                $characters[] = ['name' => $name, 'look' => mb_substr(trim((string) ($character['look'] ?? '')), 0, 600), 'image_path' => null];
+            }
+        }
+        $characters = array_slice($characters, 0, 6);
+        $names = array_column($characters, 'name');
+
         $scenes = [];
         foreach ((array) ($data['scenes'] ?? []) as $scene) {
             $narration = trim((string) ($scene['narration'] ?? ''));
@@ -88,6 +112,11 @@ class ShortWriter
                 'on_screen_text' => mb_substr(trim((string) ($scene['on_screen_text'] ?? '')), 0, 120),
                 'image_query' => mb_substr(trim((string) ($scene['image_query'] ?? '')), 0, 200),
                 'image_prompt' => mb_substr(trim((string) ($scene['image_prompt'] ?? '')), 0, 2000),
+                // Chỉ giữ tên có trong danh sách nhân vật (so không phân biệt hoa thường).
+                'characters' => array_values(array_unique(array_filter(array_map(
+                    fn ($name) => collect($names)->first(fn ($n) => mb_strtolower($n) === mb_strtolower(trim((string) $name))),
+                    (array) ($scene['characters'] ?? []),
+                )))),
             ];
         }
         if (count($scenes) < 2) {
@@ -96,6 +125,8 @@ class ShortWriter
 
         return [
             'title' => mb_substr(trim((string) ($data['title'] ?? '')), 0, 200),
+            'characters' => $characters,
+            'art_style' => mb_substr(trim((string) ($data['art_style'] ?? '')), 0, 300),
             'scenes' => array_slice($scenes, 0, 15),
             'caption' => trim((string) ($data['caption'] ?? '')),
             'hashtags' => array_values(array_slice(array_map('strval', (array) ($data['hashtags'] ?? [])), 0, 10)),
@@ -107,10 +138,15 @@ class ShortWriter
     {
         return [
             'title' => "Short: {$short->topic}",
+            'characters' => [
+                ['name' => 'Goku', 'look' => 'spiky black hair, orange gi with blue undershirt and wristbands'],
+                ['name' => 'Frieza', 'look' => 'final form: white and purple smooth body, red eyes, tail'],
+            ],
+            'art_style' => 'Dragon Ball Z TV anime, Toei cel animation',
             'scenes' => [
-                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'anime style, a spiky-haired warrior with glowing golden aura, stormy sky, vertical 9:16'],
-                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'anime style, a pale alien tyrant smirking, green planet, vertical 9:16'],
-                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'anime style, golden hair rising, lightning, vertical 9:16'],
+                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku']],
+                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza']],
+                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza']],
             ],
             'caption' => 'Khoảnh khắc làm nên huyền thoại.',
             'hashtags' => ['#anime', '#shorts'],

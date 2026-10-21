@@ -17,7 +17,7 @@ class TopicShort extends Model
     public const LANGUAGES = ['vi' => 'Tiếng Việt', 'en' => 'English'];
 
     protected $fillable = [
-        'topic', 'language', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content',
+        'topic', 'language', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content', 'characters', 'art_style',
         'video_status', 'video_error', 'video_options', 'video_path', 'video_ms',
     ];
 
@@ -25,6 +25,7 @@ class TopicShort extends Model
     {
         return [
             'content' => 'array',
+            'characters' => 'array',
             'video_options' => 'array',
             'target_seconds' => 'integer',
             'video_ms' => 'integer',
