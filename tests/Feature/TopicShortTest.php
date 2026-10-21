@@ -36,7 +36,7 @@ class TopicShortTest extends TestCase
         Storage::fake(config('videoaff.disk'));
         $this->user = User::factory()->create();
         Http::fake([
-            'dragonball.fandom.com/*' => fn ($request) => Http::response(str_contains($request['gsrsearch'], 'nothing')
+            'dragonball.fandom.com/*' => fn ($request) => str_contains($request['gsrsearch'], 'blocked') ? Http::response('Forbidden', 403) : Http::response(str_contains($request['gsrsearch'], 'nothing')
                 ? ['batchcomplete' => ''] : self::wikiResult('https://static.wikia.nocookie.net/dragonball/images/a/a1/Goku_SSJ.png')),
             'commons.wikimedia.org/*' => fn () => Http::response($this->commonsEmpty ? ['batchcomplete' => ''] : self::wikiResult('https://upload.wikimedia.org/wikipedia/commons/a/a1/Namek.png')),
             'static.wikia.nocookie.net/*' => Http::response(self::png(), 200, ['Content-Type' => 'image/png']),
@@ -113,6 +113,13 @@ class TopicShortTest extends TestCase
         $scene->refresh();
         $this->assertSame('ready', $scene->image_status);
         $this->assertStringStartsWith('https://upload.wikimedia.org/', $scene->image_url);
+
+        // Wiki chính chặn (403): vẫn lấy được ảnh từ Commons.
+        $blocked = TopicShortScene::factory()->create(['image_query' => 'blocked query', 'image_status' => 'searching']);
+        (new FindTopicSceneImageJob($blocked))->handle(app(WikiImageSearch::class));
+        $this->assertSame('ready', $blocked->fresh()->image_status);
+        $this->assertStringStartsWith('https://upload.wikimedia.org/', $blocked->fresh()->image_url);
+        Http::assertSent(fn ($request) => str_starts_with($request->header('User-Agent')[0] ?? '', 'VideoAff/1.0 (https://'));
 
         $this->commonsEmpty = true;
         $other = TopicShortScene::factory()->create(['image_query' => 'nothing again', 'image_status' => 'searching']);

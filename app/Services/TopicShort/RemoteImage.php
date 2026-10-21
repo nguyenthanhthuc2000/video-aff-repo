@@ -41,7 +41,7 @@ class RemoteImage
             throw new RuntimeException('Địa chỉ ảnh không thuộc nguồn được phép.');
         }
         try {
-            $response = Http::timeout(30)->withoutRedirecting()->withHeaders(['User-Agent' => 'VideoAff/1.0 (topic shorts)'])->get($url);
+            $response = Http::timeout(30)->withoutRedirecting()->withUserAgent(WikiImageSearch::USER_AGENT)->get($url);
         } catch (ConnectionException) {
             throw new RuntimeException('Không tải được ảnh.');
         }

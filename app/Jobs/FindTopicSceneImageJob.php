@@ -32,7 +32,15 @@ class FindTopicSceneImageJob implements ShouldQueue
         }
         $short = $scene->topicShort;
 
-        $candidates = $search->search($short->wiki, (string) $scene->image_query);
+        try {
+            $candidates = $search->search($short->wiki, (string) $scene->image_query);
+        } catch (RuntimeException $e) {
+            // Wiki chính chặn / lỗi: vẫn thử Commons, cả hai cùng lỗi mới báo.
+            if ($short->wiki === 'commons') {
+                throw $e;
+            }
+            $candidates = [];
+        }
         // Wiki chính không có ảnh: thử Wikimedia Commons.
         if ($candidates === [] && $short->wiki !== 'commons') {
             $candidates = $search->search('commons', (string) $scene->image_query);

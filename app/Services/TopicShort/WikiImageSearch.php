@@ -9,6 +9,9 @@ use RuntimeException;
 /** Tìm ảnh trên wiki MediaWiki (Fandom, Wikimedia Commons) theo từ khoá, trong không gian tên File. */
 class WikiImageSearch
 {
+    /** Wikimedia / Fandom chặn (403) User-Agent chung chung: cần tên ứng dụng kèm địa chỉ liên hệ. */
+    public const USER_AGENT = 'VideoAff/1.0 (https://github.com/nguyenthanhthuc2000/video-aff-repo) Laravel-HTTP';
+
     /**
      * @return list<array{url: string, page: string, title: string, width: int, height: int}>
      *
@@ -23,7 +26,7 @@ class WikiImageSearch
         $limit ??= (int) config('videoaff.topic_shorts.candidates');
 
         try {
-            $response = Http::timeout(20)->acceptJson()->withHeaders(['User-Agent' => 'VideoAff/1.0 (topic shorts)'])->get($api, [
+            $response = Http::timeout(20)->acceptJson()->withUserAgent(self::USER_AGENT)->get($api, [
                 'action' => 'query',
                 'format' => 'json',
                 'generator' => 'search',
