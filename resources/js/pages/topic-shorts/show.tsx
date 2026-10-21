@@ -44,6 +44,7 @@ interface TopicShort {
     title: string | null;
     language: 'vi' | 'en';
     style: string;
+    image_style: string;
     target_seconds: number;
     status: 'writing' | 'ready' | 'failed';
     error: string | null;
@@ -68,9 +69,11 @@ export default function TopicShortShow({
     short,
     music,
     prices,
+    image_styles,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
+    image_styles: Record<string, string>;
     prices: { image: number; render: number };
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
@@ -89,10 +92,11 @@ export default function TopicShortShow({
             router.delete(route('topic-shorts.destroy', short.id));
         }
     };
+    const [imageStyle, setImageStyle] = useState(short.image_style);
     const museAll = () => {
         const count = short.scenes.filter((s) => s.image_source !== 'upload').length;
         if (confirm(`Muse vẽ lại ${count} cảnh (trừ ảnh bạn tự tải lên), khoảng ${formatNumber(count * prices.image)} Credits. Tiếp tục?`)) {
-            router.post(route('topic-shorts.muse-all', short.id), {}, { preserveScroll: true });
+            router.post(route('topic-shorts.muse-all', short.id), { image_style: imageStyle }, { preserveScroll: true });
         }
     };
     const textKey = short.scenes.map((s) => `${s.id}:${s.narration}:${s.on_screen_text}:${s.image_query}:${s.image_prompt}`).join('|') + short.title;
@@ -132,9 +136,23 @@ export default function TopicShortShow({
                     <section className="space-y-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <h2 className="text-lg font-semibold">3. Ảnh từng cảnh</h2>
-                            <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
-                                <Wand2 /> Muse vẽ lại tất cả
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <select
+                                    aria-label="Kiểu ảnh"
+                                    className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+                                    value={imageStyle}
+                                    onChange={(e) => setImageStyle(e.target.value)}
+                                >
+                                    {Object.entries(image_styles).map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
+                                    <Wand2 /> Muse vẽ lại tất cả
+                                </Button>
+                            </div>
                         </div>
                         <p className="text-muted-foreground text-sm">
                             Mỗi cảnh chọn một ảnh: ảnh tìm trên wiki (bấm ảnh nhỏ để đổi), Muse vẽ ({formatNumber(prices.image)} Credits / ảnh) hoặc

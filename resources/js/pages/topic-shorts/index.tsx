@@ -31,14 +31,23 @@ export default function TopicShortsIndex({
     shorts,
     languages,
     styles,
+    image_styles,
     wikis,
 }: {
     shorts: ShortItem[];
     languages: Record<string, string>;
     styles: Record<string, string>;
+    image_styles: Record<string, string>;
     wikis: Record<string, string>;
 }) {
-    const { data, setData, post, processing, errors } = useForm({ topic: '', style: 'moment', language: 'vi', target_seconds: 45, wiki: 'commons' });
+    const { data, setData, post, processing, errors } = useForm({
+        topic: '',
+        style: 'moment',
+        image_style: 'manga',
+        language: 'vi',
+        target_seconds: 45,
+        wiki: 'commons',
+    });
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -79,6 +88,23 @@ export default function TopicShortsIndex({
                                     variant={data.style === value ? 'default' : 'outline'}
                                     aria-pressed={data.style === value}
                                     onClick={() => setData('style', value)}
+                                >
+                                    {label}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>Kiểu ảnh</Label>
+                        <div className="flex flex-wrap gap-2">
+                            {Object.entries(image_styles).map(([value, label]) => (
+                                <Button
+                                    key={value}
+                                    type="button"
+                                    size="sm"
+                                    variant={data.image_style === value ? 'default' : 'outline'}
+                                    aria-pressed={data.image_style === value}
+                                    onClick={() => setData('image_style', value)}
                                 >
                                     {label}
                                 </Button>

@@ -34,6 +34,13 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         return now()->addHours(3);
     }
 
+    /** Chất liệu ảnh theo kiểu ảnh của short. */
+    public const MEDIUMS = [
+        'manga' => 'Black-and-white manga panel exactly like the original printed manga: bold ink linework, screentone shading, dynamic speed lines and impact effects, characters drawn on-model like the original manga. No speech bubbles, no sound-effect lettering.',
+        'manga_color' => 'Full-color manga illustration like the official colored manga pages: clean ink linework with flat vivid colors, speed lines and impact effects, characters drawn on-model like the original manga. No speech bubbles, no sound-effect lettering.',
+        'anime' => 'TV anime frame: cel animation, dramatic cel shading, high detail, characters drawn on-model like the original anime.',
+    ];
+
     /** Nhân vật có trong cảnh (theo danh sách nhân vật của short), kèm ảnh mẫu nếu đã tải. */
     public static function characters(TopicShortScene $scene): array
     {
@@ -60,8 +67,9 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
     public static function prompt(TopicShortScene $scene): string
     {
-        $style = trim((string) $scene->topicShort->art_style) ?: '2D Japanese anime, dramatic cel shading';
-        $lines = ['FRAME: vertical 9:16 portrait.', "STYLE: {$style}. High detail, characters drawn exactly on-model like the original anime."];
+        $work = trim((string) $scene->topicShort->art_style);
+        $medium = self::MEDIUMS[$scene->topicShort->image_style] ?? self::MEDIUMS['anime'];
+        $lines = ['FRAME: vertical 9:16 portrait.', 'STYLE: '.($work !== '' ? "{$work}. " : '').$medium];
 
         $characters = self::characters($scene);
         if ($characters !== []) {

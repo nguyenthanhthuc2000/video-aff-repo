@@ -42,6 +42,7 @@ class TopicShortController extends Controller
             ]),
             'languages' => TopicShort::LANGUAGES,
             'styles' => TopicShort::STYLES,
+            'image_styles' => TopicShort::IMAGE_STYLES,
             'wikis' => collect(config('videoaff.topic_shorts.wikis'))->map(fn ($wiki) => $wiki['label']),
         ]);
     }
@@ -52,6 +53,7 @@ class TopicShortController extends Controller
             'topic' => ['required', 'string', 'min:5', 'max:300'],
             'language' => ['required', Rule::in(array_keys(TopicShort::LANGUAGES))],
             'style' => ['required', Rule::in(array_keys(TopicShort::STYLES))],
+            'image_style' => ['required', Rule::in(array_keys(TopicShort::IMAGE_STYLES))],
             'target_seconds' => ['required', 'integer', 'min:30', 'max:60'],
             'wiki' => ['required', Rule::in(array_keys(config('videoaff.topic_shorts.wikis')))],
         ], [], ['topic' => 'chủ đề', 'target_seconds' => 'độ dài']);
@@ -76,6 +78,7 @@ class TopicShortController extends Controller
                 'title' => $short->title,
                 'language' => $short->language,
                 'style' => TopicShort::STYLES[$short->style] ?? $short->style,
+                'image_style' => $short->image_style,
                 'target_seconds' => $short->target_seconds,
                 'wiki' => $short->wiki,
                 'status' => $short->status,
@@ -108,6 +111,7 @@ class TopicShortController extends Controller
                 ]),
             ],
             'music' => AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
+            'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
         ]);
     }
@@ -261,6 +265,10 @@ class TopicShortController extends Controller
     public function museAll(Request $request, TopicShort $short): RedirectResponse
     {
         $this->authorize('update', $short);
+        $validated = $request->validate(['image_style' => ['nullable', Rule::in(array_keys(TopicShort::IMAGE_STYLES))]]);
+        if (filled($validated['image_style'] ?? null)) {
+            $short->update(['image_style' => $validated['image_style']]);
+        }
         $scenes = $short->scenes()->get()->reject(fn (TopicShortScene $scene) => $scene->image_source === 'upload' || $this->busy($scene));
         if ($scenes->isEmpty()) {
             return back()->with('status', 'Không có cảnh nào cần vẽ lại.');

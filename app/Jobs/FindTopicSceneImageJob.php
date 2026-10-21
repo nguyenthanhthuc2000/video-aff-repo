@@ -38,7 +38,7 @@ class FindTopicSceneImageJob implements ShouldQueue
         // Wiki lỗi / chặn thì bỏ qua; không đâu có ảnh thì Muse vẽ thay.
         $candidates = [];
         foreach (array_unique([$short->wiki, 'commons']) as $wiki) {
-            foreach (self::queries((string) $scene->image_query) as $query) {
+            foreach (self::queries((string) $scene->image_query, str_starts_with((string) $short->image_style, 'manga')) as $query) {
                 try {
                     $candidates = $search->search($wiki, $query);
                 } catch (RuntimeException) {
@@ -80,8 +80,13 @@ class FindTopicSceneImageJob implements ShouldQueue
      *
      * @return list<string>
      */
-    public static function queries(string $query): array
+    public static function queries(string $query, bool $manga = false): array
     {
+        // Truyện tranh: thử thêm chữ "manga" trước (tên file trang truyện thường có chữ này).
+        if ($manga && trim($query) !== '' && ! str_contains(mb_strtolower($query), 'manga')) {
+            return array_values(array_unique([trim($query).' manga', ...self::queries($query)]));
+        }
+
         $words = preg_split('/\s+/u', trim($query), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $queries = [];
         for ($n = count($words); $n >= min(2, count($words)) && $n > 0; $n--) {

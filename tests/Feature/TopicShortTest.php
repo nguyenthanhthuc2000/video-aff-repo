@@ -78,13 +78,13 @@ class TopicShortTest extends TestCase
     {
         Queue::fake();
         $this->actingAs($this->user)->post(route('topic-shorts.store'), [
-            'topic' => 'Lần đầu Goku biến thành Super Saiyan', 'style' => 'versus', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'dragonball',
+            'topic' => 'Lần đầu Goku biến thành Super Saiyan', 'style' => 'versus', 'image_style' => 'manga_color', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'dragonball',
         ])->assertRedirect();
         $short = $this->user->topicShorts()->sole();
         $this->assertSame('writing', $short->status);
         $this->assertSame('versus', $short->style);
         $this->assertSame(array_keys(TopicShort::STYLES), array_keys(ShortWriter::FORMATS));
-        $this->actingAs($this->user)->post(route('topic-shorts.store'), ['topic' => 'Goku đấu Sukuna', 'style' => 'bogus', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'commons'])
+        $this->actingAs($this->user)->post(route('topic-shorts.store'), ['topic' => 'Goku đấu Sukuna', 'style' => 'bogus', 'image_style' => 'manga', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'commons'])
             ->assertSessionHasErrors('style');
         Queue::assertPushed(WriteTopicShortJob::class);
 
@@ -145,6 +145,7 @@ class TopicShortTest extends TestCase
         $this->assertSame(['Goku Super Saiyan Namek', 'Goku Super Saiyan', 'Goku Super'], FindTopicSceneImageJob::queries(' Goku  Super Saiyan Namek '));
         $this->assertSame(['Goku'], FindTopicSceneImageJob::queries('Goku'));
         $this->assertSame([], FindTopicSceneImageJob::queries(''));
+        $this->assertSame(['Goku Frieza manga', 'Goku Frieza'], FindTopicSceneImageJob::queries('Goku Frieza', true));
     }
 
     public function test_remote_image_only_allows_wiki_hosts()
@@ -262,7 +263,8 @@ class TopicShortTest extends TestCase
         $prompt = GenerateTopicSceneImageJob::prompt($last);
         $this->assertStringContainsString('Goku — looks exactly like attached reference image 1', $prompt);
         $this->assertStringContainsString('- Frieza: final form', $prompt);
-        $this->assertStringContainsString('Dragon Ball Z', $prompt);
+        $this->assertStringContainsString('Dragon Ball, Akira Toriyama', $prompt);
+        $this->assertStringContainsString('Black-and-white manga panel', $prompt);
         $this->assertSame([$short->characters[0]['image_path']], GenerateTopicSceneImageJob::references($last));
         $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
             ->where('short.characters.0.name', 'Goku')->whereNot('short.characters.0.image_url', null)->where('short.scenes.2.characters', ['Goku', 'Frieza']));
@@ -280,7 +282,9 @@ class TopicShortTest extends TestCase
 
         // Vẽ lại tất cả: bỏ qua ảnh tự tải lên.
         $short->scenes()->update(['image_status' => 'ready']);
-        $this->actingAs($this->user)->post(route('topic-shorts.muse-all', $short))->assertSessionHas('status');
+        $this->actingAs($this->user)->post(route('topic-shorts.muse-all', $short), ['image_style' => 'anime'])->assertSessionHas('status');
+        $this->assertSame('anime', $short->fresh()->image_style);
+        $this->assertStringContainsString('TV anime frame', GenerateTopicSceneImageJob::prompt($short->scenes()->first()));
         $this->assertSame($short->scenes()->count(), $short->scenes()->where('image_status', 'pending')->count());
         $this->actingAs(User::factory()->create())->post(route('topic-shorts.muse-all', $short))->assertForbidden();
     }

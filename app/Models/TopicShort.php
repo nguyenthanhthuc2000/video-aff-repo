@@ -16,6 +16,13 @@ class TopicShort extends Model
 
     public const LANGUAGES = ['vi' => 'Tiếng Việt', 'en' => 'English'];
 
+    /** Kiểu ảnh: Muse vẽ theo kiểu này, tìm wiki ưu tiên ảnh manga khi chọn truyện tranh. */
+    public const IMAGE_STYLES = [
+        'manga' => 'Truyện tranh đen trắng',
+        'manga_color' => 'Truyện tranh màu',
+        'anime' => 'Anime',
+    ];
+
     /** Dạng short (học theo các kênh tóm tắt / phân tích anime). */
     public const STYLES = [
         'moment' => 'Tóm tắt khoảnh khắc',
@@ -25,7 +32,7 @@ class TopicShort extends Model
     ];
 
     protected $fillable = [
-        'topic', 'language', 'style', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content', 'characters', 'art_style',
+        'topic', 'language', 'style', 'image_style', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content', 'characters', 'art_style',
         'video_status', 'video_error', 'video_options', 'video_path', 'video_ms',
     ];
 

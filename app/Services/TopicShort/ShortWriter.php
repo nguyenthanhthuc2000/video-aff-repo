@@ -33,7 +33,7 @@ class ShortWriter
     - title: phrased as a question or a "fact" that sparks curiosity.
     - image_query: 2–3 English keywords, most important first, to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan"). Use official character names here.
     - characters: the main recurring characters of the short (at most 5), each with the official English name and look: a precise description of their canonical appearance at this point of the story (face, hair style and color, eyes, body, outfit and colors, aura), so an image model can draw them on-model.
-    - art_style: one line naming the original work and its visual style so the image model matches it (e.g. "Dragon Ball Z TV anime (1989), Toei cel animation, Akira Toriyama character design").
+    - art_style: one line naming the original work and its creator's character design, without the medium (e.g. "Dragon Ball, Akira Toriyama character design"); the medium (manga or anime) is added separately.
     - scene characters: names (exactly as in characters) of who appears in that scene's picture; empty if nobody.
     - image_prompt: English prompt for an AI image generator to draw that scene's picture, vertical 9:16. Name the characters by their official names and describe pose, expression, action, camera angle, setting, lighting and mood as in the original scene.
     - caption: 1–2 sentences for the post. hashtags: #shorts, #anime, the franchise tags (e.g. #dragonball #7vienngocrong for Dragon Ball) and 1–2 character tags.
@@ -160,7 +160,7 @@ class ShortWriter
                 ['name' => 'Goku', 'look' => 'spiky black hair, orange gi with blue undershirt and wristbands'],
                 ['name' => 'Frieza', 'look' => 'final form: white and purple smooth body, red eyes, tail'],
             ],
-            'art_style' => 'Dragon Ball Z TV anime, Toei cel animation',
+            'art_style' => 'Dragon Ball, Akira Toriyama character design',
             'scenes' => [
                 ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku']],
                 ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza']],
