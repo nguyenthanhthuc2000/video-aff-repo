@@ -16,8 +16,16 @@ class TopicShort extends Model
 
     public const LANGUAGES = ['vi' => 'Tiếng Việt', 'en' => 'English'];
 
+    /** Dạng short (học theo các kênh tóm tắt / phân tích anime). */
+    public const STYLES = [
+        'moment' => 'Tóm tắt khoảnh khắc',
+        'facts' => 'Sự thật ít ai biết',
+        'versus' => 'Giả thuyết đối đầu',
+        'top5' => 'Top 5',
+    ];
+
     protected $fillable = [
-        'topic', 'language', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content', 'characters', 'art_style',
+        'topic', 'language', 'style', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content', 'characters', 'art_style',
         'video_status', 'video_error', 'video_options', 'video_path', 'video_ms',
     ];
 

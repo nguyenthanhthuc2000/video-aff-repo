@@ -41,6 +41,7 @@ class TopicShortController extends Controller
                 'created_at' => $short->created_at,
             ]),
             'languages' => TopicShort::LANGUAGES,
+            'styles' => TopicShort::STYLES,
             'wikis' => collect(config('videoaff.topic_shorts.wikis'))->map(fn ($wiki) => $wiki['label']),
         ]);
     }
@@ -50,6 +51,7 @@ class TopicShortController extends Controller
         $validated = $request->validate([
             'topic' => ['required', 'string', 'min:5', 'max:300'],
             'language' => ['required', Rule::in(array_keys(TopicShort::LANGUAGES))],
+            'style' => ['required', Rule::in(array_keys(TopicShort::STYLES))],
             'target_seconds' => ['required', 'integer', 'min:30', 'max:60'],
             'wiki' => ['required', Rule::in(array_keys(config('videoaff.topic_shorts.wikis')))],
         ], [], ['topic' => 'chủ đề', 'target_seconds' => 'độ dài']);
@@ -73,6 +75,7 @@ class TopicShortController extends Controller
                 'topic' => $short->topic,
                 'title' => $short->title,
                 'language' => $short->language,
+                'style' => TopicShort::STYLES[$short->style] ?? $short->style,
                 'target_seconds' => $short->target_seconds,
                 'wiki' => $short->wiki,
                 'status' => $short->status,

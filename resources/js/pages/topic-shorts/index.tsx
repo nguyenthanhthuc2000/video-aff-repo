@@ -30,13 +30,15 @@ const statusLabels: Record<string, string> = { writing: 'Đang viết', ready: '
 export default function TopicShortsIndex({
     shorts,
     languages,
+    styles,
     wikis,
 }: {
     shorts: ShortItem[];
     languages: Record<string, string>;
+    styles: Record<string, string>;
     wikis: Record<string, string>;
 }) {
-    const { data, setData, post, processing, errors } = useForm({ topic: '', language: 'vi', target_seconds: 45, wiki: 'commons' });
+    const { data, setData, post, processing, errors } = useForm({ topic: '', style: 'moment', language: 'vi', target_seconds: 45, wiki: 'commons' });
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -61,9 +63,27 @@ export default function TopicShortsIndex({
                             rows={2}
                             value={data.topic}
                             onChange={(e) => setData('topic', e.target.value)}
-                            placeholder="Lần đầu Goku biến thành Super Saiyan"
+                            placeholder="Vì sao Goku biến Super Saiyan lần đầu ở Namek?"
                         />
+                        <p className="text-muted-foreground text-xs">Viết chủ đề như một câu gây tò mò sẽ ra hook hay hơn một cái tên chung chung.</p>
                         <InputError message={errors.topic} />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>Dạng short</Label>
+                        <div className="flex flex-wrap gap-2">
+                            {Object.entries(styles).map(([value, label]) => (
+                                <Button
+                                    key={value}
+                                    type="button"
+                                    size="sm"
+                                    variant={data.style === value ? 'default' : 'outline'}
+                                    aria-pressed={data.style === value}
+                                    onClick={() => setData('style', value)}
+                                >
+                                    {label}
+                                </Button>
+                            ))}
+                        </div>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div className="grid gap-2">

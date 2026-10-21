@@ -13,23 +13,40 @@ class ShortWriter
     public const WORDS_PER_SECOND = ['vi' => 3.0, 'en' => 2.5];
 
     public const SYSTEM = <<<'PROMPT'
-    You write narration for vertical YouTube Shorts / TikTok videos (9:16, 30–60 seconds) that retell a famous moment, fact or piece of lore from anime and pop culture, in the style of a gripping storytelling channel.
+    You write narration for vertical YouTube Shorts / TikTok videos (9:16, 30–60 seconds) for an anime recap & analysis channel (Dragon Ball, Jujutsu Kaisen...): fast, punchy, fan-to-fan commentary, never a full episode retelling.
+
+    Structure (follow it, the requested format below says how the body is organised):
+    1. Hook, first 3 seconds (scene 1): one shocking question or bold claim, under 12 words, that makes viewers stay. Scene 1 shows the most famous character of the topic, face clearly visible.
+    2. Context (scene 2, 1–2 sentences): set up the situation, usually showing the second character or the villain.
+    3. Body: 3–4 fast points, one scene each, 4–7 seconds of speech per scene.
+    4. Twist / climax: save the most surprising detail or the most powerful moment (e.g. the transformation) for the second-to-last scene.
+    5. Ending (last scene): ask the viewers a direct question that invites them to comment (e.g. "Theo các bạn thì...? Comment cho mình biết nhé.").
 
     Rules:
-    - Facts must match the original work (canon). Never invent events, quotes or numbers. If unsure about a detail, leave it out.
-    - The first sentence is a hook that makes viewers stay (a question, a shocking fact, or the most intense moment), under 12 words.
-    - Then tell the moment in order with rising tension, and end with a payoff plus a short question or call to comment.
+    - Facts must match the original work (canon). Never invent events, quotes or numbers. If unsure about a detail, leave it out. Theories must be clearly framed as theories.
+    - Tone: fast, casual, friendly; in Vietnamese address the audience as "các bạn" and the narrator as "mình". Short sentences, no long intro, no filler.
     - Narration is spoken by a TTS voice: short, clear sentences, no emojis, no hashtags, no stage directions, numbers written as words when spoken naturally.
+    - 6–8 scenes in total.
     - Write narration, on_screen_text, title and caption in the requested language. Write image_query and image_prompt in English.
     - Split into scenes of 4–7 seconds of speech each. Each scene shows one picture.
-    - on_screen_text: at most 5 words, punchy, shown big on screen.
+    - on_screen_text: 2–5 words, punchy keywords in capitals, shown big on screen (e.g. "SỨC MẠNH THẬT SỰ", "KHÔNG AI NGỜ").
+    - title: phrased as a question or a "fact" that sparks curiosity.
     - image_query: 2–3 English keywords, most important first, to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan"). Use official character names here.
     - characters: the main recurring characters of the short (at most 5), each with the official English name and look: a precise description of their canonical appearance at this point of the story (face, hair style and color, eyes, body, outfit and colors, aura), so an image model can draw them on-model.
     - art_style: one line naming the original work and its visual style so the image model matches it (e.g. "Dragon Ball Z TV anime (1989), Toei cel animation, Akira Toriyama character design").
     - scene characters: names (exactly as in characters) of who appears in that scene's picture; empty if nobody.
     - image_prompt: English prompt for an AI image generator to draw that scene's picture, vertical 9:16. Name the characters by their official names and describe pose, expression, action, camera angle, setting, lighting and mood as in the original scene.
-    - caption: 1–2 sentences for the post, plus hashtags in hashtags.
+    - caption: 1–2 sentences for the post. hashtags: #shorts, #anime, the franchise tags (e.g. #dragonball #7vienngocrong for Dragon Ball) and 1–2 character tags.
+    - Write original narration; never copy titles or scripts from other channels.
     PROMPT;
+
+    /** Cách tổ chức phần thân theo dạng short. */
+    public const FORMATS = [
+        'moment' => 'Moment recap: retell that one moment in order with rising tension; context, the build-up beats, then the climax; end with a question about how fans felt or what they think.',
+        'facts' => 'Little-known facts: 3–4 surprising, verifiable facts about the topic, one per scene, the most surprising one last; end by asking which fact viewers did not know.',
+        'versus' => 'Hypothetical versus / theory: compare the two sides on 3–4 points (power, techniques, feats, weaknesses) using canon feats only, give a reasoned verdict as the twist, clearly framed as opinion; end by asking who viewers think wins.',
+        'top5' => 'Top 5 ranking: count down from number 5 to number 1, one scene per entry with the reason in one sentence, number 1 is the twist; end by asking viewers for their own number 1.',
+    ];
 
     /**
      * @return array{title: string, scenes: list<array{narration: string, on_screen_text: string, image_query: string, image_prompt: string}>, caption: string, hashtags: list<string>}
@@ -40,7 +57,8 @@ class ShortWriter
     {
         $language = $short->language === 'en' ? 'English' : 'Vietnamese (natural, as spoken by Vietnamese anime fans; keep well-known names like Goku, Super Saiyan as is)';
         $words = (int) round($short->target_seconds * self::WORDS_PER_SECOND[$short->language === 'en' ? 'en' : 'vi']);
-        $text = "Topic: {$short->topic}\nLanguage: {$language}\nTarget length: about {$short->target_seconds} seconds of narration, about {$words} words in total.";
+        $format = self::FORMATS[$short->style] ?? self::FORMATS['moment'];
+        $text = "Topic: {$short->topic}\nFormat: {$format}\nLanguage: {$language}\nTarget length: about {$short->target_seconds} seconds of narration, about {$words} words in total.";
 
         $data = FilmClaude::json(self::SYSTEM, $text, self::schema(), 'topic_short', "topic_short:{$short->id}", 6000, fn () => self::sample($short));
 

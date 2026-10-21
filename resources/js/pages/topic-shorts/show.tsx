@@ -43,6 +43,7 @@ interface TopicShort {
     topic: string;
     title: string | null;
     language: 'vi' | 'en';
+    style: string;
     target_seconds: number;
     status: 'writing' | 'ready' | 'failed';
     error: string | null;
@@ -104,6 +105,7 @@ export default function TopicShortShow({
                     <Heading title={short.title || short.topic} description={`Chủ đề: ${short.topic}`} />
                     <div className="flex items-center gap-2">
                         {short.status === 'writing' && <Loader2 className="size-4 animate-spin" />}
+                        <Badge variant="outline">{short.style}</Badge>
                         <Badge variant="secondary">{short.language === 'en' ? 'English' : 'Tiếng Việt'}</Badge>
                         <Button variant="outline" size="sm" onClick={rewrite} disabled={short.status === 'writing'}>
                             <RefreshCw /> Viết lại

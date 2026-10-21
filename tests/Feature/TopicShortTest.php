@@ -11,6 +11,7 @@ use App\Models\TopicShortScene;
 use App\Models\User;
 use App\Services\TopicShort\RemoteImage;
 use App\Services\TopicShort\ShortVideo;
+use App\Services\TopicShort\ShortWriter;
 use App\Services\TopicShort\WikiImageSearch;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -77,10 +78,14 @@ class TopicShortTest extends TestCase
     {
         Queue::fake();
         $this->actingAs($this->user)->post(route('topic-shorts.store'), [
-            'topic' => 'Lần đầu Goku biến thành Super Saiyan', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'dragonball',
+            'topic' => 'Lần đầu Goku biến thành Super Saiyan', 'style' => 'versus', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'dragonball',
         ])->assertRedirect();
         $short = $this->user->topicShorts()->sole();
         $this->assertSame('writing', $short->status);
+        $this->assertSame('versus', $short->style);
+        $this->assertSame(array_keys(TopicShort::STYLES), array_keys(ShortWriter::FORMATS));
+        $this->actingAs($this->user)->post(route('topic-shorts.store'), ['topic' => 'Goku đấu Sukuna', 'style' => 'bogus', 'language' => 'vi', 'target_seconds' => 45, 'wiki' => 'commons'])
+            ->assertSessionHasErrors('style');
         Queue::assertPushed(WriteTopicShortJob::class);
 
         (new WriteTopicShortJob($short))->handle();
