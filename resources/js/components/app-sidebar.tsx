@@ -18,6 +18,7 @@ import {
     Music,
     Package,
     ShieldCheck,
+    Smile,
     Sparkles,
     Tv,
     Users,
@@ -56,6 +57,11 @@ const mainNavItems: NavItem[] = [
         title: 'Shorts chủ đề',
         url: '/topic-shorts',
         icon: Sparkles,
+    },
+    {
+        title: 'Nhân vật Ngọc Rồng',
+        url: '/dragon-ball',
+        icon: Smile,
     },
     {
         title: 'Học tiếng Anh',

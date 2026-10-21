@@ -30,7 +30,9 @@ interface ShortScene {
     image_query: string | null;
     image_prompt: string | null;
     characters: string[];
-    image_source: 'web' | 'muse' | 'upload' | null;
+    image_source: 'web' | 'muse' | 'upload' | 'library' | null;
+    expression: string | null;
+    library: { id: number; name: string; expression: string; url: string }[];
     image_status: 'none' | 'searching' | 'pending' | 'ready' | 'failed';
     image_url: string | null;
     image_source_url: string | null;
@@ -62,7 +64,7 @@ interface TopicShort {
     scenes: ShortScene[];
 }
 
-const sourceLabels = { web: 'Ảnh wiki', muse: 'Muse vẽ', upload: 'Ảnh tải lên' } as const;
+const sourceLabels = { web: 'Ảnh wiki', muse: 'Muse vẽ', upload: 'Ảnh tải lên', library: 'Ảnh nhân vật' } as const;
 
 /** Chi tiết short: sửa lời kể, chọn ảnh từng cảnh (wiki / Muse / tải lên), dựng video có giọng AI. */
 export default function TopicShortShow({
@@ -298,6 +300,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     const search = () => router.post(route('topic-short-scenes.search', scene.id), { query }, options);
     const pick = (url: string) => router.post(route('topic-short-scenes.pick', scene.id), { url }, options);
     const muse = () => router.post(route('topic-short-scenes.muse', scene.id), {}, options);
+    const pickLibrary = (portraitId: number) => router.post(route('topic-short-scenes.library', scene.id), { portrait_id: portraitId }, options);
     const send = (file: File | undefined) =>
         file && router.post(route('topic-short-scenes.upload', scene.id), { image: file }, { ...options, forceFormData: true });
 
@@ -323,6 +326,23 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
                 <InputError message={errors[`scene_${scene.id}`]} />
 
+                {scene.library.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-muted-foreground text-xs">Thư viện:</span>
+                        {scene.library.map((portrait) => (
+                            <button
+                                key={portrait.id}
+                                type="button"
+                                title={`${portrait.name} (${portrait.expression})`}
+                                disabled={busy}
+                                onClick={() => pickLibrary(portrait.id)}
+                                className="hover:border-primary h-14 w-10 overflow-hidden rounded border-2 border-transparent"
+                            >
+                                <img src={portrait.url} alt={portrait.name} className="h-full w-full object-cover" loading="lazy" />
+                            </button>
+                        ))}
+                    </div>
+                )}
                 {scene.candidates.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                         {scene.candidates.map((candidate) => (

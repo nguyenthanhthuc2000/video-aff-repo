@@ -5,6 +5,7 @@ namespace App\Services\TopicShort;
 use App\Models\TopicShort;
 use App\Services\Film\FilmClaude;
 use App\Services\Script\ScriptWriterException;
+use App\Support\DragonBall;
 
 /** Claude viết lời kể cho short theo chủ đề (anime / lore), chia cảnh kèm từ khoá tìm ảnh wiki và prompt vẽ ảnh. */
 class ShortWriter
@@ -34,6 +35,7 @@ class ShortWriter
     - image_query: 2–3 English keywords, most important first, to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan"). Use official character names here.
     - characters: the main recurring characters of the short (at most 5), each with the official English name and look: a precise description of their canonical appearance at this point of the story (face, hair style and color, eyes, body, outfit and colors, aura), so an image model can draw them on-model.
     - art_style: one line naming the original work and its creator's character design, without the medium (e.g. "Dragon Ball, Akira Toriyama character design"); the medium (manga or anime) is added separately.
+    - scene expression: facial expression of the main character in that picture, one code: E1 neutral, E2 excited grin, E3 furious, E4 shocked, E5 determined, E6 sad, E7 smug smirk, E8 screaming power-up, E9 confused/comedic.
     - scene characters: names (exactly as in characters) of who appears in that scene's picture; empty if nobody.
     - image_prompt: English prompt for an AI image generator to draw that scene's picture, vertical 9:16. Name the characters by their official names and describe pose, expression, action, camera angle, setting, lighting and mood as in the original scene.
     - caption: 1–2 sentences for the post. hashtags: #shorts, #anime, the franchise tags (e.g. #dragonball #7vienngocrong for Dragon Ball) and 1–2 character tags.
@@ -58,7 +60,10 @@ class ShortWriter
         $language = $short->language === 'en' ? 'English' : 'Vietnamese (natural, as spoken by Vietnamese anime fans; keep well-known names like Goku, Super Saiyan as is)';
         $words = (int) round($short->target_seconds * self::WORDS_PER_SECOND[$short->language === 'en' ? 'en' : 'vi']);
         $format = self::FORMATS[$short->style] ?? self::FORMATS['moment'];
+        $known = implode(', ', array_column(DragonBall::CHARACTERS, 0));
         $text = "Topic: {$short->topic}\nFormat: {$format}\nLanguage: {$language}\nTarget length: about {$short->target_seconds} seconds of narration, about {$words} words in total.";
+
+        $text .= "\nDragon Ball characters in our picture library (when one of them appears, use exactly this name, including the form, e.g. \"Goku Super Saiyan\"): {$known}.";
 
         $data = FilmClaude::json(self::SYSTEM, $text, self::schema(), 'topic_short', "topic_short:{$short->id}", 6000, fn () => self::sample($short));
 
@@ -90,13 +95,14 @@ class ShortWriter
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters'],
+                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression'],
                         'properties' => [
                             'narration' => $string,
                             'on_screen_text' => $string,
                             'image_query' => $string,
                             'image_prompt' => $string,
                             'characters' => ['type' => 'array', 'items' => $string],
+                            'expression' => ['type' => 'string', 'enum' => array_keys(DragonBall::EXPRESSIONS)],
                         ],
                     ],
                 ],
@@ -130,6 +136,7 @@ class ShortWriter
                 'on_screen_text' => mb_substr(trim((string) ($scene['on_screen_text'] ?? '')), 0, 120),
                 'image_query' => mb_substr(trim((string) ($scene['image_query'] ?? '')), 0, 200),
                 'image_prompt' => mb_substr(trim((string) ($scene['image_prompt'] ?? '')), 0, 2000),
+                'expression' => isset(DragonBall::EXPRESSIONS[$scene['expression'] ?? '']) ? $scene['expression'] : null,
                 // Chỉ giữ tên có trong danh sách nhân vật (so không phân biệt hoa thường).
                 'characters' => array_values(array_unique(array_filter(array_map(
                     fn ($name) => collect($names)->first(fn ($n) => mb_strtolower($n) === mb_strtolower(trim((string) $name))),
@@ -162,9 +169,9 @@ class ShortWriter
             ],
             'art_style' => 'Dragon Ball, Akira Toriyama character design',
             'scenes' => [
-                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku']],
-                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza']],
-                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza']],
+                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku'], 'expression' => 'E8'],
+                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza'], 'expression' => 'E7'],
+                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza'], 'expression' => 'E3'],
             ],
             'caption' => 'Khoảnh khắc làm nên huyền thoại.',
             'hashtags' => ['#anime', '#shorts'],

@@ -2,12 +2,14 @@
 
 namespace App\Jobs;
 
+use App\Models\CharacterPortrait;
 use App\Models\TopicShortScene;
 use App\Services\Image\GeneratedImage;
 use App\Services\Image\ImageGeneratorException;
 use App\Support\AiProviders;
 use App\Support\CreditPricing;
 use App\Support\Credits;
+use App\Support\DragonBall;
 use App\Support\Media;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -41,18 +43,31 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         'anime' => 'TV anime frame: cel animation, dramatic cel shading, high detail, characters drawn on-model like the original anime.',
     ];
 
-    /** Nhân vật có trong cảnh (theo danh sách nhân vật của short), kèm ảnh mẫu nếu đã tải. */
+    /**
+     * Nhân vật có trong cảnh (theo danh sách nhân vật của short). ref: ảnh mẫu gửi kèm Muse, ưu tiên ảnh tải lên cho short,
+     * không có thì ảnh thư viện nhân vật Ngọc Rồng đúng biểu cảm của cảnh (hoặc mặt thường).
+     *
+     * @return list<array{name: string, look: string, ref: ?string}>
+     */
     public static function characters(TopicShortScene $scene): array
     {
         $names = array_map('mb_strtolower', $scene->characters ?? []);
+        $short = $scene->topicShort;
 
-        return array_values(array_filter($scene->topicShort->characters ?? [], fn ($c) => in_array(mb_strtolower($c['name']), $names, true)));
+        return array_values(array_map(function ($c) use ($scene, $short) {
+            $ref = $c['image_path'] ?? null;
+            if (! $ref && ($key = DragonBall::keyFor($c['name']))) {
+                $ref = CharacterPortrait::best($short->user_id, $key, $scene->expression)?->image_path;
+            }
+
+            return ['name' => $c['name'], 'look' => $c['look'] ?? '', 'ref' => $ref];
+        }, array_filter($short->characters ?? [], fn ($c) => in_array(mb_strtolower($c['name']), $names, true))));
     }
 
     /** @return list<string> Ảnh mẫu nhân vật, rồi ảnh hiện tại của cảnh (wiki / tải lên) làm mẫu bố cục; Muse nhận tối đa 4 ảnh. */
     public static function references(TopicShortScene $scene): array
     {
-        $paths = array_values(array_filter(array_column(self::characters($scene), 'image_path')));
+        $paths = array_slice(array_values(array_filter(array_column(self::characters($scene), 'ref'))), 0, 4);
         if (self::layoutReference($scene)) {
             $paths = [...array_slice($paths, 0, 3), $scene->image_path];
         }
@@ -77,13 +92,17 @@ class GenerateTopicSceneImageJob implements ShouldQueue
             $lines[] = 'CHARACTERS (keep each one identical to the original design: face, hair, eyes, outfit, colors):';
             $ref = 0;
             foreach ($characters as $character) {
-                $tag = ! empty($character['image_path']) && $ref < 4 ? ' — looks exactly like attached reference image '.(++$ref) : '';
+                $tag = ! empty($character['ref']) && $ref < 4 ? ' — looks exactly like attached reference image '.(++$ref) : '';
                 $lines[] = "- {$character['name']}{$tag}: {$character['look']}";
             }
         }
         if (self::layoutReference($scene)) {
             $lines[] = '';
             $lines[] = 'The LAST attached image is a reference of this scene from the original anime: redraw that moment (composition, pose, setting) as a clean vertical frame.';
+        }
+        if ($scene->expression && isset(DragonBall::EXPRESSIONS[$scene->expression])) {
+            $lines[] = '';
+            $lines[] = 'MAIN EXPRESSION: '.DragonBall::EXPRESSIONS[$scene->expression][1].'.';
         }
         $lines[] = '';
         $lines[] = 'SCENE: '.trim((string) $scene->image_prompt);

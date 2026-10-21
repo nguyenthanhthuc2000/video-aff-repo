@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin;
 use App\Http\Controllers\AudioTrackController;
 use App\Http\Controllers\BackgroundController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\CharacterLibraryController;
 use App\Http\Controllers\ClaudeAuthController;
 use App\Http\Controllers\CreditHistoryController;
 use App\Http\Controllers\EnglishController;
@@ -91,6 +92,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');
 
     // Shorts theo chủ đề (Dragon Ball, anime...): lời kể Claude, ảnh wiki / Muse / tải lên, giọng AI.
+    Route::get('dragon-ball', [CharacterLibraryController::class, 'index'])->name('character-library.index');
+    Route::post('dragon-ball/draw', [CharacterLibraryController::class, 'draw'])->name('character-library.draw');
+    Route::post('dragon-ball/{character}/{expression}/upload', [CharacterLibraryController::class, 'upload'])->name('character-library.upload');
     Route::get('topic-shorts', [TopicShortController::class, 'index'])->name('topic-shorts.index');
     Route::post('topic-shorts', [TopicShortController::class, 'store'])->name('topic-shorts.store');
     Route::get('topic-shorts/{short}', [TopicShortController::class, 'show'])->name('topic-shorts.show');
@@ -103,6 +107,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('topic-shorts/{short}/download', [TopicShortController::class, 'download'])->name('topic-shorts.download');
     Route::post('topic-short-scenes/{scene}/search', [TopicShortController::class, 'search'])->name('topic-short-scenes.search');
     Route::post('topic-short-scenes/{scene}/pick', [TopicShortController::class, 'pick'])->name('topic-short-scenes.pick');
+    Route::post('topic-short-scenes/{scene}/library', [TopicShortController::class, 'library'])->name('topic-short-scenes.library');
     Route::post('topic-short-scenes/{scene}/muse', [TopicShortController::class, 'muse'])->name('topic-short-scenes.muse');
     Route::post('topic-short-scenes/{scene}/upload', [TopicShortController::class, 'upload'])->name('topic-short-scenes.upload');
 

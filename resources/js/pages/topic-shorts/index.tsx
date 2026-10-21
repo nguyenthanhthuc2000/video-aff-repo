@@ -60,7 +60,7 @@ export default function TopicShortsIndex({
             <div className="space-y-6 p-4">
                 <Heading
                     title="Shorts chủ đề"
-                    description="Nhập một chủ đề (ví dụ: Lần đầu Goku biến thành Super Saiyan). Claude kể chuyện, tìm ảnh từng cảnh, giọng AI đọc, ghép video 9:16 dài 30–60 giây."
+                    description="Short 7 Viên Ngọc Rồng: nhập chủ đề, Claude viết lời kể theo khung kênh tóm tắt anime, mỗi cảnh dùng ảnh nhân vật trong thư viện (manga trắng đen) hoặc Muse vẽ, giọng AI đọc, ghép video 9:16 dài 30–60 giây."
                 />
                 <FlashStatus />
 

@@ -118,6 +118,11 @@ class User extends Authenticatable
         return $this->hasMany(Series::class);
     }
 
+    public function characterPortraits(): HasMany
+    {
+        return $this->hasMany(CharacterPortrait::class);
+    }
+
     public function topicShorts(): HasMany
     {
         return $this->hasMany(TopicShort::class);

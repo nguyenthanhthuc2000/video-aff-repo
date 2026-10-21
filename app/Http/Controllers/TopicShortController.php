@@ -7,11 +7,13 @@ use App\Jobs\GenerateTopicSceneImageJob;
 use App\Jobs\RenderTopicShortJob;
 use App\Jobs\WriteTopicShortJob;
 use App\Models\AudioTrack;
+use App\Models\CharacterPortrait;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Services\TopicShort\ShortWriter;
 use App\Support\CreditPricing;
 use App\Support\Credits;
+use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -108,6 +110,10 @@ class TopicShortController extends Controller
                     'image_source_url' => $scene->image_url,
                     'image_error' => $scene->image_error,
                     'candidates' => $scene->candidates ?? [],
+                    'expression' => $scene->expression,
+                    // Ảnh thư viện nhân vật Ngọc Rồng của các nhân vật trong cảnh (bấm để dùng làm ảnh cảnh).
+                    'library' => collect($scene->characters ?? [])->map(fn ($name) => ($key = DragonBall::keyFor($name)) ? CharacterPortrait::best($short->user_id, $key, $scene->expression) : null)
+                        ->filter()->unique('id')->map(fn (CharacterPortrait $p) => ['id' => $p->id, 'name' => DragonBall::CHARACTERS[$p->character][0], 'expression' => $p->expression, 'url' => Media::url($p->image_path)])->values(),
                 ]),
             ],
             'music' => AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
@@ -205,6 +211,20 @@ class TopicShortController extends Controller
         }
 
         return back()->with('status', "Đã đổi ảnh cảnh {$scene->position}.");
+    }
+
+    /** Dùng ảnh thư viện nhân vật làm ảnh cảnh. */
+    public function library(Request $request, TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        $validated = $request->validate(['portrait_id' => ['required', 'integer']]);
+        $portrait = $request->user()->characterPortraits()->where('status', 'ready')->findOrFail($validated['portrait_id']);
+        if ($this->busy($scene)) {
+            return back()->with('status', 'Ảnh cảnh này đang được tạo.');
+        }
+        FindTopicSceneImageJob::useLibrary($scene, $portrait);
+
+        return back()->with('status', "Đã dùng ảnh nhân vật cho cảnh {$scene->position}.");
     }
 
     /** Muse vẽ ảnh mới cho cảnh (có thể kèm prompt mới). */

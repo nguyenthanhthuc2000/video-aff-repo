@@ -2,11 +2,13 @@
 
 namespace App\Jobs;
 
+use App\Models\CharacterPortrait;
 use App\Models\TopicShortScene;
 use App\Services\TopicShort\RemoteImage;
 use App\Services\TopicShort\WikiImageSearch;
 use App\Support\CreditPricing;
 use App\Support\Credits;
+use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -61,7 +63,11 @@ class FindTopicSceneImageJob implements ShouldQueue
             }
         }
 
-        // Không có ảnh wiki dùng được: để Muse vẽ theo prompt (nếu đủ Credits).
+        // Không có ảnh wiki dùng được: lấy ảnh thư viện nhân vật (đúng biểu cảm) nếu có, không thì để Muse vẽ.
+        if (self::useLibrary($scene)) {
+            return;
+        }
+        // Muse vẽ theo prompt (nếu đủ Credits).
         if (filled($scene->image_prompt) && Credits::shortfall($short->user, CreditPricing::settings()['steps']['image'], 'vẽ ảnh') === null) {
             $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
             GenerateTopicSceneImageJob::dispatch($scene);
@@ -94,6 +100,35 @@ class FindTopicSceneImageJob implements ShouldQueue
         }
 
         return $queries;
+    }
+
+    /** Ảnh thư viện nhân vật Ngọc Rồng cho cảnh: nhân vật đầu tiên có ảnh, đúng biểu cảm hoặc mặt thường. */
+    public static function libraryPortrait(TopicShortScene $scene): ?CharacterPortrait
+    {
+        foreach ($scene->characters ?? [] as $name) {
+            if (($key = DragonBall::keyFor($name)) && ($portrait = CharacterPortrait::best($scene->topicShort->user_id, $key, $scene->expression))) {
+                return $portrait;
+            }
+        }
+
+        return null;
+    }
+
+    /** Gắn ảnh thư viện cho cảnh (sao chép file để xoá / vẽ lại thư viện không ảnh hưởng short). */
+    public static function useLibrary(TopicShortScene $scene, ?CharacterPortrait $portrait = null): bool
+    {
+        $portrait ??= self::libraryPortrait($scene);
+        $contents = $portrait?->image_path ? Media::disk()->get($portrait->image_path) : null;
+        if ($contents === null) {
+            return false;
+        }
+        $path = "topic-shorts/{$scene->topic_short_id}/scene-{$scene->id}-library-{$portrait->id}-".substr(md5($contents), 0, 8).'.'.(pathinfo($portrait->image_path, PATHINFO_EXTENSION) ?: 'png');
+        Media::disk()->put($path, $contents);
+        $old = $scene->image_path;
+        $scene->update(['image_source' => 'library', 'image_status' => 'ready', 'image_path' => $path, 'image_url' => null, 'image_error' => null, 'request_id' => null]);
+        $old && $old !== $path && Media::delete($old);
+
+        return true;
     }
 
     /**
