@@ -29,6 +29,7 @@ use App\Http\Controllers\ShortsController;
 use App\Http\Controllers\SocialAccountController;
 use App\Http\Controllers\SocialPostController;
 use App\Http\Controllers\SongDraftController;
+use App\Http\Controllers\TopicShortController;
 use App\Http\Controllers\VideoProjectController;
 use App\Http\Controllers\VideoSettingsController;
 use App\Support\CreditPricing;
@@ -88,6 +89,20 @@ Route::middleware(['auth'])->group(function () {
     Route::post('scene-images/{image}/approve', [SceneImageController::class, 'approve'])->name('scene-images.approve');
     Route::post('projects/{project}/renders', [RenderController::class, 'store'])->name('projects.renders.store');
     Route::get('renders/{render}/download', [RenderController::class, 'download'])->name('renders.download');
+
+    // Shorts theo chủ đề (Dragon Ball, anime...): lời kể Claude, ảnh wiki / Muse / tải lên, giọng AI.
+    Route::get('topic-shorts', [TopicShortController::class, 'index'])->name('topic-shorts.index');
+    Route::post('topic-shorts', [TopicShortController::class, 'store'])->name('topic-shorts.store');
+    Route::get('topic-shorts/{short}', [TopicShortController::class, 'show'])->name('topic-shorts.show');
+    Route::put('topic-shorts/{short}', [TopicShortController::class, 'update'])->name('topic-shorts.update');
+    Route::delete('topic-shorts/{short}', [TopicShortController::class, 'destroy'])->name('topic-shorts.destroy');
+    Route::post('topic-shorts/{short}/rewrite', [TopicShortController::class, 'rewrite'])->name('topic-shorts.rewrite');
+    Route::post('topic-shorts/{short}/render', [TopicShortController::class, 'render'])->name('topic-shorts.render');
+    Route::get('topic-shorts/{short}/download', [TopicShortController::class, 'download'])->name('topic-shorts.download');
+    Route::post('topic-short-scenes/{scene}/search', [TopicShortController::class, 'search'])->name('topic-short-scenes.search');
+    Route::post('topic-short-scenes/{scene}/pick', [TopicShortController::class, 'pick'])->name('topic-short-scenes.pick');
+    Route::post('topic-short-scenes/{scene}/muse', [TopicShortController::class, 'muse'])->name('topic-short-scenes.muse');
+    Route::post('topic-short-scenes/{scene}/upload', [TopicShortController::class, 'upload'])->name('topic-short-scenes.upload');
 
     // Học tiếng Anh mỗi ngày (A2 → B1) + video Shorts từ bài luyện.
     Route::get('english', [EnglishController::class, 'index'])->name('english.index');

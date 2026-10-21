@@ -8,6 +8,7 @@ use App\Models\EnglishLesson;
 use App\Models\Product;
 use App\Models\SampleVideo;
 use App\Models\Series;
+use App\Models\TopicShort;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\ProjectCredits;
@@ -209,6 +210,7 @@ class AiUsage
             'sample_video' => SampleVideo::find($id)?->name,
             'series' => ($title = Series::find($id)?->title) ? "Phim: {$title}" : null,
             'english' => ($lesson = EnglishLesson::find($id)) ? "Tiếng Anh Day {$lesson->day}: {$lesson->topic}" : null,
+            'topic_short' => ($short = TopicShort::find($id)) ? "Short: {$short->topic}" : null,
             default => null,
         };
     }

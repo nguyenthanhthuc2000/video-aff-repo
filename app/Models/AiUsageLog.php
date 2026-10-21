@@ -19,6 +19,7 @@ class AiUsageLog extends Model
         'product_import' => 'Đọc trang sản phẩm',
         'scene_prompt_rewrite' => 'Viết lại prompt phân cảnh (tạo lại ảnh)',
         'motion_analysis' => 'Phân tích video mẫu',
+        'topic_short' => 'Shorts chủ đề: viết lời kể',
         'film_plan' => 'Phim: lên kế hoạch bộ phim',
         'film_episode' => 'Phim: viết tập (dàn ý, shot)',
         'english_lesson' => 'Tiếng Anh: soạn bài / sửa lỗi nói',

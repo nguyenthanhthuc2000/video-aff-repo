@@ -1,0 +1,203 @@
+<?php
+
+namespace App\Services\TopicShort;
+
+use App\Models\AudioTrack;
+use App\Models\TopicShort;
+use App\Services\Audio\Tts;
+use App\Services\Film\Voices;
+use App\Services\Video\AssSubtitles;
+use App\Support\Media;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Process;
+use RuntimeException;
+
+/**
+ * Dựng short 9:16: giọng AI đọc lời kể (Kokoro tiếng Anh / Piper tiếng Việt), mỗi cảnh một ảnh
+ * (ảnh ngang đặt giữa trên nền mờ của chính nó, zoom chậm), chữ lớn phía trên, phụ đề theo câu phía dưới, nhạc nền tuỳ chọn.
+ */
+class ShortVideo
+{
+    public const WIDTH = 1080;
+
+    public const HEIGHT = 1920;
+
+    public const FPS = 30;
+
+    /** Số từ tối đa mỗi dòng phụ đề. */
+    private const CHUNK_WORDS = 7;
+
+    /**
+     * @param  array{music_track_id?: ?int, music_volume?: ?int}  $options
+     * @return array{path: string, ms: int}
+     *
+     * @throws RuntimeException
+     */
+    public static function render(TopicShort $short, string $dir, array $options = [], ?Tts $tts = null): array
+    {
+        $scenes = $short->scenes()->get();
+        if ($scenes->isEmpty() || $scenes->contains(fn ($scene) => $scene->image_status !== 'ready' || ! $scene->image_path)) {
+            throw new RuntimeException('Mọi cảnh phải có ảnh trước khi dựng video.');
+        }
+
+        $voice = ($tts ?? app(Tts::class))->speak($scenes->map(fn ($scene) => self::line($short, $scene->narration))->all(), 0.3, 0.25, 0.8);
+        File::put("{$dir}/voice.wav", $voice['contents']);
+        $total = $voice['duration_ms'];
+        $lines = $voice['lines'];
+
+        // Ranh giới cảnh: đổi ảnh ngay trước câu tiếp theo.
+        $bounds = [0];
+        for ($i = 1; $i < $scenes->count(); $i++) {
+            $bounds[] = max($bounds[$i - 1] + 500, (int) ($lines[$i]['start_ms'] ?? $bounds[$i - 1] + 3000) - 150);
+        }
+        $bounds[] = max($total, end($bounds) + 500);
+        $total = end($bounds);
+
+        $args = [];
+        $filters = [];
+        $events = [];
+        foreach ($scenes->values() as $i => $scene) {
+            $local = "{$dir}/img{$i}.".(pathinfo($scene->image_path, PATHINFO_EXTENSION) ?: 'jpg');
+            $contents = Media::disk()->get($scene->image_path);
+            if ($contents === null) {
+                throw new RuntimeException("Không đọc được ảnh cảnh {$scene->position}.");
+            }
+            File::put($local, $contents);
+            $args = [...$args, '-i', $local];
+            $frames = max(1, (int) round(($bounds[$i + 1] - $bounds[$i]) / 1000 * self::FPS));
+            $filters[] = self::sceneFilter($i, $frames);
+
+            $title = $i === 0 && $short->title ? $short->title : (string) $scene->on_screen_text;
+            $title !== '' && $events[] = [$bounds[$i], $bounds[$i + 1], $i === 0 ? 'Title' : 'Top', $title];
+            $start = (int) ($lines[$i]['start_ms'] ?? $bounds[$i]);
+            $end = (int) ($lines[$i]['end_ms'] ?? $bounds[$i + 1]);
+            foreach (self::chunks($scene->narration, $start, $end) as $chunk) {
+                $events[] = [$chunk[0], $chunk[1], 'Sub', $chunk[2]];
+            }
+        }
+        $count = $scenes->count();
+        $filters[] = implode('', array_map(fn ($i) => "[v{$i}]", range(0, $count - 1)))."concat=n={$count}:v=1:a=0,tpad=stop_mode=clone:stop_duration=2[vc]";
+        File::put("{$dir}/text.ass", self::ass($events));
+        $filters[] = "[vc]subtitles='".self::escapePath("{$dir}/text.ass")."':fontsdir='".self::escapePath(resource_path('fonts'))."',format=yuv420p[v]";
+
+        $seconds = self::seconds($total);
+        $args = [...$args, '-i', "{$dir}/voice.wav"];
+        $voiceIndex = $count;
+        $music = ($options['music_track_id'] ?? null) ? AudioTrack::where('user_id', $short->user_id)->find($options['music_track_id']) : null;
+        if ($music) {
+            $local = "{$dir}/music.".(pathinfo($music->path, PATHINFO_EXTENSION) ?: 'mp3');
+            File::put($local, (string) Media::disk()->get($music->path));
+            $args = [...$args, '-stream_loop', '-1', '-i', $local];
+            $volume = max(0, min(40, (int) ($options['music_volume'] ?? 12))) / 100;
+            $filters[] = "[{$voiceIndex}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{$seconds},asplit=2[voice][key]";
+            $filters[] = '['.($voiceIndex + 1).":a]atrim=0:{$seconds},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo,volume={$volume},afade=t=out:st=".self::seconds(max(0, $total - 2000)).':d=2[m0]';
+            $filters[] = '[m0][key]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[music]';
+            $filters[] = '[voice][music]amix=inputs=2:normalize=0:duration=first[a]';
+        } else {
+            $filters[] = "[{$voiceIndex}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{$seconds}[a]";
+        }
+
+        $out = "{$dir}/short.mp4";
+        $result = Process::timeout(900)->run([
+            config('videoaff.ffmpeg'), '-v', 'error', '-y', '-nostdin', ...$args, '-filter_complex', implode(';', $filters),
+            '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p', '-r', (string) self::FPS,
+            '-c:a', 'aac', '-b:a', '160k', '-t', $seconds, '-movflags', '+faststart', $out,
+        ]);
+        if ($result->failed() || ! is_file($out)) {
+            throw new RuntimeException('Dựng video lỗi: '.mb_substr(trim($result->errorOutput()), -400));
+        }
+
+        return ['path' => $out, 'ms' => $total];
+    }
+
+    /** Một câu đọc cho Tts: tiếng Việt dùng Piper (một giọng), tiếng Anh dùng giọng người kể Kokoro. */
+    public static function line(TopicShort $short, string $text): array
+    {
+        return $short->language === 'en'
+            ? ['text' => $text, 'voice' => Voices::NARRATOR['voice'], 'pitch' => Voices::NARRATOR['pitch'], 'speed' => Voices::NARRATOR['speed']]
+            : ['text' => $text, 'voice' => '', 'pitch' => 1.0, 'speed' => 1.0, 'lang' => 'vi'];
+    }
+
+    /** Ảnh ngang: đặt giữa trên nền mờ của chính nó; ảnh dọc phủ kín. Zoom chậm, lần lượt vào / ra. */
+    private static function sceneFilter(int $i, int $frames): string
+    {
+        $w = self::WIDTH;
+        $h = self::HEIGHT;
+        $bigW = (int) round($w * 1.5);
+        $bigH = (int) round($h * 1.5);
+        $zoom = $i % 2 === 0 ? "1+0.08*on/{$frames}" : "1.08-0.08*on/{$frames}";
+
+        return "[{$i}:v]split=2[a{$i}][b{$i}];"
+            ."[a{$i}]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},boxblur=30:3,eq=brightness=-0.2[bg{$i}];"
+            ."[b{$i}]scale={$w}:{$h}:force_original_aspect_ratio=decrease[fg{$i}];"
+            ."[bg{$i}][fg{$i}]overlay=(W-w)/2:(H-h)/2,scale={$bigW}:{$bigH},"
+            ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps=".self::FPS.','
+            ."setsar=1,format=yuv420p,fade=t=in:st=0:d=0.2[v{$i}]";
+    }
+
+    /**
+     * Chia câu đọc thành các dòng phụ đề ngắn, thời gian chia theo độ dài chữ.
+     *
+     * @return list<array{0: int, 1: int, 2: string}>
+     */
+    public static function chunks(string $text, int $start, int $end): array
+    {
+        $words = preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($words === [] || $end <= $start) {
+            return [];
+        }
+        $groups = [];
+        $current = [];
+        foreach ($words as $word) {
+            $current[] = $word;
+            // Ngắt ở dấu câu hoặc khi đủ số từ.
+            if (count($current) >= self::CHUNK_WORDS || (count($current) >= 3 && preg_match('/[.!?,;:…]$/u', $word))) {
+                $groups[] = implode(' ', $current);
+                $current = [];
+            }
+        }
+        $current && $groups[] = implode(' ', $current);
+
+        $totalChars = array_sum(array_map('mb_strlen', $groups));
+        $chunks = [];
+        $cursor = $start;
+        foreach ($groups as $k => $group) {
+            $next = $k === count($groups) - 1 ? $end : $cursor + (int) round(($end - $start) * mb_strlen($group) / max(1, $totalChars));
+            $chunks[] = [$cursor, $next, $group];
+            $cursor = $next;
+        }
+
+        return $chunks;
+    }
+
+    /** @param list<array{0: int, 1: int, 2: string, 3: string}> $events */
+    private static function ass(array $events): string
+    {
+        $font = 'Be Vietnam Pro';
+        $lines = [
+            '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: '.self::WIDTH, 'PlayResY: '.self::HEIGHT, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', '',
+            '[V4+ Styles]',
+            'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+            "Style: Title,{$font},84,&H0000D7FF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,8,70,70,240,1",
+            "Style: Top,{$font},72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,6,2,8,80,80,260,1",
+            "Style: Sub,{$font},62,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,1,2,80,80,520,1",
+            '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+        ];
+        foreach ($events as [$start, $end, $style, $text]) {
+            $fade = $style === 'Sub' ? '' : '{\fad(150,150)}';
+            $lines[] = 'Dialogue: 0,'.AssSubtitles::time($start).','.AssSubtitles::time($end).",{$style},,0,0,0,,{$fade}".AssSubtitles::escape($text);
+        }
+
+        return implode("\n", $lines)."\n";
+    }
+
+    private static function seconds(int $ms): string
+    {
+        return rtrim(rtrim(number_format($ms / 1000, 3, '.', ''), '0'), '.');
+    }
+
+    private static function escapePath(string $path): string
+    {
+        return str_replace(['\\', "'", ':'], ['\\\\', "\\'", '\\:'], $path);
+    }
+}

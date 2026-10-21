@@ -122,6 +122,16 @@ return [
     ],
 
     'ffmpeg' => env('FFMPEG_BINARY', 'ffmpeg'),
+
+    // Shorts theo chủ đề: nguồn ảnh wiki (MediaWiki API, tìm trong không gian File) và máy chủ ảnh được tải về.
+    'topic_shorts' => [
+        'wikis' => [
+            'dragonball' => ['label' => 'Dragon Ball Wiki (Fandom)', 'api' => 'https://dragonball.fandom.com/api.php'],
+            'commons' => ['label' => 'Wikimedia Commons', 'api' => 'https://commons.wikimedia.org/w/api.php'],
+        ],
+        'image_hosts' => ['static.wikia.nocookie.net', 'upload.wikimedia.org'],
+        'candidates' => 8,
+    ],
     'ffprobe' => env('FFPROBE_BINARY', 'ffprobe'),
 
     // Video mẫu (sao chép chuyển động): dung lượng tối đa (KB) và độ dài khuyên dùng (giây).

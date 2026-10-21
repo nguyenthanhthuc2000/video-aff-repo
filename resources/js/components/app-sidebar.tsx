@@ -18,6 +18,7 @@ import {
     Music,
     Package,
     ShieldCheck,
+    Sparkles,
     Tv,
     Users,
     Wallet,
@@ -50,6 +51,11 @@ const mainNavItems: NavItem[] = [
         title: 'Shorts nhạc',
         url: '/music-videos/shorts',
         icon: Zap,
+    },
+    {
+        title: 'Shorts chủ đề',
+        url: '/topic-shorts',
+        icon: Sparkles,
     },
     {
         title: 'Học tiếng Anh',

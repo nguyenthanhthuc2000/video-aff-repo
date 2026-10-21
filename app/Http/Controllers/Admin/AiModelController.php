@@ -22,6 +22,7 @@ class AiModelController extends Controller
         'product_import' => ['input' => 6000, 'output' => 600],
         'scene_prompt_rewrite' => ['input' => 900, 'output' => 250],
         'motion_analysis' => ['input' => 15000, 'output' => 1500],
+        'topic_short' => ['input' => 1500, 'output' => 2500],
         'film_plan' => ['input' => 2500, 'output' => 6000],
         'film_episode' => ['input' => 3500, 'output' => 3000],
     ];
