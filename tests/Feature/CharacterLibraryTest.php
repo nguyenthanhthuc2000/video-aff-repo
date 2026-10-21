@@ -177,6 +177,11 @@ class CharacterLibraryTest extends TestCase
         $this->assertStringContainsString("widow's peak", $prompts[1]);
         $this->assertStringNotContainsString('attached image', $prompts[1]);
 
+        // Viết lại đủ 2 lần vẫn bị từ chối: nút tạo lại bỏ qua ô này (chỉ còn tải lên / bấm riêng ô).
+        $portrait->update(['status' => 'failed', 'attempts' => 2]);
+        $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Không có ảnh nào cần vẽ.');
+        $this->actingAs($this->user)->get(route('character-library.index'))->assertInertia(fn (Assert $page) => $page->where('blocked', 1)->where('failed', 0));
+
         // Cảnh bị từ chối: Claude (driver fake: luật thay từ) viết lại prompt bớt bạo lực, bỏ tên, rồi vẽ lại.
         $prompts->exchangeArray([]);
         $violent = TopicShortScene::factory()->for(TopicShort::factory()->for($this->user))->create([

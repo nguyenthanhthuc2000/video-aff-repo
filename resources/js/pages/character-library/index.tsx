@@ -37,6 +37,8 @@ export default function CharacterLibrary({
     expressions,
     price,
     failed,
+    blocked,
+    max_attempts,
     stats,
     busy,
 }: {
@@ -44,6 +46,8 @@ export default function CharacterLibrary({
     expressions: Record<string, string>;
     price: number;
     failed: number;
+    blocked: number;
+    max_attempts: number;
     stats: { characters: number; characters_done: number; suggested: number; ready: number; failed: number; pending: number };
     busy: boolean;
 }) {
@@ -59,7 +63,8 @@ export default function CharacterLibrary({
             router.post(route('character-library.draw'), { failed_only: true }, options);
         }
     };
-    const missing = (c: Character) => c.suggested.filter((e) => !c.portraits[e] || c.portraits[e]?.status === 'failed').length;
+    const missing = (c: Character) =>
+        c.suggested.filter((e) => !c.portraits[e] || (c.portraits[e]?.status === 'failed' && (c.portraits[e]?.attempts ?? 0) < max_attempts)).length;
     const totalMissing = characters.reduce((sum, c) => sum + missing(c), 0);
 
     const drawAll = () => {
@@ -99,8 +104,15 @@ export default function CharacterLibrary({
                     <Stat label="Ảnh xong" value={`${stats.ready}/${stats.suggested}`} tone="text-green-600 dark:text-green-400" />
                     <Stat label="Ảnh lỗi" value={stats.failed} tone={stats.failed > 0 ? 'text-red-600 dark:text-red-400' : undefined} />
                     <Stat label="Đang vẽ" value={stats.pending} />
-                    <Stat label="Chưa vẽ" value={totalMissing - stats.failed} />
+                    <Stat label="Chưa vẽ" value={totalMissing - failed} />
                 </div>
+                {blocked > 0 && (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                        {blocked} ảnh đã viết lại {max_attempts} lần mà Muse vẫn từ chối. Muse nhớ các ảnh đã chặn trong tài khoản và chặn mọi biến
+                        thể, nên app không tự vẽ lại các ô này nữa. Bạn tải ảnh lên cho các ô đó (nút tải lên dưới mỗi ô), hoặc bấm cây đũa của từng ô
+                        nếu muốn thử thêm.
+                    </p>
+                )}
                 {stats.failed > 0 && (
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={onlyFailed} onChange={(e) => setOnlyFailed(e.target.checked)} />

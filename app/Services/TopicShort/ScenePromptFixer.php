@@ -49,10 +49,10 @@ final class ScenePromptFixer
     public const PORTRAIT_SYSTEM = <<<'PROMPT'
     You rewrite an image prompt for one black-and-white manga character picture (vertical 9:16). The image AI refused the previous prompt; its explanation is given.
     - The AI refuses copyrighted characters: write it as an ORIGINAL character inspired by the given look. No franchise, show, author or character names, no trademarked terms; describe hair, face, eyes, build, outfit, accessories in your own words.
-    - Keep the requested facial expression, but nothing frightening or violent: no blood, injuries, cracks in the body, screaming in agony.
+    - Expression: keep the requested one only if the AI did not object to it. When the AI suggests a different expression or removing effects (speed lines, debris, sweat drops, question marks, dot eyes, screaming), USE ITS SUGGESTION exactly, even if the expression becomes calmer. Nothing frightening or violent: no blood, injuries, cracks in the body, screaming in agony.
     - Follow the AI's suggestion when it gives one.
     - The AI remembers refused requests and blocks anything that looks like a retry. Make it a clearly NEW image: different framing (e.g. waist-up three-quarter view, or full-body dynamic pose instead of a close-up bust), different pose and gesture, a simple background element (sky, ground, speed-line burst), fresh wording and sentence order. Soften the most iconic identifying marks into generic ones.
-    - Follow the AI's own suggestion (it usually offers an original character with a similar look) as closely as possible.
+    - Follow the AI's own suggestion (it usually offers an original character with a similar look and a calmer variant) as closely as possible: it is the only version it will accept.
     - Keep: black and white ink, screentone shading, clean bold lines, 1990s shonen manga look, no text or speech bubbles.
     - English, under 90 words, prompt only.
     PROMPT;

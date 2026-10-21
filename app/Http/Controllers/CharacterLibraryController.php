@@ -19,6 +19,9 @@ use Inertia\Response;
 /** Thư viện nhân vật Ngọc Rồng: Muse vẽ mỗi nhân vật với các biểu cảm (manga trắng đen), dùng làm ảnh mẫu / ảnh cảnh cho Shorts chủ đề. */
 class CharacterLibraryController extends Controller
 {
+    /** Số lần viết lại tối đa cho một ô bị từ chối; quá số này chỉ còn cách tải ảnh lên. */
+    public const MAX_ATTEMPTS = 2;
+
     public function index(Request $request): Response
     {
         $portraits = $request->user()->characterPortraits()->get()->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
@@ -43,7 +46,9 @@ class CharacterLibraryController extends Controller
             ])->values(),
             'expressions' => collect(DragonBall::EXPRESSIONS)->map(fn ($e) => $e[0]),
             'price' => CreditPricing::settings()['steps']['image'],
-            'failed' => $portraits->where('status', 'failed')->count(),
+            'failed' => $portraits->where('status', 'failed')->where('attempts', '<', self::MAX_ATTEMPTS)->count(),
+            'blocked' => $portraits->where('status', 'failed')->where('attempts', '>=', self::MAX_ATTEMPTS)->count(),
+            'max_attempts' => self::MAX_ATTEMPTS,
             'stats' => [
                 'characters' => count(DragonBall::CHARACTERS),
                 'characters_done' => collect(DragonBall::CHARACTERS)->filter(fn ($c, $key) => collect($c[2])->every(fn ($e) => $portraits->get("{$key}:{$e}")?->status === 'ready'))->count(),
@@ -72,7 +77,8 @@ class CharacterLibraryController extends Controller
 
         $targets = [];
         if ($request->boolean('failed_only')) {
-            $targets = $existing->where('status', 'failed')->map(fn (CharacterPortrait $p) => [$p->character, $p->expression])->values()->all();
+            // Ô đã viết lại 2 lần vẫn bị từ chối: Muse nhớ và chặn mọi biến thể, thử tiếp chỉ làm danh sách chặn dài thêm.
+            $targets = $existing->where('status', 'failed')->where('attempts', '<', self::MAX_ATTEMPTS)->map(fn (CharacterPortrait $p) => [$p->character, $p->expression])->values()->all();
         } elseif (filled($validated['character'] ?? null) && filled($validated['expression'] ?? null)) {
             $targets[] = [$validated['character'], $validated['expression']];
         } else {
@@ -80,7 +86,7 @@ class CharacterLibraryController extends Controller
             foreach ($keys as $key) {
                 foreach (DragonBall::CHARACTERS[$key][2] as $expression) {
                     $portrait = $existing->get("{$key}:{$expression}");
-                    if ($portrait === null || $portrait->status === 'failed') {
+                    if ($portrait === null || ($portrait->status === 'failed' && $portrait->attempts < self::MAX_ATTEMPTS)) {
                         $targets[] = [$key, $expression];
                     }
                 }
