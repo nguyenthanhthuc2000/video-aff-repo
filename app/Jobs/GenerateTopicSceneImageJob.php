@@ -6,6 +6,8 @@ use App\Models\CharacterPortrait;
 use App\Models\TopicShortScene;
 use App\Services\Image\GeneratedImage;
 use App\Services\Image\ImageGeneratorException;
+use App\Services\Script\ScriptWriterException;
+use App\Services\TopicShort\ScenePromptFixer;
 use App\Support\AiProviders;
 use App\Support\CreditPricing;
 use App\Support\Credits;
@@ -85,6 +87,19 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         return "muse-safe:topic-scene:{$scene->id}";
     }
 
+    /** Lời từ chối của AI chờ Claude viết lại prompt trước lần vẽ tới. */
+    public static function rewriteKey(TopicShortScene $scene): string
+    {
+        return "muse-rewrite:topic-scene:{$scene->id}";
+    }
+
+    /** Lần vẽ lại sau khi bị từ chối: bỏ tên riêng và để Claude viết lại prompt theo lời từ chối. */
+    public static function markForRewrite(TopicShortScene $scene, string $refusal): void
+    {
+        Cache::put(self::safeKey($scene), true, now()->addDay());
+        Cache::put(self::rewriteKey($scene), $refusal, now()->addDay());
+    }
+
     /** Prompt vẽ cảnh; safe (sau khi AI từ chối): bỏ tên nhân vật / phim / tác giả, gọi nhân vật theo ảnh mẫu và mô tả ngoại hình. */
     public static function prompt(TopicShortScene $scene, bool $safe = false): string
     {
@@ -140,6 +155,15 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
                     return;
                 }
+                if (Cache::has(self::rewriteKey($scene))) {
+                    try {
+                        $prompt = ScenePromptFixer::rewrite($scene, (string) Cache::get(self::rewriteKey($scene)));
+                    } catch (ScriptWriterException) {
+                        $prompt = ScenePromptFixer::fallback((string) $scene->image_prompt);
+                    }
+                    $scene->update(['image_prompt' => $prompt]);
+                    Cache::forget(self::rewriteKey($scene));
+                }
                 $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene, Cache::has(self::safeKey($scene))))]);
                 $this->release(15);
 
@@ -160,7 +184,7 @@ class GenerateTopicSceneImageJob implements ShouldQueue
             }
             // AI từ chối (thường vì tên nhân vật / phim): tự thử lại một lần với prompt bỏ tên, giữ mô tả và ảnh mẫu.
             if ($e->rejected && ! Cache::has(self::safeKey($scene))) {
-                Cache::put(self::safeKey($scene), true, now()->addDay());
+                self::markForRewrite($scene, (string) $e->refusal);
                 $scene->update(['request_id' => null]);
                 $this->release(5);
 

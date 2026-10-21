@@ -16,6 +16,7 @@ use App\Services\TopicShort\WikiImageSearch;
 use App\Support\DragonBall;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -157,6 +158,32 @@ class CharacterLibraryTest extends TestCase
         $this->assertStringNotContainsString('Vegeta', $prompts[1]);
         $this->assertStringNotContainsString('Dragon Ball', $prompts[1]);
         $this->assertStringContainsString("widow's peak", $prompts[1]);
+
+        // Cảnh bị từ chối: Claude (driver fake: luật thay từ) viết lại prompt bớt bạo lực, bỏ tên, rồi vẽ lại.
+        $prompts->exchangeArray([]);
+        $violent = TopicShortScene::factory()->for(TopicShort::factory()->for($this->user))->create([
+            'image_prompt' => 'Goku collapsing in pain as a hand grips his tail', 'image_status' => 'pending', 'characters' => null,
+        ]);
+        foreach (range(1, 4) as $_) {
+            (new GenerateTopicSceneImageJob($violent))->handle();
+        }
+        $violent->refresh();
+        $this->assertSame('ready', $violent->image_status, (string) $violent->image_error);
+        $this->assertStringNotContainsString('in pain', $violent->image_prompt);
+        $this->assertStringNotContainsString('Goku', $violent->image_prompt);
+
+        // Nút tạo lại ảnh lỗi: mọi cảnh lỗi, prompt viết lại theo lời từ chối.
+        Queue::fake();
+        $failed = TopicShortScene::factory()->for($violent->topicShort)->create(['image_status' => 'failed', 'image_error' => 'AI từ chối tạo yêu cầu này. AI trả lời: no violence please']);
+        $this->actingAs($this->user)->post(route('topic-shorts.retry-failed', $violent->topicShort))->assertSessionHas('status');
+        $this->assertSame('pending', $failed->fresh()->image_status);
+        $this->assertSame(' no violence please', Cache::get(GenerateTopicSceneImageJob::rewriteKey($failed)));
+        Queue::assertPushed(GenerateTopicSceneImageJob::class, 1);
+        $this->actingAs(User::factory()->create())->post(route('topic-shorts.retry-failed', $violent->topicShort))->assertForbidden();
+
+        // Thư viện: vẽ lại ảnh lỗi.
+        $portrait->update(['status' => 'failed']);
+        $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Muse đang vẽ 1 ảnh...');
 
         $short = TopicShort::factory()->for($this->user)->create(['art_style' => 'Dragon Ball, Akira Toriyama character design', 'characters' => [['name' => 'Goku', 'look' => 'Son Goku, spiky black hair, gi with Kanji', 'image_path' => null]]]);
         $scene = TopicShortScene::factory()->for($short)->create(['characters' => ['Goku'], 'image_prompt' => 'Goku turns Super Saiyan on Namek']);

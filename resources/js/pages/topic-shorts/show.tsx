@@ -95,6 +95,16 @@ export default function TopicShortShow({
         }
     };
     const [imageStyle, setImageStyle] = useState(short.image_style);
+    const failedCount = short.scenes.filter((s) => s.image_status === 'failed').length;
+    const retryFailed = () => {
+        if (
+            confirm(
+                `Tạo lại ${failedCount} ảnh lỗi với prompt đã viết lại (bỏ tên nhân vật / phim), khoảng ${formatNumber(failedCount * prices.image)} Credits. Tiếp tục?`,
+            )
+        ) {
+            router.post(route('topic-shorts.retry-failed', short.id), {}, { preserveScroll: true });
+        }
+    };
     const museAll = () => {
         const count = short.scenes.filter((s) => s.image_source !== 'upload').length;
         if (confirm(`Muse vẽ lại ${count} cảnh (trừ ảnh bạn tự tải lên), khoảng ${formatNumber(count * prices.image)} Credits. Tiếp tục?`)) {
@@ -151,6 +161,11 @@ export default function TopicShortShow({
                                         </option>
                                     ))}
                                 </select>
+                                {failedCount > 0 && (
+                                    <Button size="sm" onClick={retryFailed}>
+                                        <RefreshCw /> Tạo lại {failedCount} ảnh lỗi
+                                    </Button>
+                                )}
                                 <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
                                     <Wand2 /> Muse vẽ lại tất cả
                                 </Button>

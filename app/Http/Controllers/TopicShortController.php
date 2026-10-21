@@ -281,6 +281,27 @@ class TopicShortController extends Controller
         return back()->with('status', "Đã lưu ảnh mẫu {$characters[$index]['name']}.");
     }
 
+    /** Tạo lại mọi ảnh cảnh bị lỗi, dùng thẳng prompt đã bỏ tên nhân vật / phim (AI hay từ chối tên có bản quyền). */
+    public function retryFailed(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $scenes = $short->scenes()->where('image_status', 'failed')->get();
+        if ($scenes->isEmpty()) {
+            return back()->with('status', 'Không có ảnh nào bị lỗi.');
+        }
+        if ($message = Credits::shortfall($request->user(), $scenes->count() * CreditPricing::settings()['steps']['image'], 'vẽ ảnh')) {
+            return back()->with('status', $message);
+        }
+        foreach ($scenes as $scene) {
+            // Lời từ chối của AI nằm sau "AI trả lời:" trong lỗi; Claude viết lại prompt theo đó.
+            GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
+            $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+            GenerateTopicSceneImageJob::dispatch($scene);
+        }
+
+        return back()->with('status', "Claude đang viết lại prompt và tạo lại {$scenes->count()} ảnh lỗi...");
+    }
+
     /** Muse vẽ lại mọi cảnh (trừ ảnh bạn tự tải lên và cảnh đang tạo ảnh). */
     public function museAll(Request $request, TopicShort $short): RedirectResponse
     {

@@ -8,7 +8,7 @@ import { formatNumber } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { ImageOff, Loader2, Upload, Wand2 } from 'lucide-react';
+import { ImageOff, Loader2, RefreshCw, Upload, Wand2 } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Nhân vật Ngọc Rồng', href: '/dragon-ball' }];
 
@@ -34,14 +34,25 @@ export default function CharacterLibrary({
     characters,
     expressions,
     price,
+    failed,
     busy,
 }: {
     characters: Character[];
     expressions: Record<string, string>;
     price: number;
+    failed: number;
     busy: boolean;
 }) {
-    usePoll(busy, ['characters', 'busy'], 4000);
+    usePoll(busy, ['characters', 'busy', 'failed'], 4000);
+    const retryFailed = () => {
+        if (
+            confirm(
+                `Vẽ lại ${failed} ảnh lỗi với prompt đã viết lại (bỏ tên nhân vật / phim), khoảng ${formatNumber(failed * price)} Credits. Tiếp tục?`,
+            )
+        ) {
+            router.post(route('character-library.draw'), { failed_only: true }, options);
+        }
+    };
     const missing = (c: Character) => c.suggested.filter((e) => !c.portraits[e] || c.portraits[e]?.status === 'failed').length;
     const totalMissing = characters.reduce((sum, c) => sum + missing(c), 0);
 
@@ -64,9 +75,16 @@ export default function CharacterLibrary({
                         title="Nhân vật 7 Viên Ngọc Rồng"
                         description="Mỗi nhân vật vẽ kiểu manga trắng đen với nhiều biểu cảm. Muse vẽ mặt thường trước, các biểu cảm khác bám theo cho giống. Shorts chủ đề tự dùng các ảnh này làm ảnh cảnh và ảnh mẫu."
                     />
-                    <Button onClick={drawAll} disabled={totalMissing === 0}>
-                        <Wand2 /> Vẽ {totalMissing} ảnh còn thiếu ({formatNumber(totalMissing * price)} Credits)
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                        {failed > 0 && (
+                            <Button variant="outline" onClick={retryFailed}>
+                                <RefreshCw /> Tạo lại {failed} ảnh lỗi
+                            </Button>
+                        )}
+                        <Button onClick={drawAll} disabled={totalMissing === 0}>
+                            <Wand2 /> Vẽ {totalMissing} ảnh còn thiếu ({formatNumber(totalMissing * price)} Credits)
+                        </Button>
+                    </div>
                 </div>
                 <FlashStatus />
 

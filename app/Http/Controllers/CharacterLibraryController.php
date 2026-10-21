@@ -10,6 +10,7 @@ use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -40,6 +41,7 @@ class CharacterLibraryController extends Controller
             ])->values(),
             'expressions' => collect(DragonBall::EXPRESSIONS)->map(fn ($e) => $e[0]),
             'price' => CreditPricing::settings()['steps']['image'],
+            'failed' => $portraits->where('status', 'failed')->count(),
             'busy' => $portraits->contains(fn (CharacterPortrait $p) => $p->status === 'pending'),
         ]);
     }
@@ -53,12 +55,15 @@ class CharacterLibraryController extends Controller
         $validated = $request->validate([
             'character' => ['nullable', Rule::in(array_keys(DragonBall::CHARACTERS))],
             'expression' => ['nullable', Rule::in(array_keys(DragonBall::EXPRESSIONS))],
+            'failed_only' => ['nullable', 'boolean'],
         ]);
         $user = $request->user();
         $existing = $user->characterPortraits()->get()->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
 
         $targets = [];
-        if (filled($validated['character'] ?? null) && filled($validated['expression'] ?? null)) {
+        if ($request->boolean('failed_only')) {
+            $targets = $existing->where('status', 'failed')->map(fn (CharacterPortrait $p) => [$p->character, $p->expression])->values()->all();
+        } elseif (filled($validated['character'] ?? null) && filled($validated['expression'] ?? null)) {
             $targets[] = [$validated['character'], $validated['expression']];
         } else {
             $keys = filled($validated['character'] ?? null) ? [$validated['character']] : array_keys(DragonBall::CHARACTERS);
@@ -83,10 +88,15 @@ class CharacterLibraryController extends Controller
         // Vẽ mặt thường (E1) trước để các biểu cảm khác bám theo.
         usort($targets, fn ($a, $b) => [$a[0], $a[1] !== 'E1'] <=> [$b[0], $b[1] !== 'E1']);
         foreach ($targets as [$character, $expression]) {
+            // Ảnh từng lỗi (thường do AI từ chối tên nhân vật): vẽ lại thẳng bằng prompt đã bỏ tên.
+            $failed = $existing->get("{$character}:{$expression}")?->status === 'failed';
             $portrait = $user->characterPortraits()->updateOrCreate(
                 ['character' => $character, 'expression' => $expression],
                 ['status' => 'pending', 'request_id' => null, 'error' => null],
             );
+            if ($failed) {
+                Cache::put(GenerateCharacterPortraitJob::safeKey($portrait), true, now()->addDay());
+            }
             GenerateCharacterPortraitJob::dispatch($portrait);
         }
 
