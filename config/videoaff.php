@@ -126,10 +126,10 @@ return [
     // Shorts theo chủ đề: nguồn ảnh wiki (MediaWiki API, tìm trong không gian File) và máy chủ ảnh được tải về.
     'topic_shorts' => [
         'wikis' => [
-            'dragonball' => ['label' => 'Dragon Ball Wiki (Fandom)', 'api' => 'https://dragonball.fandom.com/api.php'],
+            'dragonball' => ['label' => 'Dragon Ball Wiki (Fandom, hay bị Cloudflare chặn)', 'api' => 'https://dragonball.fandom.com/api.php'],
             'commons' => ['label' => 'Wikimedia Commons', 'api' => 'https://commons.wikimedia.org/w/api.php'],
         ],
-        'image_hosts' => ['static.wikia.nocookie.net', 'upload.wikimedia.org'],
+        'image_hosts' => ['static.wikia.nocookie.net', 'upload.wikimedia.org', 'thumb.wikimedia.org'],
         'candidates' => 8,
     ],
     'ffprobe' => env('FFPROBE_BINARY', 'ffprobe'),

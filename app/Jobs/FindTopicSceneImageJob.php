@@ -5,6 +5,8 @@ namespace App\Jobs;
 use App\Models\TopicShortScene;
 use App\Services\TopicShort\RemoteImage;
 use App\Services\TopicShort\WikiImageSearch;
+use App\Support\CreditPricing;
+use App\Support\Credits;
 use App\Support\Media;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -34,16 +36,17 @@ class FindTopicSceneImageJob implements ShouldQueue
 
         try {
             $candidates = $search->search($short->wiki, (string) $scene->image_query);
-        } catch (RuntimeException $e) {
-            // Wiki chính chặn / lỗi: vẫn thử Commons, cả hai cùng lỗi mới báo.
-            if ($short->wiki === 'commons') {
-                throw $e;
-            }
+        } catch (RuntimeException) {
+            // Wiki chính chặn / lỗi: vẫn thử Commons.
             $candidates = [];
         }
-        // Wiki chính không có ảnh: thử Wikimedia Commons.
+        // Wiki chính không có ảnh: thử Wikimedia Commons; Commons cũng lỗi thì coi như không có ảnh (Muse vẽ thay).
         if ($candidates === [] && $short->wiki !== 'commons') {
-            $candidates = $search->search('commons', (string) $scene->image_query);
+            try {
+                $candidates = $search->search('commons', (string) $scene->image_query);
+            } catch (RuntimeException) {
+                $candidates = [];
+            }
         }
         $scene->update(['candidates' => $candidates]);
 
@@ -55,6 +58,14 @@ class FindTopicSceneImageJob implements ShouldQueue
             } catch (RuntimeException) {
                 continue;
             }
+        }
+
+        // Không có ảnh wiki dùng được: để Muse vẽ theo prompt (nếu đủ Credits).
+        if (filled($scene->image_prompt) && Credits::shortfall($short->user, CreditPricing::settings()['steps']['image'], 'vẽ ảnh') === null) {
+            $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+            GenerateTopicSceneImageJob::dispatch($scene);
+
+            return;
         }
 
         $scene->update([

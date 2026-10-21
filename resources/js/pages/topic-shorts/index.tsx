@@ -36,7 +36,7 @@ export default function TopicShortsIndex({
     languages: Record<string, string>;
     wikis: Record<string, string>;
 }) {
-    const { data, setData, post, processing, errors } = useForm({ topic: '', language: 'vi', target_seconds: 45, wiki: 'dragonball' });
+    const { data, setData, post, processing, errors } = useForm({ topic: '', language: 'vi', target_seconds: 45, wiki: 'commons' });
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();

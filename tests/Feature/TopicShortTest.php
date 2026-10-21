@@ -121,8 +121,14 @@ class TopicShortTest extends TestCase
         $this->assertStringStartsWith('https://upload.wikimedia.org/', $blocked->fresh()->image_url);
         Http::assertSent(fn ($request) => str_starts_with($request->header('User-Agent')[0] ?? '', 'VideoAff/1.0 (https://'));
 
+        // Không wiki nào có ảnh: Muse vẽ theo prompt; không có prompt thì báo lỗi.
         $this->commonsEmpty = true;
-        $other = TopicShortScene::factory()->create(['image_query' => 'nothing again', 'image_status' => 'searching']);
+        Queue::fake();
+        $drawn = TopicShortScene::factory()->create(['image_query' => 'nothing again', 'image_status' => 'searching']);
+        (new FindTopicSceneImageJob($drawn))->handle(app(WikiImageSearch::class));
+        $this->assertSame('pending', $drawn->fresh()->image_status);
+        Queue::assertPushed(GenerateTopicSceneImageJob::class);
+        $other = TopicShortScene::factory()->create(['image_query' => 'nothing again', 'image_prompt' => '', 'image_status' => 'searching']);
         (new FindTopicSceneImageJob($other))->handle(app(WikiImageSearch::class));
         $other->refresh();
         $this->assertSame('failed', $other->image_status);
@@ -133,6 +139,7 @@ class TopicShortTest extends TestCase
     {
         $this->assertTrue(RemoteImage::allowed('https://static.wikia.nocookie.net/a.png'));
         $this->assertTrue(RemoteImage::allowed('https://upload.wikimedia.org/a.png'));
+        $this->assertTrue(RemoteImage::allowed('https://thumb.wikimedia.org/a.png'));
         $this->assertFalse(RemoteImage::allowed('http://upload.wikimedia.org/a.png'));
         $this->assertFalse(RemoteImage::allowed('https://upload.wikimedia.org.evil.com/a.png'));
         $this->assertFalse(RemoteImage::allowed('https://user@upload.wikimedia.org/a.png'));

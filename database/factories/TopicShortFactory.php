@@ -18,7 +18,7 @@ class TopicShortFactory extends Factory
             'topic' => 'Lần đầu Goku biến thành Super Saiyan',
             'language' => 'vi',
             'target_seconds' => 45,
-            'wiki' => 'dragonball',
+            'wiki' => 'commons',
             'status' => 'ready',
             'title' => 'Goku hoá Super Saiyan',
             'content' => ['caption' => 'Caption', 'hashtags' => ['#dragonball']],
