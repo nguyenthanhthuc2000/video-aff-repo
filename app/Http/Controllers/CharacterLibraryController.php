@@ -11,6 +11,7 @@ use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -36,12 +37,21 @@ class CharacterLibraryController extends Controller
                         'source' => $portrait->source,
                         'image_url' => Media::url($portrait->image_path),
                         'error' => $portrait->error,
+                        'attempts' => $portrait->attempts,
                     ] : null];
                 }),
             ])->values(),
             'expressions' => collect(DragonBall::EXPRESSIONS)->map(fn ($e) => $e[0]),
             'price' => CreditPricing::settings()['steps']['image'],
             'failed' => $portraits->where('status', 'failed')->count(),
+            'stats' => [
+                'characters' => count(DragonBall::CHARACTERS),
+                'characters_done' => collect(DragonBall::CHARACTERS)->filter(fn ($c, $key) => collect($c[2])->every(fn ($e) => $portraits->get("{$key}:{$e}")?->status === 'ready'))->count(),
+                'suggested' => collect(DragonBall::CHARACTERS)->sum(fn ($c) => count($c[2])),
+                'ready' => $portraits->where('status', 'ready')->count(),
+                'failed' => $portraits->where('status', 'failed')->count(),
+                'pending' => $portraits->where('status', 'pending')->count(),
+            ],
             'busy' => $portraits->contains(fn (CharacterPortrait $p) => $p->status === 'pending'),
         ]);
     }
@@ -88,14 +98,15 @@ class CharacterLibraryController extends Controller
         // Vẽ mặt thường (E1) trước để các biểu cảm khác bám theo.
         usort($targets, fn ($a, $b) => [$a[0], $a[1] !== 'E1'] <=> [$b[0], $b[1] !== 'E1']);
         foreach ($targets as [$character, $expression]) {
-            // Ảnh từng lỗi (thường do AI từ chối tên nhân vật): vẽ lại thẳng bằng prompt đã bỏ tên.
-            $failed = $existing->get("{$character}:{$expression}")?->status === 'failed';
+            $previous = $existing->get("{$character}:{$expression}");
             $portrait = $user->characterPortraits()->updateOrCreate(
                 ['character' => $character, 'expression' => $expression],
                 ['status' => 'pending', 'request_id' => null, 'error' => null],
             );
-            if ($failed) {
-                Cache::put(GenerateCharacterPortraitJob::safeKey($portrait), true, now()->addDay());
+            // Ảnh từng lỗi: Claude viết lại prompt theo lời từ chối của AI trước khi vẽ (không gửi lại prompt cũ).
+            if ($previous?->status === 'failed') {
+                $portrait->increment('attempts');
+                Cache::put(GenerateCharacterPortraitJob::rewriteKey($portrait), Str::after((string) $previous->error, 'AI trả lời:'), now()->addDay());
             }
             GenerateCharacterPortraitJob::dispatch($portrait);
         }

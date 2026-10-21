@@ -60,6 +60,7 @@ interface TopicShort {
     video_ms: number | null;
     estimated_ms: number;
     images_busy: boolean;
+    image_stats: { ready: number; failed: number; pending: number; searching: number };
     all_images_ready: boolean;
     scenes: ShortScene[];
 }
@@ -99,7 +100,7 @@ export default function TopicShortShow({
     const retryFailed = () => {
         if (
             confirm(
-                `Tạo lại ${failedCount} ảnh lỗi với prompt đã viết lại (bỏ tên nhân vật / phim), khoảng ${formatNumber(failedCount * prices.image)} Credits. Tiếp tục?`,
+                `Claude viết lại prompt theo lời từ chối của Muse rồi tạo lại ${failedCount} ảnh lỗi, khoảng ${formatNumber(failedCount * prices.image)} Credits. Tiếp tục?`,
             )
         ) {
             router.post(route('topic-shorts.retry-failed', short.id), {}, { preserveScroll: true });
@@ -174,6 +175,14 @@ export default function TopicShortShow({
                         <p className="text-muted-foreground text-sm">
                             Mỗi cảnh chọn một ảnh: ảnh tìm trên wiki (bấm ảnh nhỏ để đổi), Muse vẽ ({formatNumber(prices.image)} Credits / ảnh) hoặc
                             ảnh bạn tải lên.
+                        </p>
+                        <p className="text-sm">
+                            {short.scenes.length} cảnh: <span className="text-green-600 dark:text-green-400">{short.image_stats.ready} có ảnh</span>
+                            {short.image_stats.failed > 0 && (
+                                <span className="text-red-600 dark:text-red-400"> · {short.image_stats.failed} lỗi</span>
+                            )}
+                            {short.image_stats.pending + short.image_stats.searching > 0 &&
+                                ` · ${short.image_stats.pending + short.image_stats.searching} đang tạo`}
                         </p>
                         <div className="grid gap-4 lg:grid-cols-2">
                             {short.scenes.map((scene) => (

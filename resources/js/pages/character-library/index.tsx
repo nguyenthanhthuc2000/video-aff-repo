@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import { ImageOff, Loader2, RefreshCw, Upload, Wand2 } from 'lucide-react';
+import { useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Nhân vật Ngọc Rồng', href: '/dragon-ball' }];
 
@@ -17,6 +18,7 @@ interface Portrait {
     source: 'muse' | 'upload' | null;
     image_url: string | null;
     error: string | null;
+    attempts: number;
 }
 
 interface Character {
@@ -35,19 +37,23 @@ export default function CharacterLibrary({
     expressions,
     price,
     failed,
+    stats,
     busy,
 }: {
     characters: Character[];
     expressions: Record<string, string>;
     price: number;
     failed: number;
+    stats: { characters: number; characters_done: number; suggested: number; ready: number; failed: number; pending: number };
     busy: boolean;
 }) {
-    usePoll(busy, ['characters', 'busy', 'failed'], 4000);
+    usePoll(busy, ['characters', 'busy', 'failed', 'stats'], 4000);
+    const [onlyFailed, setOnlyFailed] = useState(false);
+    const shown = onlyFailed ? characters.filter((c) => Object.values(c.portraits).some((p) => p?.status === 'failed')) : characters;
     const retryFailed = () => {
         if (
             confirm(
-                `Vẽ lại ${failed} ảnh lỗi với prompt đã viết lại (bỏ tên nhân vật / phim), khoảng ${formatNumber(failed * price)} Credits. Tiếp tục?`,
+                `Claude viết lại prompt theo lời từ chối của Muse rồi vẽ lại ${failed} ảnh lỗi, khoảng ${formatNumber(failed * price)} Credits. Tiếp tục?`,
             )
         ) {
             router.post(route('character-library.draw'), { failed_only: true }, options);
@@ -88,8 +94,22 @@ export default function CharacterLibrary({
                 </div>
                 <FlashStatus />
 
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    <Stat label="Nhân vật đủ ảnh" value={`${stats.characters_done}/${stats.characters}`} />
+                    <Stat label="Ảnh xong" value={`${stats.ready}/${stats.suggested}`} tone="text-green-600 dark:text-green-400" />
+                    <Stat label="Ảnh lỗi" value={stats.failed} tone={stats.failed > 0 ? 'text-red-600 dark:text-red-400' : undefined} />
+                    <Stat label="Đang vẽ" value={stats.pending} />
+                    <Stat label="Chưa vẽ" value={totalMissing - stats.failed} />
+                </div>
+                {stats.failed > 0 && (
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={onlyFailed} onChange={(e) => setOnlyFailed(e.target.checked)} />
+                        Chỉ hiện nhân vật có ảnh lỗi
+                    </label>
+                )}
+
                 <div className="space-y-4">
-                    {characters.map((character) => (
+                    {shown.map((character) => (
                         <CharacterRow
                             key={character.key}
                             character={character}
@@ -101,6 +121,15 @@ export default function CharacterLibrary({
                 </div>
             </div>
         </AppLayout>
+    );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
+    return (
+        <div className="rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs">{label}</p>
+            <p className={cn('text-xl font-semibold', tone)}>{value}</p>
+        </div>
     );
 }
 
@@ -124,7 +153,14 @@ function CharacterRow({
         <section className="rounded-lg border p-4">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                    <h2 className="font-semibold">{character.name}</h2>
+                    <h2 className="font-semibold">
+                        {character.name}{' '}
+                        <span className="text-muted-foreground text-xs font-normal">
+                            {Object.values(character.portraits).filter((p) => p?.status === 'ready').length} xong
+                            {Object.values(character.portraits).some((p) => p?.status === 'failed') &&
+                                ` · ${Object.values(character.portraits).filter((p) => p?.status === 'failed').length} lỗi`}
+                        </span>
+                    </h2>
                     <p className="text-muted-foreground text-xs">{character.look}</p>
                 </div>
                 {missing > 0 && (
@@ -162,6 +198,9 @@ function CharacterRow({
                             </p>
                             {portrait?.status === 'failed' && portrait.error && (
                                 <p className="line-clamp-2 text-[11px] text-red-600 dark:text-red-400" title={portrait.error}>
+                                    {portrait.attempts > 0
+                                        ? `Đã viết lại ${portrait.attempts} lần, vẫn bị từ chối. Nên tải ảnh lên. `
+                                        : 'Muse từ chối. '}
                                     {portrait.error}
                                 </p>
                             )}

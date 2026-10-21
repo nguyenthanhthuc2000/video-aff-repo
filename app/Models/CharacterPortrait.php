@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** Ảnh một nhân vật Ngọc Rồng với một biểu cảm (thư viện dùng làm ảnh mẫu / ảnh cảnh cho Shorts chủ đề). */
 class CharacterPortrait extends Model
 {
-    protected $fillable = ['character', 'expression', 'status', 'source', 'request_id', 'image_path', 'error'];
+    protected $fillable = ['character', 'expression', 'prompt', 'attempts', 'status', 'source', 'request_id', 'image_path', 'error'];
 
     public function user(): BelongsTo
     {

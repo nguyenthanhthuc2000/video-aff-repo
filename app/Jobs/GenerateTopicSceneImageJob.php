@@ -69,6 +69,10 @@ class GenerateTopicSceneImageJob implements ShouldQueue
     /** @return list<string> Ảnh mẫu nhân vật, rồi ảnh hiện tại của cảnh (wiki / tải lên) làm mẫu bố cục; Muse nhận tối đa 4 ảnh. */
     public static function references(TopicShortScene $scene): array
     {
+        // Lần vẽ lại sau khi bị từ chối: không gửi ảnh mẫu (ảnh nhân vật có bản quyền khiến AI nhận ra và chặn tiếp).
+        if (Cache::has(self::safeKey($scene))) {
+            return [];
+        }
         $paths = array_slice(array_values(array_filter(array_column(self::characters($scene), 'ref'))), 0, 4);
         if (self::layoutReference($scene)) {
             $paths = [...array_slice($paths, 0, 3), $scene->image_path];
@@ -113,11 +117,11 @@ class GenerateTopicSceneImageJob implements ShouldQueue
             $lines[] = 'CHARACTERS (keep each one identical to the original design: face, hair, eyes, outfit, colors):';
             $ref = 0;
             foreach ($characters as $character) {
-                $tag = ! empty($character['ref']) && $ref < 4 ? ' — looks exactly like attached reference image '.(++$ref) : '';
+                $tag = ! $safe && ! empty($character['ref']) && $ref < 4 ? ' — looks exactly like attached reference image '.(++$ref) : '';
                 $lines[] = "- {$character['name']}{$tag}: {$character['look']}";
             }
         }
-        if (self::layoutReference($scene)) {
+        if (! $safe && self::layoutReference($scene)) {
             $lines[] = '';
             $lines[] = 'The LAST attached image is a reference of this scene from the original anime: redraw that moment (composition, pose, setting) as a clean vertical frame.';
         }
@@ -182,8 +186,8 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
                 return;
             }
-            // AI từ chối (thường vì tên nhân vật / phim): tự thử lại một lần với prompt bỏ tên, giữ mô tả và ảnh mẫu.
-            if ($e->rejected && ! Cache::has(self::safeKey($scene))) {
+            // AI từ chối (bạo lực, tên nhân vật / phim): Claude viết lại prompt theo lời từ chối, bỏ tên, rồi thử lại một lần.
+            if ($e->rejected && Cache::increment("muse-rejects:topic-scene:{$scene->id}") <= 1) {
                 self::markForRewrite($scene, (string) $e->refusal);
                 $scene->update(['request_id' => null]);
                 $this->release(5);

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\CharacterPortrait;
 use App\Services\Image\GeneratedImage;
 use App\Services\Image\ImageGeneratorException;
+use App\Services\TopicShort\ScenePromptFixer;
 use App\Support\AiProviders;
 use App\Support\CreditPricing;
 use App\Support\Credits;
@@ -36,7 +37,8 @@ class GenerateCharacterPortraitJob implements ShouldQueue
     /** @return list<string> Ảnh mặt thường của nhân vật làm mẫu (trừ khi đang vẽ chính ảnh mặt thường). */
     public static function references(CharacterPortrait $portrait): array
     {
-        if ($portrait->expression === 'E1') {
+        // Prompt đã viết lại sau khi bị từ chối: không gửi ảnh mẫu (ảnh mẫu là nhân vật có bản quyền, Muse nhận ra ngay).
+        if ($portrait->expression === 'E1' || filled($portrait->prompt)) {
             return [];
         }
         $base = CharacterPortrait::where('user_id', $portrait->user_id)->where('character', $portrait->character)
@@ -45,9 +47,25 @@ class GenerateCharacterPortraitJob implements ShouldQueue
         return $base ? [$base] : [];
     }
 
-    public static function safeKey(CharacterPortrait $portrait): string
+    /** Prompt gửi Muse: prompt Claude đã viết lại (nếu có), không thì prompt thư viện. */
+    public static function prompt(CharacterPortrait $portrait, bool $withReference): string
     {
-        return "muse-safe:portrait:{$portrait->id}";
+        if (filled($portrait->prompt)) {
+            return trim($portrait->prompt).($withReference ? "\nThe attached image is this same character: keep the face, hair and outfit identical, change only the expression." : '');
+        }
+
+        return DragonBall::prompt($portrait->character, $portrait->expression, $withReference);
+    }
+
+    public static function rewriteKey(CharacterPortrait $portrait): string
+    {
+        return "muse-rewrite:portrait:{$portrait->id}";
+    }
+
+    /** Claude viết lại prompt theo lời từ chối của AI, lưu lại để lần vẽ tới dùng. */
+    public static function rewrite(CharacterPortrait $portrait, string $refusal): void
+    {
+        $portrait->update(['prompt' => ScenePromptFixer::rewritePortrait($portrait, $refusal)]);
     }
 
     public function handle(): void
@@ -63,6 +81,10 @@ class GenerateCharacterPortraitJob implements ShouldQueue
 
             return;
         }
+        // Ảnh lỗi được bấm tạo lại: Claude viết lại prompt trước (ảnh mẫu bỏ theo prompt mới).
+        if ($portrait->request_id === null && Cache::has(self::rewriteKey($portrait))) {
+            self::rewrite($portrait, (string) Cache::pull(self::rewriteKey($portrait)));
+        }
         $generator = AiProviders::imageGenerator('keyframe');
         $references = self::references($portrait);
 
@@ -73,7 +95,7 @@ class GenerateCharacterPortraitJob implements ShouldQueue
 
                     return;
                 }
-                $portrait->update(['request_id' => $generator->start($references, DragonBall::prompt($portrait->character, $portrait->expression, $references !== [], Cache::has(self::safeKey($portrait))))]);
+                $portrait->update(['request_id' => $generator->start($references, self::prompt($portrait, $references !== []))]);
                 $this->release(15);
 
                 return;
@@ -91,14 +113,8 @@ class GenerateCharacterPortraitJob implements ShouldQueue
 
                 return;
             }
-            // AI từ chối (thường vì tên nhân vật / phim): tự thử lại một lần với prompt bỏ tên, giữ mô tả ngoại hình.
-            if ($e->rejected && ! Cache::has(self::safeKey($portrait))) {
-                Cache::put(self::safeKey($portrait), true, now()->addDay());
-                $portrait->update(['request_id' => null]);
-                $this->release(5);
-
-                return;
-            }
+            // AI từ chối (bản quyền): KHÔNG tự thử lại — Muse nhớ yêu cầu đã từ chối và chặn mọi lần thử lại giống vậy.
+            // Người dùng bấm "Tạo lại ảnh lỗi" thì Claude viết thành nhân vật gốc, bố cục khác, không gửi ảnh mẫu.
             if ($e->retryable && Cache::increment("muse-retries:portrait:{$portrait->id}") <= 2) {
                 $portrait->update(['request_id' => null]);
                 $this->release(30);

@@ -17,6 +17,7 @@ use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -95,6 +96,7 @@ class TopicShortController extends Controller
                 'video_ms' => $short->video_ms,
                 'estimated_ms' => $estimatedMs,
                 'images_busy' => $scenes->contains(fn ($scene) => in_array($scene->image_status, ['searching', 'pending'], true)),
+                'image_stats' => collect(['ready', 'failed', 'pending', 'searching'])->mapWithKeys(fn ($status) => [$status => $scenes->where('image_status', $status)->count()]),
                 'all_images_ready' => $scenes->isNotEmpty() && $scenes->every(fn ($scene) => $scene->image_status === 'ready'),
                 'scenes' => $scenes->map(fn (TopicShortScene $scene) => [
                     'id' => $scene->id,
@@ -294,6 +296,7 @@ class TopicShortController extends Controller
         }
         foreach ($scenes as $scene) {
             // Lời từ chối của AI nằm sau "AI trả lời:" trong lỗi; Claude viết lại prompt theo đó.
+            Cache::forget("muse-rejects:topic-scene:{$scene->id}");
             GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
             $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
             GenerateTopicSceneImageJob::dispatch($scene);

@@ -125,7 +125,7 @@ class CharacterLibraryTest extends TestCase
         $this->actingAs($this->user)->post(route('topic-short-scenes.library', $scene), ['portrait_id' => $theirs->id])->assertNotFound();
     }
 
-    public function test_refused_drawing_retries_once_without_names()
+    public function test_refused_drawings_are_rewritten_before_retry()
     {
         $prompts = new \ArrayObject;
         $this->app->bind(FakeFilmImageGenerator::class, fn () => new class($prompts) extends FakeFilmImageGenerator
@@ -148,16 +148,34 @@ class CharacterLibraryTest extends TestCase
                 return parent::poll($code, $referencePaths);
             }
         });
-        $portrait = $this->user->characterPortraits()->create(['character' => 'vegeta', 'expression' => 'E1', 'status' => 'pending']);
-        foreach (range(1, 4) as $_) {
-            (new GenerateCharacterPortraitJob($portrait))->handle();
-        }
-        $this->assertSame('ready', $portrait->fresh()->status, (string) $portrait->fresh()->error);
-        $this->assertCount(2, $prompts);
+        // Chân dung bị từ chối: không tự thử lại (Muse chặn mọi lần thử lại giống vậy).
+        Storage::disk(config('videoaff.disk'))->put('base.png', 'x');
+        $this->user->characterPortraits()->create(['character' => 'vegeta', 'expression' => 'E1', 'status' => 'ready', 'image_path' => 'base.png']);
+        $portrait = $this->user->characterPortraits()->create(['character' => 'vegeta', 'expression' => 'E3', 'status' => 'pending']);
+        $this->assertSame(['base.png'], GenerateCharacterPortraitJob::references($portrait));
+        (new GenerateCharacterPortraitJob($portrait))->handle();
+        (new GenerateCharacterPortraitJob($portrait))->handle();
+        $this->assertCount(1, $prompts);
         $this->assertStringContainsString('Vegeta', $prompts[0]);
+        (new GenerateCharacterPortraitJob($portrait))->failed(ImageGeneratorException::rejected('AI từ chối tạo yêu cầu này. AI trả lời: copyrighted, try an original character', 'x'));
+        $this->assertSame('failed', $portrait->fresh()->status);
+
+        // Bấm tạo lại ảnh lỗi: Claude viết lại thành nhân vật gốc, không tên, không gửi ảnh mẫu.
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Muse đang vẽ 1 ảnh...');
+        Queue::assertPushed(GenerateCharacterPortraitJob::class, 1);
+        (new GenerateCharacterPortraitJob($portrait))->handle();
+        (new GenerateCharacterPortraitJob($portrait))->handle();
+        $portrait->refresh();
+        $this->assertSame('ready', $portrait->status, (string) $portrait->error);
+        $this->assertSame(1, $portrait->attempts);
+        $this->assertNotNull($portrait->prompt);
+        $this->assertSame([], GenerateCharacterPortraitJob::references($portrait));
+        $this->assertCount(2, $prompts);
         $this->assertStringNotContainsString('Vegeta', $prompts[1]);
         $this->assertStringNotContainsString('Dragon Ball', $prompts[1]);
         $this->assertStringContainsString("widow's peak", $prompts[1]);
+        $this->assertStringNotContainsString('attached image', $prompts[1]);
 
         // Cảnh bị từ chối: Claude (driver fake: luật thay từ) viết lại prompt bớt bạo lực, bỏ tên, rồi vẽ lại.
         $prompts->exchangeArray([]);
@@ -180,10 +198,6 @@ class CharacterLibraryTest extends TestCase
         $this->assertSame(' no violence please', Cache::get(GenerateTopicSceneImageJob::rewriteKey($failed)));
         Queue::assertPushed(GenerateTopicSceneImageJob::class, 1);
         $this->actingAs(User::factory()->create())->post(route('topic-shorts.retry-failed', $violent->topicShort))->assertForbidden();
-
-        // Thư viện: vẽ lại ảnh lỗi.
-        $portrait->update(['status' => 'failed']);
-        $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Muse đang vẽ 1 ảnh...');
 
         $short = TopicShort::factory()->for($this->user)->create(['art_style' => 'Dragon Ball, Akira Toriyama character design', 'characters' => [['name' => 'Goku', 'look' => 'Son Goku, spiky black hair, gi with Kanji', 'image_path' => null]]]);
         $scene = TopicShortScene::factory()->for($short)->create(['characters' => ['Goku'], 'image_prompt' => 'Goku turns Super Saiyan on Namek']);

@@ -2,6 +2,7 @@
 
 namespace App\Services\TopicShort;
 
+use App\Models\CharacterPortrait;
 use App\Models\TopicShortScene;
 use App\Services\Claude\AiUsage;
 use App\Services\Film\FilmClaude;
@@ -43,6 +44,44 @@ final class ScenePromptFixer
         }
 
         return mb_substr($prompt, 0, 2000);
+    }
+
+    public const PORTRAIT_SYSTEM = <<<'PROMPT'
+    You rewrite an image prompt for one black-and-white manga character picture (vertical 9:16). The image AI refused the previous prompt; its explanation is given.
+    - The AI refuses copyrighted characters: write it as an ORIGINAL character inspired by the given look. No franchise, show, author or character names, no trademarked terms; describe hair, face, eyes, build, outfit, accessories in your own words.
+    - Keep the requested facial expression, but nothing frightening or violent: no blood, injuries, cracks in the body, screaming in agony.
+    - Follow the AI's suggestion when it gives one.
+    - The AI remembers refused requests and blocks anything that looks like a retry. Make it a clearly NEW image: different framing (e.g. waist-up three-quarter view, or full-body dynamic pose instead of a close-up bust), different pose and gesture, a simple background element (sky, ground, speed-line burst), fresh wording and sentence order. Soften the most iconic identifying marks into generic ones.
+    - Follow the AI's own suggestion (it usually offers an original character with a similar look) as closely as possible.
+    - Keep: black and white ink, screentone shading, clean bold lines, 1990s shonen manga look, no text or speech bubbles.
+    - English, under 90 words, prompt only.
+    PROMPT;
+
+    /** Prompt mới cho chân dung nhân vật bị từ chối. */
+    public static function rewritePortrait(CharacterPortrait $portrait, string $refusal): string
+    {
+        [, $look] = DragonBall::CHARACTERS[$portrait->character];
+        $previous = $portrait->prompt ?: DragonBall::prompt($portrait->character, $portrait->expression);
+        $expression = DragonBall::EXPRESSIONS[$portrait->expression][1];
+        $text = 'Look: '.DragonBall::scrub($look)."\nExpression: {$expression}\n\nPrevious prompt:\n".DragonBall::scrub($previous)
+            ."\n\nThe image AI refused it and said:\n".($refusal ?: '(no explanation)');
+
+        try {
+            $data = AiUsage::withContext(['user_id' => $portrait->user_id, 'subject' => null], fn () => FilmClaude::json(
+                self::PORTRAIT_SYSTEM,
+                $text,
+                ['type' => 'object', 'additionalProperties' => false, 'required' => ['image_prompt'], 'properties' => ['image_prompt' => ['type' => 'string']]],
+                'topic_short',
+                "character_portrait:{$portrait->id}",
+                1000,
+                fn () => ['image_prompt' => DragonBall::prompt($portrait->character, $portrait->expression, safe: true)],
+            ));
+            $prompt = trim((string) ($data['image_prompt'] ?? ''));
+        } catch (ScriptWriterException) {
+            $prompt = '';
+        }
+
+        return mb_strlen($prompt) >= 15 ? mb_substr($prompt, 0, 2000) : DragonBall::prompt($portrait->character, $portrait->expression, safe: true);
     }
 
     /** Viết lại theo luật (không có Claude): bỏ tên riêng và các từ bạo lực. */
