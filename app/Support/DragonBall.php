@@ -56,11 +56,54 @@ final class DragonBall
         'dragon-balls' => ['7 viên ngọc rồng', 'the seven Dragon Balls with stars inside, glowing, arranged in a circle', ['E1']],
     ];
 
-    /** Prompt vẽ chân dung một nhân vật với một biểu cảm. */
-    public static function prompt(string $character, string $expression, bool $withReference = false): string
+    /** Phong cách khi AI từ chối tên phim / tác giả: chỉ tả nét vẽ. */
+    public const SAFE_STYLE = 'Black and white Japanese shonen manga panel in classic 1990s martial-arts manga style, clean bold ink lines, '
+        .'screentone shading, no color, close-up bust shot, plain white background, vertical 9:16. Original character design. No speech bubbles, no text.';
+
+    /** Từ dễ bị AI vẽ ảnh từ chối (tên phim, tác giả, thuật ngữ riêng) => chữ mô tả thay thế. */
+    private const SCRUB_TERMS = [
+        'Super Saiyan Blue' => 'blue-aura powered-up', 'Super Saiyan' => 'golden-haired powered-up', 'Ultra Instinct' => 'silver-haired calm',
+        'Saiyan' => 'warrior', 'Namekian' => 'green-skinned alien', 'Namek' => 'green alien planet',
+        'Dragon Ball Super' => '', 'Dragon Ball Z' => '', 'Dragon Balls' => 'magic orbs', 'Dragon Ball' => '',
+        'Akira Toriyama' => '', 'Toriyama' => '', 'Toyotarou' => '', 'Toei' => '',
+        'Potara' => '', 'Capsule Corp' => 'tech company', 'Pride Troopers' => 'hero squad', 'Kanji' => 'symbol', 'Turtle School' => 'school',
+        'Majin' => '', 'Kamehameha' => 'energy wave', 'Shenron' => 'giant eternal dragon',
+    ];
+
+    /** Bỏ tên nhân vật, tên phim, tác giả khỏi prompt (giữ mô tả ngoại hình) để thử lại khi AI từ chối. */
+    public static function scrub(string $text): string
+    {
+        $names = [];
+        foreach (self::CHARACTERS as [$label]) {
+            $names[] = $label;
+            $names[] = preg_replace('/^Son /', '', $label);
+        }
+        foreach (['Goku', 'Gohan', 'Goten', 'Trunks', 'Vegeta', 'Vegito', 'Gogeta', 'Frieza', 'Freeza', 'Krillin', 'Piccolo', 'Bulma', 'Chi-Chi', 'Roshi', 'Yamcha', 'Tien', 'Cell', 'Buu', 'Beerus', 'Whis', 'Broly', 'Jiren', 'Zamasu', 'Raditz', 'Nappa'] as $name) {
+            $names[] = $name;
+        }
+        usort($names, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+        $terms = self::SCRUB_TERMS;
+        uksort($terms, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+        foreach ($terms as $term => $replacement) {
+            $text = preg_replace('/\b'.preg_quote($term, '/').'\b/iu', $replacement, $text);
+        }
+        foreach (array_unique($names) as $name) {
+            $text = preg_replace('/\b'.preg_quote($name, '/').'\b/iu', 'the character', $text);
+        }
+        $text = preg_replace(['/\(\s*[,;]?\s*\)/u', '/ +([,.;:])/u', '/([,;:])\s*[,;.]+/u', '/ {2,}/u'], ['', '$1', '$1', ' '], $text);
+
+        return trim((string) $text);
+    }
+
+    /** Prompt vẽ chân dung một nhân vật với một biểu cảm; safe: bản bỏ tên khi AI đã từ chối. */
+    public static function prompt(string $character, string $expression, bool $withReference = false, bool $safe = false): string
     {
         [, $look] = self::CHARACTERS[$character];
-        $lines = [self::STYLE, "{$look}.", 'Expression: '.self::EXPRESSIONS[$expression][1].'.'];
+        if ($safe) {
+            $look = self::scrub($look);
+        }
+        $lines = [$safe ? self::SAFE_STYLE : self::STYLE, "{$look}.", 'Expression: '.self::EXPRESSIONS[$expression][1].'.'];
         if ($withReference) {
             $lines[] = 'The attached image is this same character: keep the face, hair and outfit identical, change only the expression.';
         }

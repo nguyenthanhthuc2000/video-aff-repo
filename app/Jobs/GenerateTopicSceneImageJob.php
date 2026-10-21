@@ -80,9 +80,15 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         return in_array($scene->image_source, ['web', 'upload'], true) && filled($scene->image_path);
     }
 
-    public static function prompt(TopicShortScene $scene): string
+    public static function safeKey(TopicShortScene $scene): string
     {
-        $work = trim((string) $scene->topicShort->art_style);
+        return "muse-safe:topic-scene:{$scene->id}";
+    }
+
+    /** Prompt vẽ cảnh; safe (sau khi AI từ chối): bỏ tên nhân vật / phim / tác giả, gọi nhân vật theo ảnh mẫu và mô tả ngoại hình. */
+    public static function prompt(TopicShortScene $scene, bool $safe = false): string
+    {
+        $work = $safe ? '' : trim((string) $scene->topicShort->art_style);
         $medium = self::MEDIUMS[$scene->topicShort->image_style] ?? self::MEDIUMS['anime'];
         $lines = ['FRAME: vertical 9:16 portrait.', 'STYLE: '.($work !== '' ? "{$work}. " : '').$medium];
 
@@ -107,7 +113,16 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         $lines[] = '';
         $lines[] = 'SCENE: '.trim((string) $scene->image_prompt);
 
-        return implode("\n", $lines);
+        $text = implode("\n", $lines);
+        if ($safe) {
+            // Nhân vật gọi theo thứ tự (Character 1, 2...) để vẫn khớp ảnh mẫu và mô tả, rồi bỏ mọi tên riêng còn lại.
+            foreach (self::characters($scene) as $i => $character) {
+                $text = preg_replace('/\b(Son )?'.preg_quote($character['name'], '/').'\b/iu', 'Character '.($i + 1), $text);
+            }
+            $text = DragonBall::scrub($text);
+        }
+
+        return $text;
     }
 
     public function handle(): void
@@ -125,7 +140,7 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
                     return;
                 }
-                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene))]);
+                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene, Cache::has(self::safeKey($scene))))]);
                 $this->release(15);
 
                 return;
@@ -140,6 +155,14 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         } catch (ImageGeneratorException $e) {
             if ($e->busy) {
                 $this->release(30);
+
+                return;
+            }
+            // AI từ chối (thường vì tên nhân vật / phim): tự thử lại một lần với prompt bỏ tên, giữ mô tả và ảnh mẫu.
+            if ($e->rejected && ! Cache::has(self::safeKey($scene))) {
+                Cache::put(self::safeKey($scene), true, now()->addDay());
+                $scene->update(['request_id' => null]);
+                $this->release(5);
 
                 return;
             }

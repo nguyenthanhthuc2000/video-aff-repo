@@ -9,6 +9,9 @@ use App\Models\CharacterPortrait;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Models\User;
+use App\Services\Film\FakeFilmImageGenerator;
+use App\Services\Image\GeneratedImage;
+use App\Services\Image\ImageGeneratorException;
 use App\Services\TopicShort\WikiImageSearch;
 use App\Support\DragonBall;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -119,5 +122,47 @@ class CharacterLibraryTest extends TestCase
         $other = User::factory()->create();
         $theirs = $other->characterPortraits()->create(['character' => 'goku', 'expression' => 'E1', 'status' => 'ready', 'image_path' => 'x.png']);
         $this->actingAs($this->user)->post(route('topic-short-scenes.library', $scene), ['portrait_id' => $theirs->id])->assertNotFound();
+    }
+
+    public function test_refused_drawing_retries_once_without_names()
+    {
+        $prompts = new \ArrayObject;
+        $this->app->bind(FakeFilmImageGenerator::class, fn () => new class($prompts) extends FakeFilmImageGenerator
+        {
+            public function __construct(private \ArrayObject $prompts) {}
+
+            public function start(array $referencePaths, string $prompt): string
+            {
+                $this->prompts[] = $prompt;
+
+                return parent::start($referencePaths, $prompt);
+            }
+
+            public function poll(string $code, array $referencePaths): ?GeneratedImage
+            {
+                if (count($this->prompts) === 1) {
+                    throw ImageGeneratorException::rejected('AI từ chối tạo yêu cầu này.', 'copyrighted character');
+                }
+
+                return parent::poll($code, $referencePaths);
+            }
+        });
+        $portrait = $this->user->characterPortraits()->create(['character' => 'vegeta', 'expression' => 'E1', 'status' => 'pending']);
+        foreach (range(1, 4) as $_) {
+            (new GenerateCharacterPortraitJob($portrait))->handle();
+        }
+        $this->assertSame('ready', $portrait->fresh()->status, (string) $portrait->fresh()->error);
+        $this->assertCount(2, $prompts);
+        $this->assertStringContainsString('Vegeta', $prompts[0]);
+        $this->assertStringNotContainsString('Vegeta', $prompts[1]);
+        $this->assertStringNotContainsString('Dragon Ball', $prompts[1]);
+        $this->assertStringContainsString("widow's peak", $prompts[1]);
+
+        $short = TopicShort::factory()->for($this->user)->create(['art_style' => 'Dragon Ball, Akira Toriyama character design', 'characters' => [['name' => 'Goku', 'look' => 'Son Goku, spiky black hair, gi with Kanji', 'image_path' => null]]]);
+        $scene = TopicShortScene::factory()->for($short)->create(['characters' => ['Goku'], 'image_prompt' => 'Goku turns Super Saiyan on Namek']);
+        $safe = GenerateTopicSceneImageJob::prompt($scene, true);
+        $this->assertStringNotContainsString('Goku', $safe);
+        $this->assertStringNotContainsString('Toriyama', $safe);
+        $this->assertStringContainsString('Character 1 turns golden-haired powered-up on green alien planet', $safe);
     }
 }

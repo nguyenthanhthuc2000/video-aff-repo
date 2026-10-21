@@ -45,6 +45,11 @@ class GenerateCharacterPortraitJob implements ShouldQueue
         return $base ? [$base] : [];
     }
 
+    public static function safeKey(CharacterPortrait $portrait): string
+    {
+        return "muse-safe:portrait:{$portrait->id}";
+    }
+
     public function handle(): void
     {
         $portrait = $this->portrait->fresh();
@@ -68,7 +73,7 @@ class GenerateCharacterPortraitJob implements ShouldQueue
 
                     return;
                 }
-                $portrait->update(['request_id' => $generator->start($references, DragonBall::prompt($portrait->character, $portrait->expression, $references !== []))]);
+                $portrait->update(['request_id' => $generator->start($references, DragonBall::prompt($portrait->character, $portrait->expression, $references !== [], Cache::has(self::safeKey($portrait))))]);
                 $this->release(15);
 
                 return;
@@ -83,6 +88,14 @@ class GenerateCharacterPortraitJob implements ShouldQueue
         } catch (ImageGeneratorException $e) {
             if ($e->busy) {
                 $this->release(30);
+
+                return;
+            }
+            // AI từ chối (thường vì tên nhân vật / phim): tự thử lại một lần với prompt bỏ tên, giữ mô tả ngoại hình.
+            if ($e->rejected && ! Cache::has(self::safeKey($portrait))) {
+                Cache::put(self::safeKey($portrait), true, now()->addDay());
+                $portrait->update(['request_id' => null]);
+                $this->release(5);
 
                 return;
             }

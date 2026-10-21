@@ -105,7 +105,7 @@ final class AiProviders
         return match (self::selected($step)) {
             'minimax' => new MiniMaxImageGenerator,
             'muse' => app(FilmMuseImageGenerator::class),
-            default => new FakeFilmImageGenerator,
+            default => app(FakeFilmImageGenerator::class),
         };
     }
 
