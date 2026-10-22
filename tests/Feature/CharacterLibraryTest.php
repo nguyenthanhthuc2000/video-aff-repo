@@ -89,8 +89,8 @@ class CharacterLibraryTest extends TestCase
         Queue::fake();
         $this->actingAs($this->user)->post(route('character-library.upload', ['goku', 'E3']), ['image' => UploadedFile::fake()->image('goku.png', 600, 1000)])
             ->assertSessionHasNoErrors();
-        $angry = $this->user->characterPortraits()->sole();
-        $this->assertSame('upload', $angry->source);
+        $stern = $this->user->characterPortraits()->sole();
+        $this->assertSame('upload', $stern->source);
         $this->actingAs($this->user)->post(route('character-library.upload', ['nobody', 'E3']), ['image' => UploadedFile::fake()->image('x.png')])->assertNotFound();
 
         $short = TopicShort::factory()->for($this->user)->create([
@@ -100,10 +100,10 @@ class CharacterLibraryTest extends TestCase
         $scene = TopicShortScene::factory()->for($short)->create(['characters' => ['Goku', 'Frieza'], 'expression' => 'E3', 'image_status' => 'searching', 'image_query' => 'nothing']);
 
         // Ảnh thư viện làm ảnh mẫu khi Muse vẽ cảnh, kèm biểu cảm.
-        $this->assertSame([$angry->image_path], GenerateTopicSceneImageJob::references($scene));
+        $this->assertSame([$stern->image_path], GenerateTopicSceneImageJob::references($scene));
         $prompt = GenerateTopicSceneImageJob::prompt($scene);
         $this->assertStringContainsString('Goku — looks exactly like attached reference image 1', $prompt);
-        $this->assertStringContainsString('MAIN EXPRESSION: furious', $prompt);
+        $this->assertStringContainsString('MAIN EXPRESSION: stern serious look', $prompt);
         $this->assertSame(CharacterPortrait::best($this->user->id, 'goku', 'E5')?->id, null);
 
         // Không có ảnh wiki: dùng ảnh thư viện trước khi để Muse vẽ.
@@ -115,9 +115,9 @@ class CharacterLibraryTest extends TestCase
         Queue::assertNotPushed(GenerateTopicSceneImageJob::class);
 
         $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
-            ->where('short.scenes.0.library.0.id', $angry->id)->where('short.scenes.0.expression', 'E3'));
+            ->where('short.scenes.0.library.0.id', $stern->id)->where('short.scenes.0.expression', 'E3'));
         $scene->update(['image_source' => 'muse']);
-        $this->actingAs($this->user)->post(route('topic-short-scenes.library', $scene), ['portrait_id' => $angry->id])->assertSessionHas('status');
+        $this->actingAs($this->user)->post(route('topic-short-scenes.library', $scene), ['portrait_id' => $stern->id])->assertSessionHas('status');
         $this->assertSame('library', $scene->fresh()->image_source);
 
         $other = User::factory()->create();

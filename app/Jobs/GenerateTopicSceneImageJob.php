@@ -40,8 +40,8 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
     /** Chất liệu ảnh theo kiểu ảnh của short. */
     public const MEDIUMS = [
-        'manga' => 'Black-and-white manga panel exactly like the original printed manga: bold ink linework, screentone shading, dynamic speed lines and impact effects, characters drawn on-model like the original manga. No speech bubbles, no sound-effect lettering.',
-        'manga_color' => 'Full-color manga illustration like the official colored manga pages: clean ink linework with flat vivid colors, speed lines and impact effects, characters drawn on-model like the original manga. No speech bubbles, no sound-effect lettering.',
+        'manga' => 'Black-and-white manga panel exactly like the original printed manga: bold ink linework, screentone shading, characters drawn on-model like the original manga. No speech bubbles, no sound-effect lettering.',
+        'manga_color' => 'Full-color manga illustration like the official colored manga pages: clean ink linework with flat vivid colors, characters drawn on-model like the original manga. No speech bubbles, no sound-effect lettering.',
         'anime' => 'TV anime frame: cel animation, dramatic cel shading, high detail, characters drawn on-model like the original anime.',
     ];
 

@@ -11,15 +11,15 @@ final class DragonBall
 
     /** Mã biểu cảm => [nhãn tiếng Việt, prompt tiếng Anh]. */
     public const EXPRESSIONS = [
-        'E1' => ['Bình thường', 'neutral calm face, mouth closed'],
-        'E2' => ['Cười hào hứng', 'big grin, excited eyes, slight blush lines'],
-        'E3' => ['Giận dữ', 'furious, clenched teeth, veins on forehead, furrowed brows'],
-        'E4' => ['Sốc', 'shocked, eyes wide with tiny pupils, mouth open, sweat drops, exclamation mark above head'],
-        'E5' => ['Quyết tâm', 'serious determined glare, small smirk, wind in hair'],
-        'E6' => ['Buồn', 'sad, teary eyes, head lowered'],
-        'E7' => ['Cười khinh', 'smug arrogant smirk, half-closed eyes'],
-        'E8' => ['Hét gồng sức', 'screaming power-up, mouth wide open, speed lines, cracks and debris'],
-        'E9' => ['Ngơ ngác / hài', 'confused comedic face, dot eyes, sweat drop, question mark above head'],
+        'E1' => ['Bình thường', 'calm relaxed face, gentle eyes, mouth closed'],
+        'E2' => ['Vui vẻ', 'warm cheerful smile, bright eyes'],
+        'E3' => ['Nghiêm nghị', 'stern serious look, slightly furrowed brows, mouth closed'],
+        'E4' => ['Ngạc nhiên', 'surprised, eyes wide, small open mouth'],
+        'E5' => ['Quyết tâm', 'confident determined look, slight smile'],
+        'E6' => ['Trầm tư', 'thoughtful, looking down softly'],
+        'E7' => ['Tự tin', 'confident smirk, relaxed eyes'],
+        'E8' => ['Tập trung', 'focused, fists raised in a ready stance, gentle glowing aura'],
+        'E9' => ['Thắc mắc', 'puzzled, head tilted, one eyebrow raised'],
     ];
 
     /** key => [tên, mô tả ngoại hình (tiếng Anh), biểu cảm gợi ý]. */

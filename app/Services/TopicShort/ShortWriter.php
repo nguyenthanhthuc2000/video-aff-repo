@@ -35,7 +35,7 @@ class ShortWriter
     - image_query: 2–3 English keywords, most important first, to find a matching screenshot or artwork on a fan wiki by file name (character name + form + event/place, e.g. "Goku Super Saiyan"). Use official character names here.
     - characters: the main recurring characters of the short (at most 5), each with the official English name and look: a precise description of their canonical appearance at this point of the story (face, hair style and color, eyes, body, outfit and colors, aura), so an image model can draw them on-model.
     - art_style: one line naming the original work and its creator's character design, without the medium (e.g. "Dragon Ball, Akira Toriyama character design"); the medium (manga or anime) is added separately.
-    - scene expression: facial expression of the main character in that picture, one code: E1 neutral, E2 excited grin, E3 furious, E4 shocked, E5 determined, E6 sad, E7 smug smirk, E8 screaming power-up, E9 confused/comedic.
+    - scene expression: facial expression of the main character in that picture, one code: E1 calm, E2 cheerful smile, E3 stern, E4 surprised, E5 determined, E6 thoughtful, E7 confident smirk, E8 focused ready stance, E9 puzzled.
     - scene characters: names (exactly as in characters) of who appears in that scene's picture; empty if nobody.
     - image_prompt: English prompt for an AI image generator to draw that scene's picture, vertical 9:16. Name the characters by their official names and describe pose, expression, action, camera angle, setting, lighting and mood as in the original scene.
     - caption: 1–2 sentences for the post. hashtags: #shorts, #anime, the franchise tags (e.g. #dragonball #7vienngocrong for Dragon Ball) and 1–2 character tags.

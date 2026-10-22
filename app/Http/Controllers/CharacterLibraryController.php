@@ -110,7 +110,7 @@ class CharacterLibraryController extends Controller
                 ['status' => 'pending', 'request_id' => null, 'error' => null],
             );
             // Ảnh từng lỗi: Claude viết lại prompt theo lời từ chối của AI trước khi vẽ (không gửi lại prompt cũ).
-            if ($previous?->status === 'failed') {
+            if ($previous?->status === 'failed' && str_contains((string) $previous->error, 'AI trả lời:')) {
                 $portrait->increment('attempts');
                 Cache::put(GenerateCharacterPortraitJob::rewriteKey($portrait), Str::after((string) $previous->error, 'AI trả lời:'), now()->addDay());
             }
