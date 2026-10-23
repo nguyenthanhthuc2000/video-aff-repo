@@ -22,6 +22,77 @@ final class DragonBall
         'E9' => ['Thắc mắc', 'puzzled, head tilted, one eyebrow raised'],
     ];
 
+    /** Phong cách ảnh đánh nhau / chiêu thức: toàn thân, động, không máu, không thương tích. */
+    public const ACTION_STYLE = 'Black and white manga panel, Dragon Ball Super manga style (Toyotarou, Akira Toriyama character design), clean bold ink lines, '
+        .'screentone shading, no color, dynamic full-body action shot, simple background with speed lines, vertical 9:16. '
+        .'Energy and motion only: no blood, no injuries, no pain. No speech bubbles, no text.';
+
+    /** Động tác đánh nhau chung cho mọi nhân vật biết đánh: mã => [nhãn, prompt]. */
+    public const ACTIONS = [
+        'A1' => ['Đấm', 'throwing a powerful straight punch toward the viewer, fist forward, wind and speed lines around the fist, determined face'],
+        'A2' => ['Đá', 'high flying kick in mid-air, one leg extended, motion lines, focused face'],
+        'A3' => ['Đỡ đòn', 'blocking with crossed forearms in front of the face, small impact flash on the arms, feet sliding back on the ground'],
+        'A4' => ['Bay lao tới', 'dashing forward through the sky, body leaning forward, trail of aura and speed lines behind'],
+        'A5' => ['Gồng sức', 'charging ki, standing firm with fists clenched at the sides, strong glowing aura rising, small rocks floating'],
+        'A6' => ['Bị đánh bật', 'knocked back in mid-air by a bright impact flash, arms flung out, eyes squeezed shut, shockwave rings, no injuries'],
+    ];
+
+    /** Nhân vật không đánh nhau: không có ảnh động tác. */
+    public const NON_FIGHTERS = ['bulma', 'chichi', 'whis', 'shenron', 'dragon-balls'];
+
+    /** Chiêu thức riêng: key nhân vật => [mã => [nhãn, prompt]]. */
+    public const SKILLS = [
+        'goku' => [
+            'S1' => ['Kamehameha', 'performing the Kamehameha: cupped hands thrust forward releasing a huge glowing energy wave beam, shockwave around'],
+            'S2' => ['Genki Dama', 'raising both arms to the sky holding a gigantic glowing Spirit Bomb energy sphere above his head'],
+            'S3' => ['Kaio-ken', 'using Kaio-ken: intense flaming aura bursting around the body, clenched fists, powerful stance'],
+            'S4' => ['Dịch chuyển tức thời', 'Instant Transmission: two fingers on his forehead, body fading with afterimage lines'],
+        ],
+        'goku-ssj' => ['S1' => ['Kamehameha', 'firing a massive Kamehameha energy wave from cupped hands, golden-haired, wind blasting around']],
+        'goku-ui' => ['S1' => ['Né đòn bản năng', 'effortlessly dodging with calm eyes, several afterimages around him, silver flowing aura']],
+        'vegeta' => [
+            'S1' => ['Galick Gun', 'firing the Galick Gun: both palms forward side by side, huge purple-white energy beam, shockwave'],
+            'S2' => ['Final Flash', 'Final Flash: arms spread wide then palms forward releasing a gigantic blinding energy beam'],
+            'S3' => ['Big Bang Attack', 'Big Bang Attack: one arm extended, open palm, a large glowing energy sphere forming in front of it'],
+        ],
+        'vegeta-blue' => ['S1' => ['Final Flash', 'Final Flash with blue aura: palms forward releasing a gigantic blinding energy beam']],
+        'gohan' => [
+            'S1' => ['Masenko', 'Masenko: both palms together above the forehead firing a bright energy blast'],
+            'S2' => ['Kamehameha cha con', 'Father-Son Kamehameha: one arm thrust forward firing a giant energy wave, a faint spirit of his father behind him'],
+        ],
+        'kid-gohan' => ['S1' => ['Masenko', 'young boy firing Masenko: palms together above the forehead, bright energy blast']],
+        'piccolo' => ['S1' => ['Makankosappo', 'Special Beam Cannon: two fingers on the forehead, spiralling energy beam drill shooting forward']],
+        'krillin' => ['S1' => ['Kienzan', 'Destructo Disc: one arm raised holding a spinning flat glowing energy disc above his head']],
+        'tien' => [
+            'S1' => ['Tri-Beam', 'Tri-Beam: hands forming a triangle in front of him, intense energy blast through the triangle'],
+            'S2' => ['Thái Dương Hạ San', 'Solar Flare: hands spread beside the face, blinding white flash of light'],
+        ],
+        'yamcha' => ['S1' => ['Lang Nha Phong Phong Quyền', 'Wolf Fang Fist: rushing forward with clawed hands, a wolf-shaped aura behind him, speed lines']],
+        'roshi' => ['S1' => ['Kamehameha MAX', 'old master at full power, muscular, firing a huge Kamehameha energy wave from cupped hands']],
+        'future-trunks' => [
+            'S1' => ['Burning Attack', 'Burning Attack: rapid hand signs then palms forward releasing a fiery energy blast'],
+            'S2' => ['Chém kiếm', 'sword slash: sword swung in a wide glowing arc, motion lines'],
+        ],
+        'goten-trunks' => ['S1' => ['Điệu nhảy hợp thể', 'two kids doing the Fusion Dance pose side by side, arms stretched sideways, fingers touching, glowing light']],
+        'frieza' => [
+            'S1' => ['Tia tử thần', 'Death Beam: one finger pointed forward firing a thin piercing energy beam, cold smile'],
+            'S2' => ['Quả cầu tử thần', 'Death Ball: one finger raised holding a gigantic glowing energy sphere above him'],
+        ],
+        'cell' => ['S1' => ['Kamehameha hoàn hảo', 'Perfect Kamehameha: cupped hands forward firing a huge energy wave, wings spread']],
+        'majin-buu' => ['S1' => ['Tia biến kẹo', 'Candy Beam: head antenna glowing, firing a playful wavy beam with sparkles']],
+        'kid-buu' => ['S1' => ['Cầu năng lượng', 'raising a giant glowing energy sphere above his head, wild grin']],
+        'android-18' => ['S1' => ['Bắn chưởng', 'firing a quick energy blast from one open palm, calm cool face']],
+        'android-17' => ['S1' => ['Lá chắn năng lượng', 'standing inside a glowing spherical energy barrier, arms crossed in front']],
+        'beerus' => ['S1' => ['Hakai', 'Hakai: one hand raised, palm open, a glowing sphere of destruction energy, calm eyes']],
+        'broly' => ['S1' => ['Eraser Cannon', 'Eraser Cannon: one arm thrust forward with a large glowing green energy sphere, wild aura']],
+        'jiren' => ['S1' => ['Power Impact', 'Power Impact: one fist forward sending a giant shockwave of energy, arms crossed aura']],
+        'goku-black' => ['S1' => ['Lưỡi hái năng lượng', 'a long glowing energy blade extending from his hand, slashing arc']],
+        'vegito' => [
+            'S1' => ['Kiếm năng lượng', 'Spirit Sword: a long glowing energy blade extending from his hand'],
+            'S2' => ['Final Kamehameha', 'Final Kamehameha: cupped hands thrust forward, giant energy wave beam'],
+        ],
+    ];
+
     /** key => [tên, mô tả ngoại hình (tiếng Anh), biểu cảm gợi ý]. */
     public const CHARACTERS = [
         'goku' => ['Son Goku', 'Son Goku, spiky black hair with bangs, gi with Kanji on chest, wristbands, muscular', ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9']],
@@ -96,16 +167,48 @@ final class DragonBall
         return trim((string) $text);
     }
 
-    /** Prompt vẽ chân dung một nhân vật với một biểu cảm; safe: bản bỏ tên khi AI đã từ chối; expressionText: biểu cảm đã viết lại. */
-    public static function prompt(string $character, string $expression, bool $withReference = false, bool $safe = false, ?string $expressionText = null): string
+    /** Các ô ảnh của một nhân vật theo tab: faces = biểu cảm, fight = động tác chung + chiêu thức riêng. @return array<string, array{0: string, 1: string}> */
+    public static function poses(string $character, string $tab = 'faces'): array
+    {
+        if ($tab === 'faces') {
+            return self::EXPRESSIONS;
+        }
+
+        return in_array($character, self::NON_FIGHTERS, true) ? [] : self::ACTIONS + (self::SKILLS[$character] ?? []);
+    }
+
+    /** Ô gợi ý vẽ khi bấm "Vẽ còn thiếu". @return list<string> */
+    public static function suggested(string $character, string $tab = 'faces'): array
+    {
+        return $tab === 'faces' ? self::CHARACTERS[$character][2] : array_keys(self::poses($character, 'fight'));
+    }
+
+    /** Nhãn và prompt của một ô (biểu cảm, động tác hoặc chiêu). @return array{0: string, 1: string}|null */
+    public static function pose(string $character, string $code): ?array
+    {
+        return self::poses($character, self::tabOf($code))[$code] ?? null;
+    }
+
+    public static function tabOf(string $code): string
+    {
+        return str_starts_with($code, 'E') ? 'faces' : 'fight';
+    }
+
+    /** Prompt vẽ một nhân vật với một biểu cảm / động tác / chiêu; safe: bản bỏ tên khi AI đã từ chối; poseText: phần biểu cảm / động tác đã viết lại. */
+    public static function prompt(string $character, string $expression, bool $withReference = false, bool $safe = false, ?string $poseText = null): string
     {
         [, $look] = self::CHARACTERS[$character];
         if ($safe) {
             $look = self::scrub($look);
         }
-        $lines = [$safe ? self::SAFE_STYLE : self::STYLE, "{$look}.", 'Expression: '.($expressionText ?? self::EXPRESSIONS[$expression][1]).'.'];
+        $action = self::tabOf($expression) === 'fight';
+        $style = $action ? self::ACTION_STYLE : ($safe ? self::SAFE_STYLE : self::STYLE);
+        $pose = $poseText ?? (self::pose($character, $expression)[1] ?? '');
+        $lines = [$style, "{$look}.", ($action ? 'Action: ' : 'Expression: ').$pose.'.'];
         if ($withReference) {
-            $lines[] = 'The attached image is this same character: keep the face, hair and outfit identical, change only the expression.';
+            $lines[] = $action
+                ? 'The attached image is this same character: keep the face, hair and outfit identical, draw them in the action above.'
+                : 'The attached image is this same character: keep the face, hair and outfit identical, change only the expression.';
         }
 
         return implode("\n", $lines);

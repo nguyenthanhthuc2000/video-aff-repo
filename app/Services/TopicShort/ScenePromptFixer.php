@@ -47,19 +47,20 @@ final class ScenePromptFixer
     }
 
     public const PORTRAIT_SYSTEM = <<<'PROMPT'
-    An image AI refused to draw a black-and-white manga portrait of a character with a given facial expression; its explanation is given.
-    The character's name, form (e.g. Super Saiyan), look (hair, face, eyes, build, outfit, marks) and the framing stay EXACTLY as they are: the picture must still look like the same character as the other portraits in the set. You only rewrite the expression line.
-    - Write a short, gentle, non-violent facial expression and pose (under 25 words) close to the requested one: no anger, screaming, pain, fear, sweat drops, speed lines, debris or impact effects.
+    An image AI refused to draw a black-and-white manga picture of a character with a given facial expression or fighting action; its explanation is given.
+    The character's name, form (e.g. Super Saiyan), look (hair, face, eyes, build, outfit, marks) and the framing stay EXACTLY as they are: the picture must still look like the same character as the other portraits in the set. You only rewrite the expression / action line.
+    - Expression: write a short, gentle facial expression (under 25 words) close to the requested one: no anger, screaming, pain, fear, sweat drops.
+    - Fighting action or signature technique: keep the move and its name, shown as energy and motion only (glowing beams, aura, light flash, shockwave, motion lines); no blood, injuries, pain faces, hitting a person or gripping. Under 35 words.
     - When the AI suggests a calmer variant or removing an effect, use its suggestion.
-    - English, expression only: do not describe the character, the style or the background.
+    - English, expression / action only: do not describe the character, the style or the background.
     PROMPT;
 
     /** Prompt mới cho chân dung nhân vật bị từ chối: giữ nguyên ngoại hình và khung hình, Claude chỉ viết lại biểu cảm. */
     public static function rewritePortrait(CharacterPortrait $portrait, string $refusal): string
     {
         [, $look] = DragonBall::CHARACTERS[$portrait->character];
-        $expression = DragonBall::EXPRESSIONS[$portrait->expression][1];
-        $text = 'Character look (kept as is): '.$look."\nRequested expression: {$expression}"
+        $expression = DragonBall::pose($portrait->character, $portrait->expression)[1] ?? '';
+        $text = 'Character look (kept as is): '.$look."\nRequested expression / action: {$expression}"
             ."\n\nThe image AI refused it and said:\n".($refusal ?: '(no explanation)');
 
         try {
@@ -78,7 +79,7 @@ final class ScenePromptFixer
         }
         $softer = mb_strlen($softer) >= 5 ? mb_substr($softer, 0, 300) : $expression;
 
-        return DragonBall::prompt($portrait->character, $portrait->expression, expressionText: $softer);
+        return DragonBall::prompt($portrait->character, $portrait->expression, poseText: $softer);
     }
 
     /** Viết lại theo luật (không có Claude): thay các từ bạo lực, giữ tên nhân vật. */

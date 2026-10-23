@@ -48,7 +48,40 @@ class CharacterLibraryTest extends TestCase
         $this->assertNull(DragonBall::keyFor('Naruto'));
 
         $this->actingAs($this->user)->get(route('character-library.index'))->assertInertia(fn (Assert $page) => $page
-            ->component('character-library/index')->has('characters', 30)->where('characters.0.name', 'Son Goku')->has('expressions', 9));
+            ->component('character-library/index')->has('characters', 30)->where('characters.0.name', 'Son Goku')->has('characters.0.poses', 9)->where('tab', 'faces'));
+    }
+
+    public function test_fight_tab_draws_actions_and_signature_skills_with_neutral_face_reference()
+    {
+        $this->assertSame(10, count(DragonBall::poses('goku', 'fight')));
+        $this->assertSame([], DragonBall::poses('bulma', 'fight'));
+        $this->assertSame('Kamehameha', DragonBall::pose('goku', 'S1')[0]);
+        $this->assertNull(DragonBall::pose('bulma', 'A1'));
+        $prompt = DragonBall::prompt('goku', 'S1', true);
+        $this->assertStringContainsString('Son Goku', $prompt);
+        $this->assertStringContainsString('Action: performing the Kamehameha', $prompt);
+        $this->assertStringContainsString('dynamic full-body action shot', $prompt);
+        $this->assertStringContainsString('draw them in the action above', $prompt);
+
+        $fighters = collect(DragonBall::CHARACTERS)->keys()->reject(fn ($k) => in_array($k, DragonBall::NON_FIGHTERS, true));
+        $this->actingAs($this->user)->get(route('character-library.index', ['tab' => 'fight']))->assertInertia(fn (Assert $page) => $page
+            ->where('tab', 'fight')->has('characters', $fighters->count())->where('characters.0.poses.S1', 'Kamehameha')->where('characters.0.poses.A6', 'Bị đánh bật'));
+
+        // Vẽ ảnh đánh nhau của một nhân vật: vẽ kèm mặt thường trước để làm ảnh mẫu.
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('character-library.draw'), ['tab' => 'fight', 'character' => 'piccolo'])->assertSessionHas('status', 'Muse đang vẽ 8 ảnh...');
+        $this->assertSame(['E1', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'S1'], Queue::pushed(GenerateCharacterPortraitJob::class)->map(fn ($job) => $job->portrait->expression)->values()->all());
+        $this->actingAs($this->user)->post(route('character-library.draw'), ['tab' => 'fight', 'character' => 'bulma', 'expression' => 'A1'])->assertStatus(422);
+
+        // Tạo lại ảnh lỗi chỉ trong tab đang xem.
+        $this->user->characterPortraits()->where('expression', 'A6')->update(['status' => 'failed', 'error' => 'AI từ chối tạo yêu cầu này. AI trả lời: no fighting']);
+        $this->user->characterPortraits()->where('expression', 'E1')->update(['status' => 'failed', 'error' => 'AI từ chối tạo yêu cầu này. AI trả lời: no']);
+        $this->actingAs($this->user)->get(route('character-library.index', ['tab' => 'fight']))->assertInertia(fn (Assert $page) => $page->where('failed', 1)->where('stats.pending', 6));
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('character-library.draw'), ['tab' => 'fight', 'failed_only' => true])->assertSessionHas('status');
+        $this->assertSame(['E1', 'A6'], Queue::pushed(GenerateCharacterPortraitJob::class)->map(fn ($job) => $job->portrait->expression)->values()->all());
+
+        $this->actingAs($this->user)->post(route('character-library.upload', ['goku', 'S2']), ['image' => UploadedFile::fake()->image('genki.png')])->assertSessionHas('status', 'Đã lưu ảnh Son Goku: Genki Dama.');
     }
 
     public function test_draw_character_neutral_first_then_expressions_follow_it()

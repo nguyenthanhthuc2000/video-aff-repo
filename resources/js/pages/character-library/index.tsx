@@ -26,6 +26,7 @@ interface Character {
     name: string;
     look: string;
     suggested: string[];
+    poses: Record<string, string>;
     portraits: Record<string, Portrait | null>;
 }
 
@@ -33,8 +34,8 @@ const options = { preserveScroll: true };
 
 /** Thư viện nhân vật 7 Viên Ngọc Rồng: Muse vẽ mỗi nhân vật với các biểu cảm, kiểu manga trắng đen. Shorts chủ đề dùng làm ảnh mẫu / ảnh cảnh. */
 export default function CharacterLibrary({
+    tab,
     characters,
-    expressions,
     price,
     failed,
     blocked,
@@ -42,8 +43,8 @@ export default function CharacterLibrary({
     stats,
     busy,
 }: {
+    tab: 'faces' | 'fight';
     characters: Character[];
-    expressions: Record<string, string>;
     price: number;
     failed: number;
     blocked: number;
@@ -60,7 +61,7 @@ export default function CharacterLibrary({
                 `Claude viết lại prompt theo lời từ chối của Muse rồi vẽ lại ${failed} ảnh lỗi, khoảng ${formatNumber(failed * price)} Credits. Tiếp tục?`,
             )
         ) {
-            router.post(route('character-library.draw'), { failed_only: true }, options);
+            router.post(route('character-library.draw'), { tab, failed_only: true }, options);
         }
     };
     const missing = (c: Character) =>
@@ -70,10 +71,10 @@ export default function CharacterLibrary({
     const drawAll = () => {
         if (
             confirm(
-                `Muse vẽ ${totalMissing} ảnh còn thiếu (biểu cảm gợi ý của mọi nhân vật), khoảng ${formatNumber(totalMissing * price)} Credits. Tiếp tục?`,
+                `Muse vẽ ${totalMissing} ảnh còn thiếu (${tab === 'fight' ? 'động tác và chiêu thức' : 'biểu cảm gợi ý'} của mọi nhân vật), khoảng ${formatNumber(totalMissing * price)} Credits. Tiếp tục?`,
             )
         ) {
-            router.post(route('character-library.draw'), {}, options);
+            router.post(route('character-library.draw'), { tab }, options);
         }
     };
 
@@ -84,7 +85,11 @@ export default function CharacterLibrary({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <Heading
                         title="Nhân vật 7 Viên Ngọc Rồng"
-                        description="Mỗi nhân vật vẽ kiểu manga trắng đen với nhiều biểu cảm. Muse vẽ mặt thường trước, các biểu cảm khác bám theo cho giống. Shorts chủ đề tự dùng các ảnh này làm ảnh cảnh và ảnh mẫu."
+                        description={
+                            tab === 'fight'
+                                ? 'Ảnh đánh nhau kiểu manga trắng đen: đấm, đá, đỡ đòn, bay, gồng sức, bị đánh bật và chiêu thức riêng của từng nhân vật. Muse bám theo ảnh mặt thường cho giống nhân vật.'
+                                : 'Mỗi nhân vật vẽ kiểu manga trắng đen với nhiều biểu cảm. Muse vẽ mặt thường trước, các biểu cảm khác bám theo cho giống. Shorts chủ đề tự dùng các ảnh này làm ảnh cảnh và ảnh mẫu.'
+                        }
                     />
                     <div className="flex flex-wrap gap-2">
                         {failed > 0 && (
@@ -98,6 +103,26 @@ export default function CharacterLibrary({
                     </div>
                 </div>
                 <FlashStatus />
+
+                <div className="flex gap-2">
+                    {(
+                        [
+                            ['faces', 'Biểu cảm'],
+                            ['fight', 'Đánh nhau & chiêu thức'],
+                        ] as const
+                    ).map(([key, label]) => (
+                        <Button
+                            key={key}
+                            size="sm"
+                            variant={tab === key ? 'default' : 'outline'}
+                            onClick={() =>
+                                router.get(route('character-library.index'), key === 'fight' ? { tab: key } : {}, { preserveScroll: true })
+                            }
+                        >
+                            {label}
+                        </Button>
+                    ))}
+                </div>
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                     <Stat label="Nhân vật đủ ảnh" value={`${stats.characters_done}/${stats.characters}`} />
@@ -122,13 +147,7 @@ export default function CharacterLibrary({
 
                 <div className="space-y-4">
                     {shown.map((character) => (
-                        <CharacterRow
-                            key={character.key}
-                            character={character}
-                            expressions={expressions}
-                            price={price}
-                            missing={missing(character)}
-                        />
+                        <CharacterRow key={`${tab}-${character.key}`} tab={tab} character={character} price={price} missing={missing(character)} />
                     ))}
                 </div>
             </div>
@@ -145,19 +164,9 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
     );
 }
 
-function CharacterRow({
-    character,
-    expressions,
-    price,
-    missing,
-}: {
-    character: Character;
-    expressions: Record<string, string>;
-    price: number;
-    missing: number;
-}) {
+function CharacterRow({ tab, character, price, missing }: { tab: 'faces' | 'fight'; character: Character; price: number; missing: number }) {
     const draw = (expression?: string) =>
-        router.post(route('character-library.draw'), { character: character.key, expression: expression ?? null }, options);
+        router.post(route('character-library.draw'), { tab, character: character.key, expression: expression ?? null }, options);
     const upload = (expression: string, file: File | undefined) =>
         file && router.post(route('character-library.upload', [character.key, expression]), { image: file }, { ...options, forceFormData: true });
 
@@ -177,12 +186,12 @@ function CharacterRow({
                 </div>
                 {missing > 0 && (
                     <Button size="sm" variant="outline" onClick={() => draw()}>
-                        <Wand2 /> Vẽ {missing} biểu cảm gợi ý ({formatNumber(missing * price)} Credits)
+                        <Wand2 /> Vẽ {missing} {tab === 'fight' ? 'ảnh đánh nhau' : 'biểu cảm gợi ý'} ({formatNumber(missing * price)} Credits)
                     </Button>
                 )}
             </div>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
-                {Object.entries(expressions).map(([code, label]) => {
+                {Object.entries(character.poses).map(([code, label]) => {
                     const portrait = character.portraits[code];
                     const suggested = character.suggested.includes(code);
 

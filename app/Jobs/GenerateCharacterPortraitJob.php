@@ -142,7 +142,7 @@ class GenerateCharacterPortraitJob implements ShouldQueue
             CreditPricing::settings()['steps']['image'],
             'image',
             "character-portrait:{$portrait->id}:".substr(md5($path), 0, 8),
-            'Nhân vật '.DragonBall::CHARACTERS[$portrait->character][0].': '.DragonBall::EXPRESSIONS[$portrait->expression][0],
+            'Nhân vật '.DragonBall::CHARACTERS[$portrait->character][0].': '.(DragonBall::pose($portrait->character, $portrait->expression)[0] ?? $portrait->expression),
         );
     }
 

@@ -24,18 +24,24 @@ class CharacterLibraryController extends Controller
 
     public function index(Request $request): Response
     {
-        $portraits = $request->user()->characterPortraits()->get()->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
+        $tab = $request->query('tab') === 'fight' ? 'fight' : 'faces';
+        $portraits = $request->user()->characterPortraits()->get()
+            ->filter(fn (CharacterPortrait $p) => DragonBall::tabOf($p->expression) === $tab)
+            ->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
+        $characters = collect(DragonBall::CHARACTERS)->filter(fn ($c, $key) => DragonBall::poses($key, $tab) !== []);
 
         return Inertia::render('character-library/index', [
-            'characters' => collect(DragonBall::CHARACTERS)->map(fn ($character, $key) => [
+            'tab' => $tab,
+            'characters' => $characters->map(fn ($character, $key) => [
                 'key' => $key,
                 'name' => $character[0],
                 'look' => $character[1],
-                'suggested' => $character[2],
-                'portraits' => collect(DragonBall::EXPRESSIONS)->keys()->mapWithKeys(function ($expression) use ($portraits, $key) {
-                    $portrait = $portraits->get("{$key}:{$expression}");
+                'suggested' => DragonBall::suggested($key, $tab),
+                'poses' => collect(DragonBall::poses($key, $tab))->map(fn ($pose) => $pose[0]),
+                'portraits' => collect(DragonBall::poses($key, $tab))->keys()->mapWithKeys(function ($code) use ($portraits, $key) {
+                    $portrait = $portraits->get("{$key}:{$code}");
 
-                    return [$expression => $portrait ? [
+                    return [$code => $portrait ? [
                         'status' => $portrait->status,
                         'source' => $portrait->source,
                         'image_url' => Media::url($portrait->image_path),
@@ -44,15 +50,14 @@ class CharacterLibraryController extends Controller
                     ] : null];
                 }),
             ])->values(),
-            'expressions' => collect(DragonBall::EXPRESSIONS)->map(fn ($e) => $e[0]),
             'price' => CreditPricing::settings()['steps']['image'],
             'failed' => $portraits->where('status', 'failed')->where('attempts', '<', self::MAX_ATTEMPTS)->count(),
             'blocked' => $portraits->where('status', 'failed')->where('attempts', '>=', self::MAX_ATTEMPTS)->count(),
             'max_attempts' => self::MAX_ATTEMPTS,
             'stats' => [
-                'characters' => count(DragonBall::CHARACTERS),
-                'characters_done' => collect(DragonBall::CHARACTERS)->filter(fn ($c, $key) => collect($c[2])->every(fn ($e) => $portraits->get("{$key}:{$e}")?->status === 'ready'))->count(),
-                'suggested' => collect(DragonBall::CHARACTERS)->sum(fn ($c) => count($c[2])),
+                'characters' => $characters->count(),
+                'characters_done' => $characters->filter(fn ($c, $key) => collect(DragonBall::suggested($key, $tab))->every(fn ($e) => $portraits->get("{$key}:{$e}")?->status === 'ready'))->count(),
+                'suggested' => $characters->keys()->sum(fn ($key) => count(DragonBall::suggested($key, $tab))),
                 'ready' => $portraits->where('status', 'ready')->count(),
                 'failed' => $portraits->where('status', 'failed')->count(),
                 'pending' => $portraits->where('status', 'pending')->count(),
@@ -62,34 +67,44 @@ class CharacterLibraryController extends Controller
     }
 
     /**
-     * Muse vẽ: một ảnh (character + expression), cả một nhân vật (character) hoặc cả thư viện (không truyền gì).
-     * Vẽ nhiều thì chỉ vẽ các biểu cảm gợi ý chưa có ảnh; vẽ một ảnh thì vẽ lại cả khi đã có.
+     * Muse vẽ: một ô (character + expression), cả một nhân vật (character) hoặc cả thư viện (không truyền gì), trong tab đang xem.
+     * Vẽ nhiều thì chỉ vẽ các ô gợi ý chưa có ảnh; vẽ một ô thì vẽ lại cả khi đã có. Ảnh đánh nhau cần ảnh mặt thường làm mẫu nên vẽ kèm E1 nếu chưa có.
      */
     public function draw(Request $request): RedirectResponse
     {
         $validated = $request->validate([
+            'tab' => ['nullable', Rule::in(['faces', 'fight'])],
             'character' => ['nullable', Rule::in(array_keys(DragonBall::CHARACTERS))],
-            'expression' => ['nullable', Rule::in(array_keys(DragonBall::EXPRESSIONS))],
+            'expression' => ['nullable', 'string', 'max:4'],
             'failed_only' => ['nullable', 'boolean'],
         ]);
+        $tab = $validated['tab'] ?? 'faces';
         $user = $request->user();
         $existing = $user->characterPortraits()->get()->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
 
         $targets = [];
         if ($request->boolean('failed_only')) {
             // Ô đã viết lại 2 lần vẫn bị từ chối: Muse nhớ và chặn mọi biến thể, thử tiếp chỉ làm danh sách chặn dài thêm.
-            $targets = $existing->where('status', 'failed')->where('attempts', '<', self::MAX_ATTEMPTS)->map(fn (CharacterPortrait $p) => [$p->character, $p->expression])->values()->all();
+            $targets = $existing->where('status', 'failed')->where('attempts', '<', self::MAX_ATTEMPTS)
+                ->filter(fn (CharacterPortrait $p) => DragonBall::tabOf($p->expression) === $tab)
+                ->map(fn (CharacterPortrait $p) => [$p->character, $p->expression])->values()->all();
         } elseif (filled($validated['character'] ?? null) && filled($validated['expression'] ?? null)) {
+            abort_unless(DragonBall::pose($validated['character'], $validated['expression']) !== null, 422);
             $targets[] = [$validated['character'], $validated['expression']];
         } else {
             $keys = filled($validated['character'] ?? null) ? [$validated['character']] : array_keys(DragonBall::CHARACTERS);
             foreach ($keys as $key) {
-                foreach (DragonBall::CHARACTERS[$key][2] as $expression) {
+                foreach (DragonBall::suggested($key, $tab) as $expression) {
                     $portrait = $existing->get("{$key}:{$expression}");
                     if ($portrait === null || ($portrait->status === 'failed' && $portrait->attempts < self::MAX_ATTEMPTS)) {
                         $targets[] = [$key, $expression];
                     }
                 }
+            }
+        }
+        foreach (array_unique(array_column(array_filter($targets, fn ($t) => DragonBall::tabOf($t[1]) === 'fight'), 0)) as $key) {
+            if (! in_array($existing->get("{$key}:E1")?->status, ['ready', 'pending'], true)) {
+                $targets[] = [$key, 'E1'];
             }
         }
         // Ảnh đang vẽ thì bỏ qua.
@@ -122,7 +137,7 @@ class CharacterLibraryController extends Controller
 
     public function upload(Request $request, string $character, string $expression): RedirectResponse
     {
-        abort_unless(isset(DragonBall::CHARACTERS[$character], DragonBall::EXPRESSIONS[$expression]), 404);
+        abort_unless(isset(DragonBall::CHARACTERS[$character]) && DragonBall::pose($character, $expression) !== null, 404);
         $request->validate(['image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:15360']], [], ['image' => 'ảnh']);
 
         $portrait = $request->user()->characterPortraits()->firstOrNew(['character' => $character, 'expression' => $expression]);
@@ -136,6 +151,6 @@ class CharacterLibraryController extends Controller
         ])->save();
         Media::delete($old);
 
-        return back()->with('status', 'Đã lưu ảnh '.DragonBall::CHARACTERS[$character][0].': '.DragonBall::EXPRESSIONS[$expression][0].'.');
+        return back()->with('status', 'Đã lưu ảnh '.DragonBall::CHARACTERS[$character][0].': '.DragonBall::pose($character, $expression)[0].'.');
     }
 }
