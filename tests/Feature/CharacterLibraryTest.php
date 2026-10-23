@@ -172,8 +172,7 @@ class CharacterLibraryTest extends TestCase
         $this->assertNotNull($portrait->prompt);
         $this->assertSame(['base.png'], GenerateCharacterPortraitJob::references($portrait));
         $this->assertCount(2, $prompts);
-        $this->assertStringNotContainsString('Vegeta', $prompts[1]);
-        $this->assertStringNotContainsString('Dragon Ball', $prompts[1]);
+        $this->assertStringContainsString('Vegeta', $prompts[1]);
         $this->assertStringContainsString("widow's peak", $prompts[1]);
         $this->assertStringContainsString('flame-shaped black hair', $prompts[1]);
         $this->assertStringContainsString('close-up bust shot', $prompts[1]);
@@ -184,7 +183,7 @@ class CharacterLibraryTest extends TestCase
         $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Không có ảnh nào cần vẽ.');
         $this->actingAs($this->user)->get(route('character-library.index'))->assertInertia(fn (Assert $page) => $page->where('blocked', 1)->where('failed', 0));
 
-        // Cảnh bị từ chối: Claude (driver fake: luật thay từ) viết lại prompt bớt bạo lực, bỏ tên, rồi vẽ lại.
+        // Cảnh bị từ chối: Claude (driver fake: luật thay từ) viết lại prompt bớt bạo lực, giữ tên nhân vật, rồi vẽ lại.
         $prompts->exchangeArray([]);
         $violent = TopicShortScene::factory()->for(TopicShort::factory()->for($this->user))->create([
             'image_prompt' => 'Goku collapsing in pain as a hand grips his tail', 'image_status' => 'pending', 'characters' => null,
@@ -195,7 +194,7 @@ class CharacterLibraryTest extends TestCase
         $violent->refresh();
         $this->assertSame('ready', $violent->image_status, (string) $violent->image_error);
         $this->assertStringNotContainsString('in pain', $violent->image_prompt);
-        $this->assertStringNotContainsString('Goku', $violent->image_prompt);
+        $this->assertStringContainsString('Goku', $violent->image_prompt);
 
         // Nút tạo lại ảnh lỗi: mọi cảnh lỗi, prompt viết lại theo lời từ chối.
         Queue::fake();

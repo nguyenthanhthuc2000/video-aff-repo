@@ -69,10 +69,6 @@ class GenerateTopicSceneImageJob implements ShouldQueue
     /** @return list<string> Ảnh mẫu nhân vật, rồi ảnh hiện tại của cảnh (wiki / tải lên) làm mẫu bố cục; Muse nhận tối đa 4 ảnh. */
     public static function references(TopicShortScene $scene): array
     {
-        // Lần vẽ lại sau khi bị từ chối: không gửi ảnh mẫu (ảnh nhân vật có bản quyền khiến AI nhận ra và chặn tiếp).
-        if (Cache::has(self::safeKey($scene))) {
-            return [];
-        }
         $paths = array_slice(array_values(array_filter(array_column(self::characters($scene), 'ref'))), 0, 4);
         if (self::layoutReference($scene)) {
             $paths = [...array_slice($paths, 0, 3), $scene->image_path];
@@ -86,21 +82,15 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         return in_array($scene->image_source, ['web', 'upload'], true) && filled($scene->image_path);
     }
 
-    public static function safeKey(TopicShortScene $scene): string
-    {
-        return "muse-safe:topic-scene:{$scene->id}";
-    }
-
     /** Lời từ chối của AI chờ Claude viết lại prompt trước lần vẽ tới. */
     public static function rewriteKey(TopicShortScene $scene): string
     {
         return "muse-rewrite:topic-scene:{$scene->id}";
     }
 
-    /** Lần vẽ lại sau khi bị từ chối: bỏ tên riêng và để Claude viết lại prompt theo lời từ chối. */
+    /** Lần vẽ lại sau khi bị từ chối: Claude viết lại prompt theo lời từ chối, giữ tên nhân vật và ảnh mẫu. */
     public static function markForRewrite(TopicShortScene $scene, string $refusal): void
     {
-        Cache::put(self::safeKey($scene), true, now()->addDay());
         Cache::put(self::rewriteKey($scene), $refusal, now()->addDay());
     }
 
@@ -168,7 +158,7 @@ class GenerateTopicSceneImageJob implements ShouldQueue
                     $scene->update(['image_prompt' => $prompt]);
                     Cache::forget(self::rewriteKey($scene));
                 }
-                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene, Cache::has(self::safeKey($scene))))]);
+                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene))]);
                 $this->release(15);
 
                 return;

@@ -16,7 +16,7 @@ final class ScenePromptFixer
     You rewrite one image prompt for a vertical (9:16) anime / manga style picture in a short recap video. The image AI refused the old prompt; its explanation is given.
     - Fix exactly what the AI objected to, and follow its suggestion when it gives one.
     - No violence shown on screen: no pain, injuries, blood, choking, gripping that hurts, destruction of living things, corpses. Keep the drama with expressions, poses, aura, energy, speed lines, dramatic sky and lighting, silhouettes, aftermath framing.
-    - No franchise, show, author or character names: call characters "Character 1", "Character 2"... in the order given, and describe their look instead.
+    - Keep every character's real name and form exactly as given (e.g. "Son Goku, Super Saiyan", "Vegeta, Super Saiyan Blue") and their look: the picture is for a Dragon Ball fan comic and must show those exact characters. Only soften the action, expression and effects.
     - Keep the moment, the setting and the camera idea recognisable.
     - English, under 80 words, prompt only.
     PROMPT;
@@ -26,7 +26,7 @@ final class ScenePromptFixer
     {
         $short = $scene->topicShort;
         $characters = collect($short->characters ?? [])->filter(fn ($c) => in_array($c['name'], $scene->characters ?? [], true))->values()
-            ->map(fn ($c, $i) => 'Character '.($i + 1).": {$c['name']}, ".DragonBall::scrub((string) ($c['look'] ?? '')))->implode("\n");
+            ->map(fn ($c) => "- {$c['name']}: ".($c['look'] ?? ''))->implode("\n");
         $text = "Characters:\n".($characters ?: '(none)')."\n\nOld prompt:\n{$scene->image_prompt}\n\nThe image AI refused it and said:\n".($refusal ?: '(no explanation)');
 
         $data = AiUsage::withContext(['user_id' => $short->user_id, 'subject' => "topic_short:{$short->id}"], fn () => FilmClaude::json(
@@ -48,7 +48,7 @@ final class ScenePromptFixer
 
     public const PORTRAIT_SYSTEM = <<<'PROMPT'
     An image AI refused to draw a black-and-white manga portrait of a character with a given facial expression; its explanation is given.
-    The character's look (hair, face, eyes, build, outfit, marks) and the framing stay EXACTLY as they are: the picture must still look like the same character as the other portraits in the set. You only rewrite the expression line.
+    The character's name, form (e.g. Super Saiyan), look (hair, face, eyes, build, outfit, marks) and the framing stay EXACTLY as they are: the picture must still look like the same character as the other portraits in the set. You only rewrite the expression line.
     - Write a short, gentle, non-violent facial expression and pose (under 25 words) close to the requested one: no anger, screaming, pain, fear, sweat drops, speed lines, debris or impact effects.
     - When the AI suggests a calmer variant or removing an effect, use its suggestion.
     - English, expression only: do not describe the character, the style or the background.
@@ -59,7 +59,7 @@ final class ScenePromptFixer
     {
         [, $look] = DragonBall::CHARACTERS[$portrait->character];
         $expression = DragonBall::EXPRESSIONS[$portrait->expression][1];
-        $text = 'Character look (kept as is): '.DragonBall::scrub($look)."\nRequested expression: {$expression}"
+        $text = 'Character look (kept as is): '.$look."\nRequested expression: {$expression}"
             ."\n\nThe image AI refused it and said:\n".($refusal ?: '(no explanation)');
 
         try {
@@ -78,13 +78,12 @@ final class ScenePromptFixer
         }
         $softer = mb_strlen($softer) >= 5 ? mb_substr($softer, 0, 300) : $expression;
 
-        return DragonBall::prompt($portrait->character, $portrait->expression, safe: true, expressionText: $softer);
+        return DragonBall::prompt($portrait->character, $portrait->expression, expressionText: $softer);
     }
 
-    /** Viết lại theo luật (không có Claude): bỏ tên riêng và các từ bạo lực. */
+    /** Viết lại theo luật (không có Claude): thay các từ bạo lực, giữ tên nhân vật. */
     public static function fallback(string $prompt): string
     {
-        $prompt = DragonBall::scrub($prompt);
         $soft = [
             'collapsing in pain' => 'startled', 'in pain' => 'startled', 'screaming in agony' => 'shouting', 'agony' => 'shock',
             'blood' => 'dust', 'bloody' => 'dusty', 'injured' => 'tired', 'wounded' => 'tired', 'dead' => 'fallen', 'corpse' => 'figure',
