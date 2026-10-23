@@ -160,7 +160,7 @@ class CharacterLibraryTest extends TestCase
         (new GenerateCharacterPortraitJob($portrait))->failed(ImageGeneratorException::rejected('AI từ chối tạo yêu cầu này. AI trả lời: copyrighted, try an original character', 'x'));
         $this->assertSame('failed', $portrait->fresh()->status);
 
-        // Bấm tạo lại ảnh lỗi: Claude viết lại thành nhân vật gốc, không tên, không gửi ảnh mẫu.
+        // Bấm tạo lại ảnh lỗi: Claude chỉ viết lại biểu cảm, giữ nguyên ngoại hình, vẫn gửi ảnh mặt thường làm mẫu.
         Queue::fake();
         $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Muse đang vẽ 1 ảnh...');
         Queue::assertPushed(GenerateCharacterPortraitJob::class, 1);
@@ -170,12 +170,14 @@ class CharacterLibraryTest extends TestCase
         $this->assertSame('ready', $portrait->status, (string) $portrait->error);
         $this->assertSame(1, $portrait->attempts);
         $this->assertNotNull($portrait->prompt);
-        $this->assertSame([], GenerateCharacterPortraitJob::references($portrait));
+        $this->assertSame(['base.png'], GenerateCharacterPortraitJob::references($portrait));
         $this->assertCount(2, $prompts);
         $this->assertStringNotContainsString('Vegeta', $prompts[1]);
         $this->assertStringNotContainsString('Dragon Ball', $prompts[1]);
         $this->assertStringContainsString("widow's peak", $prompts[1]);
-        $this->assertStringNotContainsString('attached image', $prompts[1]);
+        $this->assertStringContainsString('flame-shaped black hair', $prompts[1]);
+        $this->assertStringContainsString('close-up bust shot', $prompts[1]);
+        $this->assertStringContainsString('attached image is this same character', $prompts[1]);
 
         // Viết lại đủ 2 lần vẫn bị từ chối: nút tạo lại bỏ qua ô này (chỉ còn tải lên / bấm riêng ô).
         $portrait->update(['status' => 'failed', 'attempts' => 2]);

@@ -37,8 +37,8 @@ class GenerateCharacterPortraitJob implements ShouldQueue
     /** @return list<string> Ảnh mặt thường của nhân vật làm mẫu (trừ khi đang vẽ chính ảnh mặt thường). */
     public static function references(CharacterPortrait $portrait): array
     {
-        // Prompt đã viết lại sau khi bị từ chối: không gửi ảnh mẫu (ảnh mẫu là nhân vật có bản quyền, Muse nhận ra ngay).
-        if ($portrait->expression === 'E1' || filled($portrait->prompt)) {
+        // Ảnh mặt thường (do Muse vẽ hoặc bạn tải lên) luôn làm ảnh mẫu, kể cả khi đã viết lại prompt, để các biểu cảm giống cùng một nhân vật.
+        if ($portrait->expression === 'E1') {
             return [];
         }
         $base = CharacterPortrait::where('user_id', $portrait->user_id)->where('character', $portrait->character)

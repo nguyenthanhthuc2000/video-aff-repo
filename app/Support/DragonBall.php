@@ -96,14 +96,14 @@ final class DragonBall
         return trim((string) $text);
     }
 
-    /** Prompt vẽ chân dung một nhân vật với một biểu cảm; safe: bản bỏ tên khi AI đã từ chối. */
-    public static function prompt(string $character, string $expression, bool $withReference = false, bool $safe = false): string
+    /** Prompt vẽ chân dung một nhân vật với một biểu cảm; safe: bản bỏ tên khi AI đã từ chối; expressionText: biểu cảm đã viết lại. */
+    public static function prompt(string $character, string $expression, bool $withReference = false, bool $safe = false, ?string $expressionText = null): string
     {
         [, $look] = self::CHARACTERS[$character];
         if ($safe) {
             $look = self::scrub($look);
         }
-        $lines = [$safe ? self::SAFE_STYLE : self::STYLE, "{$look}.", 'Expression: '.self::EXPRESSIONS[$expression][1].'.'];
+        $lines = [$safe ? self::SAFE_STYLE : self::STYLE, "{$look}.", 'Expression: '.($expressionText ?? self::EXPRESSIONS[$expression][1]).'.'];
         if ($withReference) {
             $lines[] = 'The attached image is this same character: keep the face, hair and outfit identical, change only the expression.';
         }
