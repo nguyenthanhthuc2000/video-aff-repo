@@ -321,6 +321,9 @@ class TopicStoryResearchTest extends TestCase
         $fact = $this->user->loreFacts()->create(['characters' => ['vegeta'], 'kind' => 'fact', 'text' => 'Cũ']);
         $this->actingAs($this->user)->get(route('lore-facts.index', ['character' => 'vegeta']))
             ->assertInertia(fn (Assert $page) => $page->component('lore-facts/index')->has('facts', 1)->where('facts.0.characters.0', 'Vegeta'));
+        $this->actingAs($this->user)->get(route('lore-facts.index', ['q' => 'Vegeta']))->assertInertia(fn (Assert $page) => $page->has('facts', 1));
+        $this->actingAs($this->user)->get(route('lore-facts.index', ['q' => 'cũ']))->assertInertia(fn (Assert $page) => $page->has('facts', 1));
+        $this->actingAs($this->user)->get(route('lore-facts.index', ['q' => 'Goku']))->assertInertia(fn (Assert $page) => $page->has('facts', 0)->where('total', 1));
         $this->actingAs($this->user)->put(route('lore-facts.update', $fact), ['kind' => 'quote', 'text' => 'Mới', 'source_url' => 'https://dragonball.fandom.com/wiki/Vegeta'])->assertRedirect();
         $this->assertSame('Mới', $fact->fresh()->text);
 

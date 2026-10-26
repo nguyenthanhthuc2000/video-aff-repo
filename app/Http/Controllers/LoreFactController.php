@@ -18,7 +18,13 @@ class LoreFactController extends Controller
         $validated = $request->validate(['character' => ['nullable', Rule::in(array_keys(DragonBall::CHARACTERS))], 'q' => ['nullable', 'string', 'max:100']]);
         $facts = $request->user()->loreFacts()->latest('id')
             ->when($validated['character'] ?? null, fn ($q, $key) => $q->whereJsonContains('characters', $key))
-            ->when($validated['q'] ?? null, fn ($q, $text) => $q->where(fn ($q) => $q->where('text', 'like', "%{$text}%")->orWhere('era', 'like', "%{$text}%")))
+            // Tìm trong nội dung, arc / tập, nguồn và tên nhân vật (gõ "Vegeta" ra mọi chi tiết gắn Vegeta).
+            ->when(trim((string) ($validated['q'] ?? '')), fn ($q, $text) => $q->where(function ($q) use ($text) {
+                $q->where('text', 'like', "%{$text}%")->orWhere('era', 'like', "%{$text}%")->orWhere('source_title', 'like', "%{$text}%");
+                foreach (DragonBall::charactersIn($text) ?: array_filter([DragonBall::keyFor($text)]) as $key) {
+                    $q->orWhereJsonContains('characters', $key);
+                }
+            }))
             ->limit(300)->get();
 
         return Inertia::render('lore-facts/index', [

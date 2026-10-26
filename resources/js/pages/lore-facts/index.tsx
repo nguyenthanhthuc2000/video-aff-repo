@@ -9,7 +9,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import { ExternalLink, Pencil, Search, Trash2 } from 'lucide-react';
-import { FormEventHandler, useState } from 'react';
+import { FormEventHandler, useEffect, useRef, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Video truyện', href: '/story-videos' },
@@ -41,8 +41,21 @@ export default function LoreFactsIndex({
     total: number;
 }) {
     const [q, setQ] = useState(filters.q);
-    const filter = (next: Partial<typeof filters>) =>
-        router.get(route('lore-facts.index'), { ...filters, q, ...next }, { preserveState: true, preserveScroll: true, replace: true });
+    const filter = (next: Partial<typeof filters>) => {
+        const params = Object.fromEntries(Object.entries({ ...filters, q, ...next }).filter(([, value]) => value.trim() !== ''));
+        router.get(route('lore-facts.index'), params, { preserveState: true, preserveScroll: true, replace: true });
+    };
+    // Gõ là tìm (chờ 400ms sau phím cuối), không cần bấm nút.
+    const first = useRef(true);
+    useEffect(() => {
+        if (first.current) {
+            first.current = false;
+            return;
+        }
+        const timer = setTimeout(() => filter({ q }), 400);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [q]);
     const search: FormEventHandler = (e) => {
         e.preventDefault();
         filter({ q });
@@ -71,14 +84,23 @@ export default function LoreFactsIndex({
                             </option>
                         ))}
                     </select>
-                    <Input className="min-w-40 flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm nội dung, arc..." />
+                    <Input
+                        className="min-w-40 flex-1"
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Tìm nội dung, arc, nhân vật..."
+                    />
                     <Button variant="outline">
                         <Search /> Tìm
                     </Button>
                 </form>
                 <div className="divide-y rounded-lg border">
                     {facts.length === 0 && (
-                        <p className="text-muted-foreground p-4 text-sm">Chưa có tư liệu nào. Duyệt tư liệu ở một short để lưu vào kho.</p>
+                        <p className="text-muted-foreground p-4 text-sm">
+                            {total === 0
+                                ? 'Kho tư liệu đang trống. Chi tiết chỉ vào kho khi bạn duyệt tư liệu ở một Video truyện (bước Tư liệu).'
+                                : 'Không tìm thấy chi tiết nào khớp.'}
+                        </p>
                     )}
                     {facts.map((fact) => (
                         <FactRow key={`${fact.id}:${fact.text}`} fact={fact} kinds={kinds} />
