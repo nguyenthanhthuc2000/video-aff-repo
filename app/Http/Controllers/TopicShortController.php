@@ -25,6 +25,7 @@ use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\DragonBall;
 use App\Support\Media;
+use App\Support\Pronounce;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -194,6 +195,8 @@ class TopicShortController extends Controller
             'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
             'max_attempts' => CharacterLibraryController::MAX_ATTEMPTS,
+            // Tên tiếng Anh trong lời kể và cách giọng Việt sẽ đọc (chỉ cho short tiếng Việt).
+            'pronunciations' => $short->language === 'en' ? [] : Pronounce::found($scenes->pluck('narration')->implode("\n"), $short->user_id),
         ]);
     }
 

@@ -1,6 +1,7 @@
 import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { type PronunciationRow, PronunciationPanel } from '@/components/topic-shorts/pronunciation-panel';
 import { type PublishPack, PublishPanel } from '@/components/topic-shorts/publish-panel';
 import { type FactCheck, type Research, HookPicker, ResearchPanel, SceneFacts } from '@/components/topic-shorts/research-panel';
 import { Badge } from '@/components/ui/badge';
@@ -109,6 +110,7 @@ export default function TopicShortShow({
     music_suggestion,
     prices,
     image_styles,
+    pronunciations,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
@@ -116,6 +118,7 @@ export default function TopicShortShow({
     music_suggestion: { mood: string | null; track_id: number | null; file: string | null };
     image_styles: Record<string, string>;
     prices: { image: number; render: number };
+    pronunciations: PronunciationRow[];
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
         short.use_research ? { title: 'Video truyện', href: '/story-videos' } : { title: 'Shorts chủ đề', href: '/topic-shorts' },
@@ -312,7 +315,10 @@ export default function TopicShortShow({
                 )}
 
                 {step === 'video' && short.scenes.length > 0 && (
-                    <RenderPanel short={short} music={music} builtin={builtin_music} suggestion={music_suggestion} price={prices.render} />
+                    <>
+                        <RenderPanel short={short} music={music} builtin={builtin_music} suggestion={music_suggestion} price={prices.render} />
+                        {short.language !== 'en' && <PronunciationPanel rows={pronunciations} />}
+                    </>
                 )}
 
                 {step === 'publish' && short.scenes.length > 0 && (

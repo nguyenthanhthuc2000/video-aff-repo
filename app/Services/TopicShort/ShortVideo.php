@@ -10,6 +10,7 @@ use App\Services\Film\Voices;
 use App\Services\Video\AssSubtitles;
 use App\Support\BuiltinMusic;
 use App\Support\Media;
+use App\Support\Pronounce;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
@@ -155,7 +156,8 @@ class ShortVideo
     {
         return $short->language === 'en'
             ? ['text' => $text, 'voice' => Voices::NARRATOR['voice'], 'pitch' => Voices::NARRATOR['pitch'], 'speed' => Voices::NARRATOR['speed']]
-            : ['text' => $text, 'voice' => '', 'pitch' => 1.0, 'speed' => 1.0, 'lang' => 'vi'];
+            // Giọng Việt đánh vần chữ Anh như chữ Việt: đổi tên riêng sang cách đọc kiểu Việt (phụ đề vẫn giữ tên gốc).
+            : ['text' => Pronounce::apply($text, $short->user_id), 'voice' => '', 'pitch' => 1.0, 'speed' => 1.0, 'lang' => 'vi'];
     }
 
     /**

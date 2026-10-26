@@ -17,6 +17,7 @@ use App\Http\Controllers\MusicVideoController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\ProductImportController;
+use App\Http\Controllers\PronunciationController;
 use App\Http\Controllers\RenderController;
 use App\Http\Controllers\SampleVideoController;
 use App\Http\Controllers\SceneAngleController;
@@ -120,6 +121,9 @@ Route::middleware(['auth'])->group(function () {
     Route::put('topic-shorts/{short}/publish', [TopicShortController::class, 'savePublish'])->name('topic-shorts.publish.save');
     Route::post('topic-shorts/{short}/cover', [TopicShortController::class, 'cover'])->name('topic-shorts.cover');
     Route::get('topic-shorts/{short}/cover', [TopicShortController::class, 'coverDownload'])->name('topic-shorts.cover.download');
+    Route::post('pronunciations', [PronunciationController::class, 'store'])->name('pronunciations.store');
+    Route::delete('pronunciations', [PronunciationController::class, 'destroy'])->name('pronunciations.destroy');
+    Route::get('pronunciations/preview', [PronunciationController::class, 'preview'])->name('pronunciations.preview');
     Route::get('topic-shorts/{short}/download', [TopicShortController::class, 'download'])->name('topic-shorts.download');
     Route::post('topic-short-scenes/{scene}/search', [TopicShortController::class, 'search'])->name('topic-short-scenes.search');
     Route::post('topic-short-scenes/{scene}/pick', [TopicShortController::class, 'pick'])->name('topic-short-scenes.pick');

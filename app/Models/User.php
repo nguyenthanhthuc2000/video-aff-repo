@@ -133,6 +133,11 @@ class User extends Authenticatable
         return $this->hasMany(TopicSeries::class);
     }
 
+    public function pronunciations(): HasMany
+    {
+        return $this->hasMany(Pronunciation::class);
+    }
+
     public function loreFacts(): HasMany
     {
         return $this->hasMany(LoreFact::class);
