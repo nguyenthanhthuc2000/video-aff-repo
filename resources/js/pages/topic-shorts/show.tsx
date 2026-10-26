@@ -1,6 +1,7 @@
 import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { type PublishPack, PublishPanel } from '@/components/topic-shorts/publish-panel';
 import { type FactCheck, type Research, HookPicker, ResearchPanel, SceneFacts } from '@/components/topic-shorts/research-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -79,6 +80,9 @@ interface TopicShort {
     part: number | null;
     series: { id: number; parts: { id: number; part: number; title: string | null; status: string; focus: string }[] } | null;
     unsupported_count: number;
+    cover_url: string | null;
+    cover: { scene_id: number; text: string } | null;
+    publish: PublishPack | null;
     missing_panels: { character: string; pose: string; name: string; label: string; status: 'none' | 'failed' | 'pending' }[];
     caption: string;
     hashtags: string[];
@@ -125,7 +129,8 @@ export default function TopicShortShow({
             checking ||
             drawing ||
             short.images_busy ||
-            short.video_status === 'rendering',
+            short.video_status === 'rendering' ||
+            short.publish?.status === 'writing',
         ['short'],
         3000,
     );
@@ -308,6 +313,10 @@ export default function TopicShortShow({
 
                 {step === 'video' && short.scenes.length > 0 && (
                     <RenderPanel short={short} music={music} builtin={builtin_music} suggestion={music_suggestion} price={prices.render} />
+                )}
+
+                {step === 'publish' && short.scenes.length > 0 && (
+                    <PublishPanel shortId={short.id} publish={short.publish} cover={short.cover} coverUrl={short.cover_url} scenes={short.scenes} />
                 )}
 
                 <NextStep steps={steps} current={step} onChange={go} />
@@ -573,7 +582,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     );
 }
 
-type StepKey = 'research' | 'script' | 'images' | 'video';
+type StepKey = 'research' | 'script' | 'images' | 'video' | 'publish';
 
 interface Step {
     key: StepKey;
@@ -644,6 +653,26 @@ function stepsOf(short: TopicShort): Step[] {
                     : 'Chờ đủ ảnh',
         state: short.video_status === 'rendering' ? 'busy' : short.video_url ? 'done' : short.all_images_ready ? 'todo' : 'locked',
     });
+    steps.push({
+        key: 'publish',
+        title: 'Đăng',
+        summary:
+            short.publish?.status === 'writing'
+                ? 'Claude đang viết...'
+                : short.publish?.title
+                  ? `Có tiêu đề${short.cover_url ? ' + ảnh bìa' : ''}`
+                  : 'Ảnh bìa, tiêu đề, mô tả',
+        state:
+            short.publish?.status === 'writing'
+                ? 'busy'
+                : short.publish?.status === 'failed'
+                  ? 'warn'
+                  : short.publish?.title && short.cover_url
+                    ? 'done'
+                    : hasScenes
+                      ? 'todo'
+                      : 'locked',
+    });
 
     return steps;
 }
@@ -655,6 +684,10 @@ function currentStep(short: TopicShort): StepKey {
     }
     if (short.status !== 'ready' || short.scenes.length === 0) {
         return short.use_research && short.status === 'failed' && !short.research ? 'research' : 'script';
+    }
+
+    if (short.video_url && short.video_status !== 'rendering') {
+        return 'publish';
     }
 
     return short.all_images_ready ? 'video' : 'images';
@@ -670,7 +703,7 @@ const stepStyles: Record<Step['state'], string> = {
 
 function StepBar({ steps, current, onChange }: { steps: Step[]; current: StepKey; onChange: (key: StepKey) => void }) {
     return (
-        <nav aria-label="Các bước" className={`grid grid-cols-2 gap-2 ${steps.length === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+        <nav aria-label="Các bước" className={`grid grid-cols-2 gap-2 ${steps.length === 5 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
             {steps.map((st, i) => (
                 <button
                     key={st.key}

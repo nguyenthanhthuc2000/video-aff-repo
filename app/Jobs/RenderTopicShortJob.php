@@ -48,6 +48,11 @@ class RenderTopicShortJob implements ShouldQueue
             $short->update(['video_path' => $path, 'video_ms' => $video['ms'], 'video_status' => 'done', 'video_error' => null]);
             $old && $old !== $path && Media::delete($old);
             Credits::charge($short->user_id, self::price($video['ms']), $video['ms'] > 30_000 ? 'render_long' : 'render', "topic-short:{$short->id}:{$this->run}", "Short {$short->topic}: dựng video");
+            // Dựng xong lần đầu: Claude viết sẵn tiêu đề, mô tả và ghép ảnh bìa cho bước Đăng.
+            if ($short->publish === null) {
+                $short->update(['publish' => ['status' => 'writing']]);
+                WriteTopicShortPublishJob::dispatch($short);
+            }
         } catch (RuntimeException $e) {
             $this->fail($e);
         } finally {

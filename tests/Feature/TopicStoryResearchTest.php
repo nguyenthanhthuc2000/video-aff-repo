@@ -8,6 +8,7 @@ use App\Jobs\PlanTopicSeriesJob;
 use App\Jobs\RenderTopicShortJob;
 use App\Jobs\ResearchTopicJob;
 use App\Jobs\WriteTopicShortJob;
+use App\Jobs\WriteTopicShortPublishJob;
 use App\Models\LoreFact;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
@@ -322,6 +323,40 @@ class TopicStoryResearchTest extends TestCase
             @unlink("{$dir}/zz-test-epic_battle.wav");
             $made && @rmdir($dir);
         }
+    }
+
+    public function test_publish_pack_writes_titles_description_and_cover()
+    {
+        Queue::fake();
+        Storage::fake(config('videoaff.disk'));
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'language' => 'vi', 'topic' => 'Vì sao Vegeta thay đổi?', 'title' => 'Vegeta', 'research' => ['sources' => [['url' => 'https://dragonball.fandom.com/wiki/Vegeta', 'title' => 'W']]]]);
+        Media::disk()->put('x/scene.png', self::png());
+        $scene = $short->scenes()->create(['position' => 1, 'narration' => 'Vegeta từng là kẻ phản diện.', 'image_status' => 'ready', 'image_source' => 'upload', 'image_path' => 'x/scene.png']);
+
+        $this->actingAs($this->user)->post(route('topic-shorts.publish', $short))->assertRedirect();
+        $this->assertSame('writing', $short->fresh()->publish['status']);
+        Queue::assertPushed(WriteTopicShortPublishJob::class);
+        (new WriteTopicShortPublishJob($short->fresh()))->handle();
+        $short->refresh();
+        $this->assertSame('ready', $short->publish['status']);
+        $this->assertCount(3, $short->publish['titles']);
+        $this->assertSame($short->publish['titles'][0], $short->publish['title']);
+        $this->assertStringContainsString('AI', $short->publish['description']);
+        $this->assertSame($scene->id, $short->cover['scene_id']);
+        [$w, $h] = getimagesizefromstring(Media::disk()->get($short->cover_path));
+        $this->assertSame([1080, 1920], [$w, $h]);
+
+        $this->actingAs($this->user)->put(route('topic-shorts.publish.save', $short), ['title' => 'Vegeta đã khóc?', 'description' => 'Mô tả', 'hashtags' => 'shorts #dragonball, vegeta'])->assertSessionHasNoErrors();
+        $this->assertSame(['#shorts', '#dragonball', '#vegeta'], $short->fresh()->publish['hashtags']);
+        $old = $short->fresh()->cover_path;
+        $this->actingAs($this->user)->post(route('topic-shorts.cover', $short), ['scene_id' => $scene->id, 'text' => 'Chữ khác hẳn'])->assertSessionHasNoErrors();
+        $this->assertNotSame($old, $short->fresh()->cover_path);
+        Storage::disk(config('videoaff.disk'))->assertMissing($old);
+        $this->actingAs($this->user)->post(route('topic-shorts.cover', $short), ['scene_id' => 999999])->assertSessionHasErrors('scene_id');
+        $this->actingAs($this->user)->get(route('topic-shorts.cover.download', $short))->assertDownload();
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))
+            ->assertInertia(fn (Assert $page) => $page->where('short.publish.title', 'Vegeta đã khóc?')->where('short.cover.text', 'Chữ khác hẳn')->whereNot('short.cover_url', null));
+        $this->actingAs(User::factory()->create())->post(route('topic-shorts.publish', $short))->assertForbidden();
     }
 
     public function test_music_suggestion_follows_main_mood()

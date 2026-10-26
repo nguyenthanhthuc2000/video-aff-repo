@@ -41,6 +41,7 @@ class TopicShort extends Model
         'topic', 'language', 'style', 'image_style', 'target_seconds', 'wiki', 'status', 'error', 'title', 'content', 'characters', 'art_style',
         'video_status', 'video_error', 'video_options', 'video_path', 'video_ms',
         'use_research', 'research', 'research_notes', 'hooks', 'hook_index', 'series_parts', 'topic_series_id', 'part',
+        'cover_path', 'cover', 'publish',
     ];
 
     protected function casts(): array
@@ -57,6 +58,8 @@ class TopicShort extends Model
             'hook_index' => 'integer',
             'series_parts' => 'integer',
             'part' => 'integer',
+            'cover' => 'array',
+            'publish' => 'array',
         ];
     }
 

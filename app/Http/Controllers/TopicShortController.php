@@ -10,10 +10,12 @@ use App\Jobs\PlanTopicSeriesJob;
 use App\Jobs\RenderTopicShortJob;
 use App\Jobs\ResearchTopicJob;
 use App\Jobs\WriteTopicShortJob;
+use App\Jobs\WriteTopicShortPublishJob;
 use App\Models\AudioTrack;
 use App\Models\CharacterPortrait;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
+use App\Services\TopicShort\CoverImage;
 use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ShortVideo;
 use App\Services\TopicShort\ShortWriter;
@@ -140,6 +142,9 @@ class TopicShortController extends Controller
                     'parts' => $short->series->shorts()->get(['id', 'part', 'title', 'status'])->map(fn (TopicShort $s) => ['id' => $s->id, 'part' => $s->part, 'title' => $s->title, 'status' => $s->status, 'focus' => $short->series->outline[$s->part - 1]['title'] ?? '']),
                 ] : null,
                 'missing_panels' => $missing,
+                'cover_url' => Media::url($short->cover_path),
+                'cover' => $short->cover,
+                'publish' => $short->publish,
                 'unsupported_count' => $scenes->filter(fn ($scene) => ($scene->fact_check['status'] ?? null) === 'unsupported')->count(),
                 'caption' => $short->content['caption'] ?? '',
                 'art_style' => $short->art_style,
@@ -567,6 +572,64 @@ class TopicShortController extends Controller
         return back()->with('status', 'Đang đọc giọng và dựng video (khoảng 1–2 phút)...');
     }
 
+    /** Claude viết (lại) tiêu đề, mô tả, hashtag và chữ ảnh bìa. */
+    public function publish(TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        if ($short->status !== 'ready' || $short->scenes()->doesntExist()) {
+            return back()->with('status', 'Cần có lời kể trước khi viết tiêu đề.');
+        }
+        if (($short->publish['status'] ?? null) === 'writing' && $short->updated_at?->gt(now()->subMinutes(10))) {
+            return back()->with('status', 'Claude đang viết tiêu đề.');
+        }
+        $short->update(['publish' => [...($short->publish ?? []), 'status' => 'writing', 'error' => null]]);
+        WriteTopicShortPublishJob::dispatch($short);
+
+        return back()->with('status', 'Claude đang viết tiêu đề và mô tả...');
+    }
+
+    /** Lưu tiêu đề / mô tả / hashtag bạn sửa. */
+    public function savePublish(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:100'],
+            'description' => ['nullable', 'string', 'max:3000'],
+            'hashtags' => ['nullable', 'string', 'max:500'],
+        ], [], ['title' => 'tiêu đề', 'description' => 'mô tả']);
+        $tags = collect(preg_split('/[\s,]+/u', (string) ($validated['hashtags'] ?? ''), -1, PREG_SPLIT_NO_EMPTY))->map(fn ($t) => '#'.ltrim($t, '#'))->unique()->values()->all();
+        $short->update(['publish' => [...($short->publish ?? []), 'status' => 'ready', 'title' => $validated['title'], 'description' => $validated['description'] ?? '', 'hashtags' => $tags]]);
+
+        return back()->with('status', 'Đã lưu tiêu đề và mô tả.');
+    }
+
+    /** Ghép (lại) ảnh bìa từ ảnh một cảnh + chữ lớn. */
+    public function cover(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $validated = $request->validate([
+            'scene_id' => ['required', 'integer', Rule::in($short->scenes()->pluck('id')->all())],
+            'text' => ['nullable', 'string', 'max:80'],
+        ], [], ['text' => 'chữ ảnh bìa']);
+        try {
+            CoverImage::make($short, $short->scenes()->findOrFail($validated['scene_id']), (string) ($validated['text'] ?? ''));
+        } catch (RuntimeException $e) {
+            return back()->withErrors(['cover' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'Đã tạo ảnh bìa.');
+    }
+
+    public function coverDownload(TopicShort $short): StreamedResponse|RedirectResponse
+    {
+        $this->authorize('view', $short);
+        if ($short->cover_path === null) {
+            return back()->with('status', 'Chưa có ảnh bìa.');
+        }
+
+        return Media::disk()->download($short->cover_path, 'bia-'.Str::slug($short->publish['title'] ?? $short->title ?: $short->topic).'.jpg');
+    }
+
     public function download(TopicShort $short): StreamedResponse|RedirectResponse
     {
         $this->authorize('view', $short);
@@ -582,6 +645,7 @@ class TopicShortController extends Controller
         $this->authorize('delete', $short);
         $short->scenes()->get()->each(fn (TopicShortScene $scene) => Media::delete($scene->image_path));
         Media::delete($short->video_path);
+        Media::delete($short->cover_path);
         collect($short->characters ?? [])->each(fn ($c) => Media::delete($c['image_path'] ?? null));
         $short->delete();
 

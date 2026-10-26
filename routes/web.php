@@ -116,6 +116,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-shorts/{short}/characters/{index}/image', [TopicShortController::class, 'characterImage'])->whereNumber('index')->name('topic-shorts.character-image');
     Route::post('topic-shorts/{short}/retry-failed', [TopicShortController::class, 'retryFailed'])->name('topic-shorts.retry-failed');
     Route::post('topic-shorts/{short}/muse-all', [TopicShortController::class, 'museAll'])->name('topic-shorts.muse-all');
+    Route::post('topic-shorts/{short}/publish', [TopicShortController::class, 'publish'])->name('topic-shorts.publish');
+    Route::put('topic-shorts/{short}/publish', [TopicShortController::class, 'savePublish'])->name('topic-shorts.publish.save');
+    Route::post('topic-shorts/{short}/cover', [TopicShortController::class, 'cover'])->name('topic-shorts.cover');
+    Route::get('topic-shorts/{short}/cover', [TopicShortController::class, 'coverDownload'])->name('topic-shorts.cover.download');
     Route::get('topic-shorts/{short}/download', [TopicShortController::class, 'download'])->name('topic-shorts.download');
     Route::post('topic-short-scenes/{scene}/search', [TopicShortController::class, 'search'])->name('topic-short-scenes.search');
     Route::post('topic-short-scenes/{scene}/pick', [TopicShortController::class, 'pick'])->name('topic-short-scenes.pick');
