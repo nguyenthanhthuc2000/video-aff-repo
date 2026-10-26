@@ -319,6 +319,7 @@ export default function TopicShortShow({
                 {step === 'video' && short.scenes.length > 0 && (
                     <>
                         <RenderPanel short={short} music={music} builtin={builtin_music} suggestion={music_suggestion} price={prices.render} />
+                        <VoicesPanel short={short} />
                         {short.language !== 'en' && <PronunciationPanel rows={pronunciations} />}
                     </>
                 )}
@@ -398,7 +399,6 @@ function ScriptForm({ short }: { short: TopicShort }) {
                     <div className="grid gap-1 md:col-span-2">
                         <Label className="text-sm">Cảnh {i + 1}: lời kể</Label>
                         <Textarea rows={2} value={scene.narration} onChange={(e) => setScene(i, 'narration', e.target.value)} />
-                        {short.scenes[i] && <SceneVoice scene={short.scenes[i]} />}
                     </div>
                     <SceneFacts
                         check={short.scenes[i]?.fact_check ?? null}
@@ -429,6 +429,33 @@ function ScriptForm({ short }: { short: TopicShort }) {
                 Lưu lời kể
             </Button>
         </form>
+    );
+}
+
+/** Giọng từng cảnh: tải mp3 tự thu cho cảnh nào thì cảnh đó dùng giọng của bạn, còn lại máy đọc. */
+function VoicesPanel({ short }: { short: TopicShort }) {
+    const own = short.scenes.filter((scene) => scene.voice_url).length;
+
+    return (
+        <section className="space-y-3 rounded-lg border p-4">
+            <div>
+                <h2 className="font-semibold">Giọng từng cảnh</h2>
+                <p className="text-muted-foreground text-sm">
+                    Tải file mp3 bạn tự thu cho cảnh nào thì cảnh đó dùng giọng của bạn, cảnh còn lại máy đọc. Phụ đề tự khớp theo độ dài file. Tải
+                    xong bấm dựng lại video. {own > 0 && `Đang có ${own}/${short.scenes.length} cảnh dùng giọng tự thu.`}
+                </p>
+            </div>
+            <div className="divide-y">
+                {short.scenes.map((scene) => (
+                    <div key={scene.id} className="space-y-1 py-2">
+                        <p className="text-sm">
+                            <span className="font-medium">Cảnh {scene.position}:</span> {scene.narration}
+                        </p>
+                        <SceneVoice scene={scene} />
+                    </div>
+                ))}
+            </div>
+        </section>
     );
 }
 
