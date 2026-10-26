@@ -54,7 +54,7 @@ export function PublishPanel({
             {publish?.status === 'failed' && <p className="text-sm text-red-600 dark:text-red-400">{publish.error}</p>}
             <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
                 <CoverEditor
-                    key={`${cover?.scene_id}:${cover?.text}:${publish?.cover_text}`}
+                    key={publish?.cover_text ?? ''}
                     shortId={shortId}
                     cover={cover}
                     coverUrl={coverUrl}
@@ -91,16 +91,22 @@ function CoverEditor({
     const ready = scenes.filter((s) => s.image_status === 'ready' && s.image_url);
     const { data, setData, post, processing } = useForm({ scene_id: cover?.scene_id ?? ready[0]?.id ?? 0, text: defaultText });
     const { errors } = usePage().props as { errors: Record<string, string> };
+    // Báo ngay trong khung ảnh bìa (thông báo đầu trang bị khuất khi đang cuộn xuống), ảnh xem trước luôn tải lại.
+    const [madeAt, setMadeAt] = useState<number | null>(null);
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
-        post(route('topic-shorts.cover', shortId), { preserveScroll: true });
+        post(route('topic-shorts.cover', shortId), { preserveScroll: true, onSuccess: () => setMadeAt(Date.now()) });
     };
 
     return (
         <form onSubmit={submit} className="space-y-3">
             <div className="bg-muted flex aspect-[9/16] w-full items-center justify-center overflow-hidden rounded-lg border">
                 {coverUrl ? (
-                    <img src={coverUrl} alt="Ảnh bìa" className="h-full w-full object-cover" />
+                    <img
+                        src={madeAt ? `${coverUrl}?v=${madeAt}` : coverUrl}
+                        alt="Ảnh bìa"
+                        className={`h-full w-full object-cover ${processing ? 'opacity-50' : ''}`}
+                    />
                 ) : (
                     <ImageOff className="text-muted-foreground size-6" />
                 )}
@@ -129,10 +135,16 @@ function CoverEditor({
             ) : (
                 <p className="text-muted-foreground text-xs">Cần có ảnh cảnh trước khi tạo ảnh bìa.</p>
             )}
-            <InputError message={errors.cover} />
+            <InputError message={errors.cover ?? errors.scene_id ?? errors.text} />
+            {madeAt && !processing && (
+                <p className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
+                    <Check className="size-4" /> Đã tạo ảnh bìa lúc {new Date(madeAt).toLocaleTimeString('vi-VN')}.
+                </p>
+            )}
             <div className="flex flex-wrap gap-2">
                 <Button size="sm" disabled={processing || ready.length === 0}>
-                    {coverUrl ? 'Tạo lại ảnh bìa' : 'Tạo ảnh bìa'}
+                    {processing && <Loader2 className="animate-spin" />}
+                    {processing ? 'Đang tạo...' : coverUrl ? 'Tạo lại ảnh bìa' : 'Tạo ảnh bìa'}
                 </Button>
                 {coverUrl && (
                     <Button size="sm" variant="outline" asChild>
