@@ -240,7 +240,10 @@ function PlanEditor({ series, roles, voiceTypes }: { series: SeriesDetail; roles
     };
 
     const setItem = <K extends 'locations' | 'episodes'>(list: K, index: number, patch: Partial<PlanForm[K][number]>) =>
-        setData(list, data[list].map((item, i) => (i === index ? { ...item, ...patch } : item)) as PlanForm[K]);
+        (setData as (key: K, value: PlanForm[K]) => void)(
+            list,
+            data[list].map((item, i) => (i === index ? { ...item, ...patch } : item)) as PlanForm[K],
+        );
 
     return (
         <form onSubmit={submit} className="space-y-8">
