@@ -17,6 +17,7 @@ use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ShortVideo;
 use App\Services\TopicShort\ShortWriter;
 use App\Services\TopicShort\TopicResearcher;
+use App\Support\BuiltinMusic;
 use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -291,12 +292,44 @@ class TopicStoryResearchTest extends TestCase
         Storage::disk(config('videoaff.disk'))->assertExists($short->video_path);
     }
 
+    public function test_builtin_music_from_public_folder_is_listed_suggested_and_rendered()
+    {
+        Queue::fake();
+        Storage::fake(config('videoaff.disk'));
+        Http::fake(['*/tts' => Http::response(['base64' => base64_encode(self::wav(4)), 'duration' => 4.0, 'lines' => [['start' => 0.2, 'end' => 1.8], ['start' => 2.2, 'end' => 3.8]]])]);
+        $dir = BuiltinMusic::dir();
+        $made = ! is_dir($dir) && mkdir($dir);
+        file_put_contents("{$dir}/zz-test-epic_battle.wav", self::wav(3));
+        try {
+            $this->assertContains(['file' => 'zz-test-epic_battle.wav', 'name' => 'zz test epic battle'], BuiltinMusic::all());
+            $this->assertNull(BuiltinMusic::path('../.env'));
+            $scenes = collect(['epic'])->map(fn ($mood) => new TopicShortScene(['mood' => $mood]));
+            $this->assertSame('zz-test-epic_battle.wav', ShortVideo::suggestMusic($scenes, [], BuiltinMusic::all())['file']);
+
+            $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'language' => 'vi']);
+            Media::disk()->put('x/scene.png', self::png());
+            foreach ([1, 2] as $position) {
+                $short->scenes()->create(['position' => $position, 'narration' => "Câu {$position}.", 'image_status' => 'ready', 'image_source' => 'upload', 'image_path' => 'x/scene.png']);
+            }
+            $this->actingAs($this->user)->post(route('topic-shorts.render', $short), ['music_file' => '../secret.mp3'])->assertSessionHasErrors('music_file');
+            $this->actingAs($this->user)->get(route('topic-shorts.show', $short))
+                ->assertInertia(fn (Assert $page) => $page->where('builtin_music', fn ($list) => collect($list)->contains('file', 'zz-test-epic_battle.wav')));
+            $this->actingAs($this->user)->post(route('topic-shorts.render', $short), ['music_file' => 'zz-test-epic_battle.wav', 'music_volume' => 15])->assertSessionHasNoErrors();
+            $short->refresh();
+            (new RenderTopicShortJob($short, $short->video_options['run']))->handle();
+            $this->assertSame('done', $short->fresh()->video_status, (string) $short->fresh()->video_error);
+        } finally {
+            @unlink("{$dir}/zz-test-epic_battle.wav");
+            $made && @rmdir($dir);
+        }
+    }
+
     public function test_music_suggestion_follows_main_mood()
     {
         $tracks = collect([(object) ['id' => 1, 'name' => 'Lofi chill'], (object) ['id' => 2, 'name' => 'Nhạc buồn piano']]);
         $scenes = collect(['sad', 'sad', 'epic', null])->map(fn ($mood) => new TopicShortScene(['mood' => $mood]));
-        $this->assertSame(['mood' => 'sad', 'track_id' => 2], ShortVideo::suggestMusic($scenes, $tracks));
-        $this->assertSame(['mood' => null, 'track_id' => null], ShortVideo::suggestMusic([], $tracks));
+        $this->assertSame(['mood' => 'sad', 'track_id' => 2, 'file' => null], ShortVideo::suggestMusic($scenes, $tracks));
+        $this->assertSame(['mood' => null, 'track_id' => null, 'file' => null], ShortVideo::suggestMusic([], $tracks));
     }
 
     private static function wav(float $seconds): string

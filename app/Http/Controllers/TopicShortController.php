@@ -18,6 +18,7 @@ use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ShortVideo;
 use App\Services\TopicShort\ShortWriter;
 use App\Services\TopicShort\TopicResearcher;
+use App\Support\BuiltinMusic;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\DragonBall;
@@ -183,7 +184,8 @@ class TopicShortController extends Controller
                 ]),
             ],
             'music' => $music = AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
-            'music_suggestion' => ShortVideo::suggestMusic($scenes, $music),
+            'builtin_music' => $builtin = BuiltinMusic::all(),
+            'music_suggestion' => ShortVideo::suggestMusic($scenes, $music, $builtin),
             'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
             'max_attempts' => CharacterLibraryController::MAX_ATTEMPTS,
@@ -545,6 +547,7 @@ class TopicShortController extends Controller
         $this->authorize('update', $short);
         $validated = $request->validate([
             'music_track_id' => ['nullable', 'integer', Rule::exists('audio_tracks', 'id')->where('user_id', $request->user()->id)],
+            'music_file' => ['nullable', 'string', Rule::in(array_column(BuiltinMusic::all(), 'file'))],
             'music_volume' => ['nullable', 'integer', 'min:0', 'max:40'],
             'sfx' => ['boolean'],
         ]);

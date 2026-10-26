@@ -101,13 +101,15 @@ const sourceLabels = { web: 'Ảnh wiki', muse: 'Muse vẽ', upload: 'Ảnh tả
 export default function TopicShortShow({
     short,
     music,
+    builtin_music,
     music_suggestion,
     prices,
     image_styles,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
-    music_suggestion: { mood: string | null; track_id: number | null };
+    builtin_music: { file: string; name: string }[];
+    music_suggestion: { mood: string | null; track_id: number | null; file: string | null };
     image_styles: Record<string, string>;
     prices: { image: number; render: number };
 }) {
@@ -305,7 +307,7 @@ export default function TopicShortShow({
                 )}
 
                 {step === 'video' && short.scenes.length > 0 && (
-                    <RenderPanel short={short} music={music} suggestion={music_suggestion} price={prices.render} />
+                    <RenderPanel short={short} music={music} builtin={builtin_music} suggestion={music_suggestion} price={prices.render} />
                 )}
 
                 <NextStep steps={steps} current={step} onChange={go} />
@@ -773,16 +775,25 @@ const moodLabels: Record<string, string> = { tense: 'căng thẳng', sad: 'buồ
 function RenderPanel({
     short,
     music,
+    builtin,
     suggestion,
     price,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
-    suggestion: { mood: string | null; track_id: number | null };
+    builtin: { file: string; name: string }[];
+    suggestion: { mood: string | null; track_id: number | null; file: string | null };
     price: number;
 }) {
-    const { data, setData, post, processing } = useForm<{ music_track_id: string; music_volume: number; sfx: boolean }>({
-        music_track_id: suggestion.track_id ? String(suggestion.track_id) : '',
+    // Giá trị ô nhạc: "track:<id>" (nhạc của bạn) hoặc "file:<tên file>" (nhạc có sẵn trong public/nhac).
+    const { data, setData, post, processing, transform } = useForm<{ music: string; music_volume: number; sfx: boolean }>({
+        music: suggestion.track_id
+            ? `track:${suggestion.track_id}`
+            : suggestion.file
+              ? `file:${suggestion.file}`
+              : builtin[0]
+                ? `file:${builtin[0].file}`
+                : '',
         music_volume: 12,
         sfx: true,
     });
@@ -793,6 +804,11 @@ function RenderPanel({
         if (short.unsupported_count > 0 && !confirm(`${short.unsupported_count} cảnh có câu không có trong tư liệu (đánh dấu đỏ). Vẫn dựng video?`)) {
             return;
         }
+        transform(({ music, ...rest }) => ({
+            ...rest,
+            music_track_id: music.startsWith('track:') ? Number(music.slice(6)) : null,
+            music_file: music.startsWith('file:') ? music.slice(5) : null,
+        }));
         post(route('topic-shorts.render', short.id), { preserveScroll: true });
     };
 
@@ -811,18 +827,40 @@ function RenderPanel({
                     <select
                         id="music"
                         className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                        value={data.music_track_id}
-                        onChange={(e) => setData('music_track_id', e.target.value)}
+                        value={data.music}
+                        onChange={(e) => setData('music', e.target.value)}
                     >
                         <option value="">Không có nhạc</option>
-                        {music.map((track) => (
-                            <option key={track.id} value={track.id}>
-                                {track.name}
-                            </option>
-                        ))}
+                        {builtin.length > 0 && (
+                            <optgroup label="Nhạc có sẵn (miễn phí bản quyền)">
+                                {builtin.map((track) => (
+                                    <option key={track.file} value={`file:${track.file}`}>
+                                        {track.name}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
+                        {music.length > 0 && (
+                            <optgroup label="Nhạc của bạn">
+                                {music.map((track) => (
+                                    <option key={track.id} value={`track:${track.id}`}>
+                                        {track.name}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
                     </select>
+                    {data.music.startsWith('file:') && (
+                        <audio
+                            key={data.music}
+                            controls
+                            preload="none"
+                            className="h-8 w-56"
+                            src={`/nhac/${encodeURIComponent(data.music.slice(5))}`}
+                        />
+                    )}
                 </div>
-                {data.music_track_id && (
+                {data.music && (
                     <div className="grid gap-2">
                         <Label htmlFor="music_volume">Âm lượng nhạc: {data.music_volume}%</Label>
                         <input
@@ -846,7 +884,7 @@ function RenderPanel({
             {suggestion.mood && (
                 <p className="text-muted-foreground text-sm">
                     Cảm xúc chính: {moodLabels[suggestion.mood] ?? suggestion.mood}.{' '}
-                    {suggestion.track_id
+                    {suggestion.track_id || suggestion.file
                         ? 'Đã chọn sẵn bài nhạc hợp.'
                         : `Chưa có bài nhạc nào tên chứa từ "${suggestion.mood}", đặt tên bài nhạc theo cảm xúc để được gợi ý.`}
                 </p>

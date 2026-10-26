@@ -8,6 +8,7 @@ use App\Models\TopicShortScene;
 use App\Services\Audio\Tts;
 use App\Services\Film\Voices;
 use App\Services\Video\AssSubtitles;
+use App\Support\BuiltinMusic;
 use App\Support\Media;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -52,7 +53,7 @@ class ShortVideo
     private const CHUNK_WORDS = 7;
 
     /**
-     * @param  array{music_track_id?: ?int, music_volume?: ?int}  $options
+     * @param  array{music_track_id?: ?int, music_file?: ?string, music_volume?: ?int, sfx?: bool}  $options
      * @return array{path: string, ms: int}
      *
      * @throws RuntimeException
@@ -107,10 +108,13 @@ class ShortVideo
         $seconds = self::seconds($total);
         $args = [...$args, '-i', "{$dir}/voice.wav"];
         $voiceIndex = $count;
-        $music = ($options['music_track_id'] ?? null) ? AudioTrack::where('user_id', $short->user_id)->find($options['music_track_id']) : null;
+        // Nhạc nền: bài trong thư viện nhạc của bạn, hoặc nhạc có sẵn trong public/nhac.
+        $track = ($options['music_track_id'] ?? null) ? AudioTrack::where('user_id', $short->user_id)->find($options['music_track_id']) : null;
+        $builtin = $track ? null : BuiltinMusic::path($options['music_file'] ?? null);
+        $music = $track || $builtin;
         if ($music) {
-            $local = "{$dir}/music.".(pathinfo($music->path, PATHINFO_EXTENSION) ?: 'mp3');
-            File::put($local, (string) Media::disk()->get($music->path));
+            $local = "{$dir}/music.".(pathinfo($track?->path ?? $builtin, PATHINFO_EXTENSION) ?: 'mp3');
+            $track ? File::put($local, (string) Media::disk()->get($track->path)) : File::copy($builtin, $local);
             $args = [...$args, '-stream_loop', '-1', '-i', $local];
             $volume = max(0, min(40, (int) ($options['music_volume'] ?? 12))) / 100;
             $filters[] = "[{$voiceIndex}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{$seconds},asplit=2[voice][key]";
@@ -178,14 +182,17 @@ class ShortVideo
      *
      * @param  iterable<TopicShortScene>  $scenes
      * @param  iterable<AudioTrack>  $tracks
-     * @return array{mood: ?string, track_id: ?int}
+     * @param  list<array{file: string, name: string}>  $files  nhạc có sẵn (public/nhac)
+     * @return array{mood: ?string, track_id: ?int, file: ?string}
      */
-    public static function suggestMusic(iterable $scenes, iterable $tracks): array
+    public static function suggestMusic(iterable $scenes, iterable $tracks, array $files = []): array
     {
         $mood = collect($scenes)->pluck('mood')->filter()->countBy()->sortDesc()->keys()->first();
-        $track = $mood ? collect($tracks)->first(fn ($track) => collect(self::MOOD_MUSIC[$mood] ?? [])->contains(fn ($word) => str_contains(mb_strtolower($track->name), $word))) : null;
+        $fits = fn (string $name) => $mood !== null && collect(self::MOOD_MUSIC[$mood] ?? [])->contains(fn ($word) => str_contains(mb_strtolower($name), $word));
+        $track = collect($tracks)->first(fn ($track) => $fits($track->name));
+        $file = $track ? null : collect($files)->first(fn ($f) => $fits($f['name']));
 
-        return ['mood' => $mood, 'track_id' => $track?->id];
+        return ['mood' => $mood, 'track_id' => $track?->id, 'file' => $file['file'] ?? null];
     }
 
     /**
