@@ -194,6 +194,8 @@ class TopicStoryResearchTest extends TestCase
         $this->assertSame(['vegeta', 'goku', 'frieza'], array_column($panels, 'character'));
         $this->assertSame(['A1', 'E1', 'E4'], array_column($panels, 'pose'));
         $this->assertSame(['goku', 'vegeta'], DragonBall::charactersIn('Goku và Vegeta ai mạnh hơn?'));
+        $this->assertSame([['character' => 'vegeta', 'pose' => 'E4', 'camera' => ''], ['character' => 'goku', 'pose' => 'E1', 'camera' => '']],
+            ShortWriter::panelsFor(['Vegeta', 'Nobody', 'Son Goku', 'Frieza'], 'E4'));
     }
 
     public function test_manga_page_composes_library_panels_and_draws_missing()

@@ -41,7 +41,6 @@ export default function TopicShortsIndex({
     languages,
     styles,
     image_styles,
-    wikis,
     max_series_parts,
 }: {
     shorts: ShortItem[];
@@ -74,7 +73,7 @@ export default function TopicShortsIndex({
             <div className="space-y-6 p-4">
                 <Heading
                     title="Shorts chủ đề"
-                    description="Short 7 Viên Ngọc Rồng: nhập chủ đề, Claude viết lời kể theo khung kênh tóm tắt anime, mỗi cảnh dùng ảnh nhân vật trong thư viện (manga trắng đen) hoặc Muse vẽ, giọng AI đọc, ghép video 9:16 dài 30–60 giây."
+                    description="Short 7 Viên Ngọc Rồng: nhập chủ đề, Claude viết lời kể theo khung kênh tóm tắt anime, mỗi cảnh là một trang manga ghép từ ảnh trong thư viện Nhân vật Ngọc Rồng (không tìm ảnh trên mạng), giọng AI đọc, ghép video 9:16 dài 30–60 giây."
                 />
                 <FlashStatus />
 
@@ -125,7 +124,7 @@ export default function TopicShortsIndex({
                             ))}
                         </div>
                     </div>
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2">
                         <div className="grid gap-2">
                             <Label htmlFor="language">Giọng đọc</Label>
                             <select
@@ -153,21 +152,6 @@ export default function TopicShortsIndex({
                                 onChange={(e) => setData('target_seconds', Number(e.target.value))}
                             />
                             <InputError message={errors.target_seconds} />
-                        </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="wiki">Tìm ảnh ở</Label>
-                            <select
-                                id="wiki"
-                                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                                value={data.wiki}
-                                onChange={(e) => setData('wiki', e.target.value)}
-                            >
-                                {Object.entries(wikis).map(([value, label]) => (
-                                    <option key={value} value={value}>
-                                        {label}
-                                    </option>
-                                ))}
-                            </select>
                         </div>
                     </div>
                     <div className="space-y-3 rounded-md border p-3">

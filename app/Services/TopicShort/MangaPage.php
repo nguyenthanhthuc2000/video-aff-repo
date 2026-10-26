@@ -86,6 +86,23 @@ final class MangaPage
         return true;
     }
 
+    /** Ghép trang; không ghép được thì cảnh báo lỗi kèm cách sửa (không tìm wiki, không tự gọi Muse tốn Credits). */
+    public static function composeOrExplain(TopicShortScene $scene): bool
+    {
+        if (self::compose($scene)) {
+            return true;
+        }
+        $names = collect($scene->panels ?? [])->map(fn ($panel) => DragonBall::CHARACTERS[$panel['character']][0] ?? null)->filter()->unique()->implode(', ');
+        $scene->update([
+            'image_status' => 'failed',
+            'image_error' => $names !== ''
+                ? "Thư viện chưa có ảnh {$names}. Bấm \"Vẽ khung còn thiếu\" (xong sẽ tự ghép trang), tải ảnh lên hoặc cho Muse vẽ."
+                : 'Cảnh không có nhân vật trong thư viện. Tải ảnh lên hoặc cho Muse vẽ.',
+        ]);
+
+        return false;
+    }
+
     /**
      * Ảnh thư viện mới sẵn sàng: ghép lại trang manga của các cảnh dùng nhân vật này (đúng tư thế, hoặc đang tạm dùng mặt thường).
      * Bỏ qua cảnh người dùng đã chọn ảnh khác và short đang dựng video.

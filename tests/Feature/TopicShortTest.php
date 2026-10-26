@@ -94,9 +94,14 @@ class TopicShortTest extends TestCase
         $this->assertNotEmpty($short->title);
         $scenes = $short->scenes()->get();
         $this->assertGreaterThanOrEqual(2, $scenes->count());
-        $this->assertSame('searching', $scenes[0]->image_status);
-        Queue::assertPushed(FindTopicSceneImageJob::class, $scenes->count());
+        // Không tự tìm wiki: thư viện nhân vật chưa có ảnh thì cảnh báo cách sửa.
+        $this->assertSame('failed', $scenes[0]->image_status);
+        $this->assertStringContainsString('Vẽ khung còn thiếu', $scenes[0]->image_error);
+        $this->assertNotSame([], $scenes[0]->panels);
+        Queue::assertNotPushed(FindTopicSceneImageJob::class);
 
+        // Vẫn tìm wiki được khi bấm Tìm.
+        $scenes[0]->update(['image_status' => 'searching']);
         (new FindTopicSceneImageJob($scenes[0]))->handle(app(WikiImageSearch::class));
         $scene = $scenes[0]->fresh();
         $this->assertSame('ready', $scene->image_status, (string) $scene->image_error);

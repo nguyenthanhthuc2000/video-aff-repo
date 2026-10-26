@@ -50,7 +50,9 @@ class WriteTopicShortJob implements ShouldQueue
             $short->scenes()->delete();
             $scenes = [];
             foreach ($script['scenes'] as $i => $scene) {
-                $scenes[] = $short->scenes()->create([...$scene, 'position' => $i + 1, 'image_status' => 'searching']);
+                // Ảnh cảnh lấy từ thư viện nhân vật: Claude không chọn khung thì dùng nhân vật trong cảnh với biểu cảm của cảnh.
+                $panels = ($scene['panels'] ?? []) ?: ShortWriter::panelsFor($scene['characters'] ?? [], $scene['expression'] ?? null);
+                $scenes[] = $short->scenes()->create([...$scene, 'panels' => $panels, 'position' => $i + 1, 'image_status' => 'none']);
             }
             $short->update([
                 'title' => $script['title'],
@@ -70,12 +72,10 @@ class WriteTopicShortJob implements ShouldQueue
             return $scenes;
         });
 
+        // Mọi cảnh ghép trang manga từ thư viện Nhân vật Ngọc Rồng (miễn phí), không tìm ảnh wiki.
+        // Chưa có ảnh thư viện thì báo để vẽ khung còn thiếu / tải ảnh lên; vẽ xong trang tự ghép lại.
         foreach ($scenes as $scene) {
-            // Cảnh có khung manga: ghép trang từ thư viện nhân vật (miễn phí); chưa có ảnh nào thì tìm wiki / Muse như cũ.
-            if (($scene->panels ?? []) !== [] && MangaPage::compose($scene)) {
-                continue;
-            }
-            FindTopicSceneImageJob::dispatch($scene);
+            MangaPage::composeOrExplain($scene);
         }
         // Có tư liệu: kiểm từng câu lời kể với tư liệu đã duyệt (không chặn việc tìm ảnh, dựng video).
         if ($short->use_research) {

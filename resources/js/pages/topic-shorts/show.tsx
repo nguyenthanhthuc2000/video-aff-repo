@@ -246,11 +246,13 @@ export default function TopicShortShow({
 
                 {step === 'images' && short.scenes.length > 0 && (
                     <div className="space-y-4">
-                        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-                            Ảnh tìm trên wiki là ảnh phim / truyện có bản quyền (Toei, Shueisha...). Video có thể bị gỡ hoặc không bật kiếm tiền được.
-                            Ảnh Muse vẽ hoặc ảnh tự làm ít rủi ro hơn.
-                        </div>
+                        {short.scenes.some((s) => s.image_source === 'web') && (
+                            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                                Ảnh tìm trên wiki là ảnh phim / truyện có bản quyền (Toei, Shueisha...). Video có thể bị gỡ hoặc không bật kiếm tiền
+                                được. Ảnh Muse vẽ hoặc ảnh tự làm ít rủi ro hơn.
+                            </div>
+                        )}
 
                         <section className="space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -279,8 +281,9 @@ export default function TopicShortShow({
                                 </div>
                             </div>
                             <p className="text-muted-foreground text-sm">
-                                Mỗi cảnh chọn một ảnh: ảnh tìm trên wiki (bấm ảnh nhỏ để đổi), Muse vẽ ({formatNumber(prices.image)} Credits / ảnh)
-                                hoặc ảnh bạn tải lên.
+                                Mỗi cảnh là một trang manga ghép từ thư viện Nhân vật Ngọc Rồng (miễn phí). Thư viện thiếu ảnh thì bấm "Vẽ khung còn
+                                thiếu", vẽ xong trang tự ghép lại. Có thể thay bằng ảnh tải lên hoặc Muse vẽ riêng ({formatNumber(prices.image)}{' '}
+                                Credits / ảnh).
                             </p>
                             <p className="text-sm">
                                 {short.scenes.length} cảnh:{' '}
@@ -519,29 +522,34 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                         ))}
                     </div>
                 )}
-                {scene.candidates.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                        {scene.candidates.map((candidate) => (
-                            <button
-                                key={candidate.url}
-                                type="button"
-                                title={candidate.title}
-                                disabled={busy}
-                                onClick={() => pick(candidate.url)}
-                                className={`h-14 w-14 overflow-hidden rounded border-2 ${scene.image_source_url === candidate.url ? 'border-primary' : 'border-transparent'}`}
-                            >
-                                <img src={candidate.url} alt={candidate.title} className="h-full w-full object-cover" loading="lazy" />
-                            </button>
-                        ))}
-                    </div>
-                )}
+                <details className="text-xs" open={scene.image_source === 'web'}>
+                    <summary className="text-muted-foreground cursor-pointer">Tìm ảnh trên wiki (ảnh phim có bản quyền)</summary>
+                    <div className="mt-2 space-y-2">
+                        {scene.candidates.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                                {scene.candidates.map((candidate) => (
+                                    <button
+                                        key={candidate.url}
+                                        type="button"
+                                        title={candidate.title}
+                                        disabled={busy}
+                                        onClick={() => pick(candidate.url)}
+                                        className={`h-14 w-14 overflow-hidden rounded border-2 ${scene.image_source_url === candidate.url ? 'border-primary' : 'border-transparent'}`}
+                                    >
+                                        <img src={candidate.url} alt={candidate.title} className="h-full w-full object-cover" loading="lazy" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
-                <div className="flex gap-1">
-                    <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Từ khoá tìm ảnh" className="h-8 text-sm" />
-                    <Button size="sm" variant="outline" onClick={search} disabled={busy || query.trim() === ''}>
-                        <Search /> Tìm
-                    </Button>
-                </div>
+                        <div className="flex gap-1">
+                            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Từ khoá tìm ảnh" className="h-8 text-sm" />
+                            <Button size="sm" variant="outline" onClick={search} disabled={busy || query.trim() === ''}>
+                                <Search /> Tìm
+                            </Button>
+                        </div>
+                    </div>
+                </details>
                 <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={muse} disabled={busy}>
                         <Wand2 /> Muse vẽ

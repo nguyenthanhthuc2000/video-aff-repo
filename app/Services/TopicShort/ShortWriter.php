@@ -50,7 +50,7 @@ class ShortWriter
     - Write original narration; never copy titles or scripts from other channels.
     - hooks: exactly 3 alternative hooks for scene 1, each under 14 words, one per style: "question" (a curiosity question), "shock" (a bold or shocking claim), "number" (a number, record or comparison). Scene 1 narration must be exactly hooks[0].text.
     - scene mood: one of tense, sad, epic, funny, calm (drives background music and sound effects).
-    - scene panels: the scene's picture as a vertical manga page of 1–3 panels stacked top to bottom (use 2–3 panels for action or a reaction, 1 big panel for a key moment). Each panel: character = a name from our picture library list exactly as given, pose = one code that exists for that character (faces E1–E9 for everyone; fighting A1 punch, A2 kick, A3 guard, A4 dash, A5 charging ki, A6 knocked back; S1–S4 signature moves as listed), camera = a few English words (e.g. "close-up", "low angle full body"). Leave panels empty when no library character fits the scene.
+    - scene panels: the scene's picture as a vertical manga page of 1–3 panels stacked top to bottom (use 2–3 panels for action or a reaction, 1 big panel for a key moment). Each panel: character = a name from our picture library list exactly as given, pose = one code that exists for that character (faces E1–E9 for everyone; fighting A1 punch, A2 kick, A3 guard, A4 dash, A5 charging ki, A6 knocked back; S1–S4 signature moves as listed), camera = a few English words (e.g. "close-up", "low angle full body"). Pictures come ONLY from this library (no web images), so give every scene 1–3 panels with library characters; leave panels empty only when no library character can fit at all.
     - scene fact_ids: ids of the research facts this scene is based on (empty when there is no research brief).
     PROMPT;
 
@@ -257,6 +257,19 @@ class ShortWriter
         }
 
         return $result;
+    }
+
+    /**
+     * Khung mặc định khi Claude không chọn: tối đa 2 nhân vật thư viện có trong cảnh, nhân vật đầu với biểu cảm của cảnh.
+     *
+     * @param  list<string>  $characters
+     * @return list<array{character: string, pose: string, camera: string}>
+     */
+    public static function panelsFor(array $characters, ?string $expression): array
+    {
+        $keys = array_slice(array_values(array_unique(array_filter(array_map(fn ($name) => DragonBall::keyFor((string) $name), $characters)))), 0, 2);
+
+        return array_map(fn ($key, $i) => ['character' => $key, 'pose' => $i === 0 && $expression ? $expression : 'E1', 'camera' => ''], $keys, array_keys($keys));
     }
 
     /** Kết quả mẫu cho driver fake (test, dev không có Claude). */
