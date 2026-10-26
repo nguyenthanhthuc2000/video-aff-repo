@@ -12,8 +12,23 @@ import AppLayout from '@/layouts/app-layout';
 import { formatNumber } from '@/lib/pricing';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { Download, ImageOff, LayoutPanelTop, Loader2, RefreshCw, Search, ShieldCheck, Sparkles, TriangleAlert, Upload, Wand2 } from 'lucide-react';
-import { FormEventHandler, useRef, useState } from 'react';
+import {
+    Check,
+    ChevronLeft,
+    ChevronRight,
+    Download,
+    ImageOff,
+    LayoutPanelTop,
+    Loader2,
+    RefreshCw,
+    Search,
+    ShieldCheck,
+    Sparkles,
+    TriangleAlert,
+    Upload,
+    Wand2,
+} from 'lucide-react';
+import { FormEventHandler, useEffect, useRef, useState } from 'react';
 
 interface Candidate {
     url: string;
@@ -140,6 +155,25 @@ export default function TopicShortShow({
             router.post(route('topic-shorts.muse-all', short.id), { image_style: imageStyle }, { preserveScroll: true });
         }
     };
+    const steps = stepsOf(short);
+    const [step, setStep] = useState<StepKey>(() => {
+        const asked = new URLSearchParams(window.location.search).get('step') as StepKey | null;
+        return asked && steps.some((st) => st.key === asked) ? asked : currentStep(short);
+    });
+    // Trạng thái đổi (tìm xong tư liệu, viết xong lời kể, đủ ảnh...): chuyển sang bước tiếp theo cần làm.
+    const lastStatus = useRef(`${short.status}:${short.all_images_ready}`);
+    useEffect(() => {
+        const now = `${short.status}:${short.all_images_ready}`;
+        if (lastStatus.current !== now) {
+            lastStatus.current = now;
+            setStep(currentStep(short));
+        }
+    }, [short]);
+    const go = (key: StepKey) => {
+        setStep(key);
+        window.history.replaceState(null, '', `?step=${key}`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
     const textKey = short.scenes.map((s) => `${s.id}:${s.narration}:${s.on_screen_text}:${s.image_query}:${s.image_prompt}`).join('|') + short.title;
 
     return (
@@ -149,7 +183,6 @@ export default function TopicShortShow({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <Heading title={short.title || short.topic} description={`Chủ đề: ${short.topic}`} />
                     <div className="flex items-center gap-2">
-                        {short.status === 'writing' && <Loader2 className="size-4 animate-spin" />}
                         <Badge variant="outline">{short.style}</Badge>
                         <Badge variant="secondary">{short.language === 'en' ? 'English' : 'Tiếng Việt'}</Badge>
                         {short.part && (
@@ -165,13 +198,6 @@ export default function TopicShortShow({
 
                 <FlashStatus />
 
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-                    Ảnh tìm trên wiki là ảnh phim / truyện có bản quyền (Toei, Shueisha...). Video có thể bị gỡ hoặc không bật kiếm tiền được. Ảnh
-                    Muse vẽ hoặc ảnh tự làm ít rủi ro hơn.
-                </div>
-
-                {short.status === 'writing' && <p className="text-muted-foreground text-sm">Claude đang viết lời kể và chia cảnh...</p>}
                 {short.error && <p className="text-sm text-red-600 dark:text-red-400">{short.error}</p>}
 
                 {short.series && (
@@ -191,7 +217,9 @@ export default function TopicShortShow({
                     </div>
                 )}
 
-                {short.use_research && (
+                <StepBar steps={steps} current={step} onChange={go} />
+
+                {step === 'research' && (
                     <ResearchPanel
                         key={`${short.status}:${short.research?.facts.map((f) => `${f.id}${f.enabled}${f.text}`).join('|')}`}
                         shortId={short.id}
@@ -203,61 +231,81 @@ export default function TopicShortShow({
                     />
                 )}
 
-                {short.scenes.length > 0 && <HookPicker shortId={short.id} hooks={short.hooks} index={short.hook_index} />}
-
-                {short.scenes.length > 0 && <ScriptForm key={textKey} short={short} />}
-
-                {short.characters.length > 0 && <CharactersPanel short={short} />}
-
-                {short.scenes.length > 0 && (
-                    <section className="space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h2 className="text-lg font-semibold">3. Ảnh từng cảnh</h2>
-                            <div className="flex items-center gap-2">
-                                <select
-                                    aria-label="Kiểu ảnh"
-                                    className="border-input bg-background h-8 rounded-md border px-2 text-sm"
-                                    value={imageStyle}
-                                    onChange={(e) => setImageStyle(e.target.value)}
-                                >
-                                    {Object.entries(image_styles).map(([value, label]) => (
-                                        <option key={value} value={value}>
-                                            {label}
-                                        </option>
-                                    ))}
-                                </select>
-                                {failedCount > 0 && (
-                                    <Button size="sm" onClick={retryFailed}>
-                                        <RefreshCw /> Tạo lại {failedCount} ảnh lỗi
-                                    </Button>
-                                )}
-                                <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
-                                    <Wand2 /> Muse vẽ lại tất cả
-                                </Button>
-                            </div>
-                        </div>
-                        <p className="text-muted-foreground text-sm">
-                            Mỗi cảnh chọn một ảnh: ảnh tìm trên wiki (bấm ảnh nhỏ để đổi), Muse vẽ ({formatNumber(prices.image)} Credits / ảnh) hoặc
-                            ảnh bạn tải lên.
-                        </p>
-                        <p className="text-sm">
-                            {short.scenes.length} cảnh: <span className="text-green-600 dark:text-green-400">{short.image_stats.ready} có ảnh</span>
-                            {short.image_stats.failed > 0 && (
-                                <span className="text-red-600 dark:text-red-400"> · {short.image_stats.failed} lỗi</span>
-                            )}
-                            {short.image_stats.pending + short.image_stats.searching > 0 &&
-                                ` · ${short.image_stats.pending + short.image_stats.searching} đang tạo`}
-                        </p>
-                        <MangaPanelsBar short={short} price={prices.image} />
-                        <div className="grid gap-4 lg:grid-cols-2">
-                            {short.scenes.map((scene) => (
-                                <SceneImageCard key={scene.id} scene={scene} />
-                            ))}
-                        </div>
-                    </section>
+                {step === 'script' && (
+                    <div className="space-y-6">
+                        {short.status === 'writing' && (
+                            <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <Loader2 className="size-4 animate-spin" /> Claude đang viết lời kể và chia cảnh...
+                            </p>
+                        )}
+                        {short.scenes.length > 0 && <HookPicker shortId={short.id} hooks={short.hooks} index={short.hook_index} />}
+                        {short.scenes.length > 0 && <ScriptForm key={textKey} short={short} />}
+                        {short.characters.length > 0 && <CharactersPanel short={short} />}
+                    </div>
                 )}
 
-                {short.scenes.length > 0 && <RenderPanel short={short} music={music} suggestion={music_suggestion} price={prices.render} />}
+                {step === 'images' && short.scenes.length > 0 && (
+                    <div className="space-y-4">
+                        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                            Ảnh tìm trên wiki là ảnh phim / truyện có bản quyền (Toei, Shueisha...). Video có thể bị gỡ hoặc không bật kiếm tiền được.
+                            Ảnh Muse vẽ hoặc ảnh tự làm ít rủi ro hơn.
+                        </div>
+
+                        <section className="space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h2 className="text-lg font-semibold">Ảnh từng cảnh</h2>
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        aria-label="Kiểu ảnh"
+                                        className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+                                        value={imageStyle}
+                                        onChange={(e) => setImageStyle(e.target.value)}
+                                    >
+                                        {Object.entries(image_styles).map(([value, label]) => (
+                                            <option key={value} value={value}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {failedCount > 0 && (
+                                        <Button size="sm" onClick={retryFailed}>
+                                            <RefreshCw /> Tạo lại {failedCount} ảnh lỗi
+                                        </Button>
+                                    )}
+                                    <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
+                                        <Wand2 /> Muse vẽ lại tất cả
+                                    </Button>
+                                </div>
+                            </div>
+                            <p className="text-muted-foreground text-sm">
+                                Mỗi cảnh chọn một ảnh: ảnh tìm trên wiki (bấm ảnh nhỏ để đổi), Muse vẽ ({formatNumber(prices.image)} Credits / ảnh)
+                                hoặc ảnh bạn tải lên.
+                            </p>
+                            <p className="text-sm">
+                                {short.scenes.length} cảnh:{' '}
+                                <span className="text-green-600 dark:text-green-400">{short.image_stats.ready} có ảnh</span>
+                                {short.image_stats.failed > 0 && (
+                                    <span className="text-red-600 dark:text-red-400"> · {short.image_stats.failed} lỗi</span>
+                                )}
+                                {short.image_stats.pending + short.image_stats.searching > 0 &&
+                                    ` · ${short.image_stats.pending + short.image_stats.searching} đang tạo`}
+                            </p>
+                            <MangaPanelsBar short={short} price={prices.image} />
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                {short.scenes.map((scene) => (
+                                    <SceneImageCard key={scene.id} scene={scene} />
+                                ))}
+                            </div>
+                        </section>
+                    </div>
+                )}
+
+                {step === 'video' && short.scenes.length > 0 && (
+                    <RenderPanel short={short} music={music} suggestion={music_suggestion} price={prices.render} />
+                )}
+
+                <NextStep steps={steps} current={step} onChange={go} />
 
                 <Button variant="ghost" className="text-destructive" onClick={destroy}>
                     Xoá short
@@ -295,7 +343,7 @@ function ScriptForm({ short }: { short: TopicShort }) {
     return (
         <form onSubmit={submit} className="space-y-4">
             <div className="flex items-baseline justify-between gap-4">
-                <h2 className="text-lg font-semibold">1. Lời kể</h2>
+                <h2 className="text-lg font-semibold">Lời kể</h2>
                 <span className="text-muted-foreground flex items-center gap-2 text-sm">
                     Ước tính {seconds} giây (mục tiêu {short.target_seconds} giây)
                     {short.use_research && short.status === 'ready' && (
@@ -360,7 +408,7 @@ function CharactersPanel({ short }: { short: TopicShort }) {
 
     return (
         <section className="space-y-3">
-            <h2 className="text-lg font-semibold">2. Nhân vật</h2>
+            <h2 className="text-lg font-semibold">Nhân vật</h2>
             <p className="text-muted-foreground text-sm">
                 Muse vẽ theo tên và mô tả từng nhân vật{short.art_style ? `, phong cách: ${short.art_style}` : ''}. Tải lên một ảnh mẫu rõ mặt mỗi
                 nhân vật (chụp từ phim) để Muse vẽ giống hơn, rồi bấm "Muse vẽ lại tất cả".
@@ -515,6 +563,154 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     );
 }
 
+type StepKey = 'research' | 'script' | 'images' | 'video';
+
+interface Step {
+    key: StepKey;
+    title: string;
+    summary: string;
+    state: 'done' | 'busy' | 'todo' | 'warn' | 'locked';
+}
+
+/** Các bước làm short: tư liệu (nếu có) → lời kể → ảnh → video, kèm tình trạng từng bước. */
+function stepsOf(short: TopicShort): Step[] {
+    const hasScenes = short.scenes.length > 0;
+    const busyImages = short.image_stats.pending + short.image_stats.searching;
+    const steps: Step[] = [];
+    if (short.use_research) {
+        const kept = short.research?.facts.filter((f) => f.enabled).length ?? 0;
+        steps.push({
+            key: 'research',
+            title: 'Tư liệu',
+            summary:
+                short.status === 'researching'
+                    ? 'Claude đang tìm...'
+                    : short.status === 'research_ready'
+                      ? `${short.research?.facts.length ?? 0} chi tiết chờ duyệt`
+                      : short.research
+                        ? `${kept} chi tiết đã duyệt`
+                        : 'Chưa có',
+            state: short.status === 'researching' ? 'busy' : short.status === 'research_ready' ? 'todo' : short.research ? 'done' : 'todo',
+        });
+    }
+    steps.push({
+        key: 'script',
+        title: 'Lời kể',
+        summary:
+            short.status === 'writing'
+                ? 'Claude đang viết...'
+                : hasScenes
+                  ? `${short.scenes.length} cảnh${short.unsupported_count > 0 ? ` · ${short.unsupported_count} cảnh thiếu nguồn` : ''}`
+                  : 'Chưa viết',
+        state:
+            short.status === 'writing'
+                ? 'busy'
+                : !hasScenes
+                  ? short.use_research
+                      ? 'locked'
+                      : 'todo'
+                  : short.unsupported_count > 0
+                    ? 'warn'
+                    : 'done',
+    });
+    steps.push({
+        key: 'images',
+        title: 'Ảnh',
+        summary: hasScenes
+            ? `${short.image_stats.ready}/${short.scenes.length} có ảnh${short.image_stats.failed > 0 ? ` · ${short.image_stats.failed} lỗi` : ''}${busyImages > 0 ? ` · ${busyImages} đang tạo` : ''}`
+            : 'Chờ lời kể',
+        state: !hasScenes ? 'locked' : short.all_images_ready ? 'done' : busyImages > 0 ? 'busy' : short.image_stats.failed > 0 ? 'warn' : 'todo',
+    });
+    steps.push({
+        key: 'video',
+        title: 'Video',
+        summary:
+            short.video_status === 'rendering'
+                ? 'Đang dựng...'
+                : short.video_url
+                  ? 'Đã có video'
+                  : short.all_images_ready
+                    ? 'Sẵn sàng dựng'
+                    : 'Chờ đủ ảnh',
+        state: short.video_status === 'rendering' ? 'busy' : short.video_url ? 'done' : short.all_images_ready ? 'todo' : 'locked',
+    });
+
+    return steps;
+}
+
+/** Bước nên mở khi vào trang: bước đầu tiên chưa xong. */
+function currentStep(short: TopicShort): StepKey {
+    if (short.use_research && ['researching', 'research_ready'].includes(short.status)) {
+        return 'research';
+    }
+    if (short.status !== 'ready' || short.scenes.length === 0) {
+        return short.use_research && short.status === 'failed' && !short.research ? 'research' : 'script';
+    }
+
+    return short.all_images_ready ? 'video' : 'images';
+}
+
+const stepStyles: Record<Step['state'], string> = {
+    done: 'border-green-500 bg-green-50 dark:bg-green-950',
+    busy: 'border-blue-400 bg-blue-50 dark:bg-blue-950',
+    todo: 'border-primary',
+    warn: 'border-amber-500 bg-amber-50 dark:bg-amber-950',
+    locked: 'opacity-60',
+};
+
+function StepBar({ steps, current, onChange }: { steps: Step[]; current: StepKey; onChange: (key: StepKey) => void }) {
+    return (
+        <nav aria-label="Các bước" className={`grid grid-cols-2 gap-2 ${steps.length === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+            {steps.map((st, i) => (
+                <button
+                    key={st.key}
+                    type="button"
+                    onClick={() => onChange(st.key)}
+                    aria-current={current === st.key ? 'step' : undefined}
+                    className={`rounded-lg border-2 p-3 text-left transition ${stepStyles[st.state]} ${current === st.key ? 'ring-primary ring-2 ring-offset-2' : 'hover:shadow-sm'}`}
+                >
+                    <span className="flex items-center gap-2 text-sm font-semibold">
+                        <span className="bg-background flex size-6 shrink-0 items-center justify-center rounded-full border text-xs">
+                            {st.state === 'done' ? (
+                                <Check className="size-3.5 text-green-600" />
+                            ) : st.state === 'busy' ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                                i + 1
+                            )}
+                        </span>
+                        {st.title}
+                    </span>
+                    <span className="text-muted-foreground mt-1 block text-xs">{st.summary}</span>
+                </button>
+            ))}
+        </nav>
+    );
+}
+
+function NextStep({ steps, current, onChange }: { steps: Step[]; current: StepKey; onChange: (key: StepKey) => void }) {
+    const index = steps.findIndex((st) => st.key === current);
+    const prev = steps[index - 1];
+    const next = steps[index + 1];
+
+    return (
+        <div className="flex justify-between gap-2 border-t pt-4">
+            {prev ? (
+                <Button variant="outline" onClick={() => onChange(prev.key)}>
+                    <ChevronLeft /> {prev.title}
+                </Button>
+            ) : (
+                <span />
+            )}
+            {next && (
+                <Button onClick={() => onChange(next.key)} disabled={next.state === 'locked'}>
+                    Tiếp: {next.title} <ChevronRight />
+                </Button>
+            )}
+        </div>
+    );
+}
+
 /** Khung manga các cảnh cần mà thư viện chưa có ảnh đúng tư thế: vẽ vào thư viện (dùng lại cho video sau), xong tự ghép trang. */
 function MangaPanelsBar({ short, price }: { short: TopicShort; price: number }) {
     if (!short.scenes.some((s) => s.panels.length > 0)) {
@@ -594,7 +790,7 @@ function RenderPanel({
 
     return (
         <section className="space-y-4">
-            <h2 className="text-lg font-semibold">4. Dựng video</h2>
+            <h2 className="text-lg font-semibold">Dựng video</h2>
             {!short.all_images_ready && <p className="text-muted-foreground text-sm">Mọi cảnh cần có ảnh trước khi dựng video.</p>}
             {short.unsupported_count > 0 && (
                 <p className="text-sm text-red-600 dark:text-red-400">

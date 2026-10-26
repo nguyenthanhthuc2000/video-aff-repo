@@ -174,19 +174,12 @@ export function ResearchPanel({
 
     return (
         <section className="space-y-3">
-            {status === 'research_ready' ? (
-                <>
-                    <h2 className="text-lg font-semibold">Tư liệu: duyệt trước khi viết kịch bản</h2>
-                    {body}
-                </>
-            ) : (
-                <details className="rounded-lg border p-3">
-                    <summary className="cursor-pointer font-semibold">
-                        Tư liệu ({research.facts.filter((f) => f.enabled).length}/{research.facts.length} chi tiết đã dùng)
-                    </summary>
-                    <div className="mt-3">{body}</div>
-                </details>
-            )}
+            <h2 className="text-lg font-semibold">
+                {status === 'research_ready'
+                    ? 'Duyệt tư liệu trước khi viết kịch bản'
+                    : `Tư liệu (${research.facts.filter((f) => f.enabled).length}/${research.facts.length} chi tiết đã dùng)`}
+            </h2>
+            {body}
         </section>
     );
 }
