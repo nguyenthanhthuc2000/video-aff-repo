@@ -5,19 +5,23 @@ namespace Tests\Feature;
 use App\Jobs\CheckTopicShortFactsJob;
 use App\Jobs\GenerateCharacterPortraitJob;
 use App\Jobs\PlanTopicSeriesJob;
+use App\Jobs\RenderTopicShortJob;
 use App\Jobs\ResearchTopicJob;
 use App\Jobs\WriteTopicShortJob;
 use App\Models\LoreFact;
 use App\Models\TopicShort;
+use App\Models\TopicShortScene;
 use App\Models\User;
 use App\Services\Script\ScriptWriterException;
 use App\Services\TopicShort\MangaPage;
+use App\Services\TopicShort\ShortVideo;
 use App\Services\TopicShort\ShortWriter;
 use App\Services\TopicShort\TopicResearcher;
 use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -230,6 +234,62 @@ class TopicStoryResearchTest extends TestCase
         $this->actingAs($this->user)->post(route('character-library.upload', ['vegeta', 'E4']), ['image' => UploadedFile::fake()->image('v.png', 300, 400)])->assertRedirect();
         $this->assertNotSame($old, $scene->fresh()->image_path);
         $this->assertSame(1, count(MangaPage::missing([$scene->fresh()], $this->user->id)));
+    }
+
+    public function test_end_to_end_story_video_with_manga_pages_and_sound_effects()
+    {
+        Queue::fake();
+        Storage::fake(config('videoaff.disk'));
+        Http::fake(['*/tts' => fn ($request) => Http::response([
+            'base64' => base64_encode(self::wav(2.0 * count($request['lines']))),
+            'duration' => 2.0 * count($request['lines']),
+            'lines' => array_map(fn ($i) => ['start' => $i * 2 + 0.2, 'end' => $i * 2 + 1.8], array_keys($request['lines'])),
+        ])]);
+        foreach (['vegeta', 'goku', 'frieza'] as $character) {
+            $this->user->characterPortraits()->create([
+                'character' => $character, 'expression' => 'E1', 'status' => 'ready', 'source' => 'upload',
+                'image_path' => tap("character-portraits/{$character}-E1.png", fn ($path) => Media::disk()->put($path, self::png())),
+            ]);
+        }
+        $this->user->audioTracks()->create(['name' => 'Epic battle theme', 'path' => tap('audio/epic.wav', fn ($path) => Media::disk()->put($path, self::wav(3)))]);
+
+        $short = $this->create();
+        (new ResearchTopicJob($short))->handle();
+        $facts = collect($short->fresh()->research['facts'])->map(fn ($f) => ['id' => $f['id'], 'enabled' => true, 'text' => $f['text']])->all();
+        $this->actingAs($this->user)->post(route('topic-shorts.research.approve', $short), ['facts' => $facts])->assertSessionHasNoErrors();
+        (new WriteTopicShortJob($short->fresh()))->handle();
+        (new CheckTopicShortFactsJob($short->fresh()))->handle();
+
+        // Cảnh có khung manga đã ghép trang ngay từ thư viện; cảnh còn lại tìm ảnh như cũ (giả lập có ảnh).
+        $short->refresh();
+        $scenes = $short->scenes()->get();
+        $this->assertTrue($scenes->contains('image_source', 'page'));
+        $scenes->where('image_source', '!=', 'page')->each(fn ($scene) => $scene->update(['image_status' => 'ready', 'image_source' => 'upload', 'image_path' => 'character-portraits/goku-E1.png']));
+        $this->assertNotSame([], ShortVideo::effects($scenes->all(), range(0, 20000, 2000)));
+
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))
+            ->assertInertia(fn (Assert $page) => $page->where('music_suggestion.mood', fn ($mood) => $mood !== null));
+        $this->actingAs($this->user)->post(route('topic-shorts.render', $short), ['sfx' => true])->assertSessionHasNoErrors();
+        $short->refresh();
+        (new RenderTopicShortJob($short, $short->video_options['run']))->handle();
+        $short->refresh();
+        $this->assertSame('done', $short->video_status, (string) $short->video_error);
+        Storage::disk(config('videoaff.disk'))->assertExists($short->video_path);
+    }
+
+    public function test_music_suggestion_follows_main_mood()
+    {
+        $tracks = collect([(object) ['id' => 1, 'name' => 'Lofi chill'], (object) ['id' => 2, 'name' => 'Nhạc buồn piano']]);
+        $scenes = collect(['sad', 'sad', 'epic', null])->map(fn ($mood) => new TopicShortScene(['mood' => $mood]));
+        $this->assertSame(['mood' => 'sad', 'track_id' => 2], ShortVideo::suggestMusic($scenes, $tracks));
+        $this->assertSame(['mood' => null, 'track_id' => null], ShortVideo::suggestMusic([], $tracks));
+    }
+
+    private static function wav(float $seconds): string
+    {
+        $data = str_repeat("\0\0", (int) (24000 * $seconds));
+
+        return 'RIFF'.pack('V', 36 + strlen($data)).'WAVEfmt '.pack('VvvVVvv', 16, 1, 1, 24000, 48000, 2, 16).'data'.pack('V', strlen($data)).$data;
     }
 
     private static function png(): string

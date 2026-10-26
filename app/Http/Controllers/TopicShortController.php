@@ -15,6 +15,7 @@ use App\Models\CharacterPortrait;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Services\TopicShort\MangaPage;
+use App\Services\TopicShort\ShortVideo;
 use App\Services\TopicShort\ShortWriter;
 use App\Services\TopicShort\TopicResearcher;
 use App\Support\CreditPricing;
@@ -169,7 +170,8 @@ class TopicShortController extends Controller
                         ->filter()->unique('id')->map(fn (CharacterPortrait $p) => ['id' => $p->id, 'name' => DragonBall::CHARACTERS[$p->character][0], 'expression' => $p->expression, 'url' => Media::url($p->image_path)])->values(),
                 ]),
             ],
-            'music' => AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
+            'music' => $music = AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
+            'music_suggestion' => ShortVideo::suggestMusic($scenes, $music),
             'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
             'max_attempts' => CharacterLibraryController::MAX_ATTEMPTS,
@@ -532,6 +534,7 @@ class TopicShortController extends Controller
         $validated = $request->validate([
             'music_track_id' => ['nullable', 'integer', Rule::exists('audio_tracks', 'id')->where('user_id', $request->user()->id)],
             'music_volume' => ['nullable', 'integer', 'min:0', 'max:40'],
+            'sfx' => ['boolean'],
         ]);
         if ($short->status !== 'ready' || ! $short->allImagesReady()) {
             return back()->with('status', 'Mọi cảnh cần có ảnh trước khi dựng video.');

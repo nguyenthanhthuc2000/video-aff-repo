@@ -86,11 +86,13 @@ const sourceLabels = { web: 'Ảnh wiki', muse: 'Muse vẽ', upload: 'Ảnh tả
 export default function TopicShortShow({
     short,
     music,
+    music_suggestion,
     prices,
     image_styles,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
+    music_suggestion: { mood: string | null; track_id: number | null };
     image_styles: Record<string, string>;
     prices: { image: number; render: number };
 }) {
@@ -255,7 +257,7 @@ export default function TopicShortShow({
                     </section>
                 )}
 
-                {short.scenes.length > 0 && <RenderPanel short={short} music={music} price={prices.render} />}
+                {short.scenes.length > 0 && <RenderPanel short={short} music={music} suggestion={music_suggestion} price={prices.render} />}
 
                 <Button variant="ghost" className="text-destructive" onClick={destroy}>
                     Xoá short
@@ -562,8 +564,24 @@ function MangaPanelsBar({ short, price }: { short: TopicShort; price: number }) 
     );
 }
 
-function RenderPanel({ short, music, price }: { short: TopicShort; music: { id: number; name: string }[]; price: number }) {
-    const { data, setData, post, processing } = useForm<{ music_track_id: string; music_volume: number }>({ music_track_id: '', music_volume: 12 });
+const moodLabels: Record<string, string> = { tense: 'căng thẳng', sad: 'buồn', epic: 'hoành tráng', funny: 'vui', calm: 'nhẹ nhàng' };
+
+function RenderPanel({
+    short,
+    music,
+    suggestion,
+    price,
+}: {
+    short: TopicShort;
+    music: { id: number; name: string }[];
+    suggestion: { mood: string | null; track_id: number | null };
+    price: number;
+}) {
+    const { data, setData, post, processing } = useForm<{ music_track_id: string; music_volume: number; sfx: boolean }>({
+        music_track_id: suggestion.track_id ? String(suggestion.track_id) : '',
+        music_volume: 12,
+        sfx: true,
+    });
     const rendering = short.video_status === 'rendering';
 
     const submit: FormEventHandler = (e) => {
@@ -613,10 +631,22 @@ function RenderPanel({ short, music, price }: { short: TopicShort; music: { id: 
                         />
                     </div>
                 )}
+                <label className="flex h-9 items-center gap-2 text-sm">
+                    <input type="checkbox" className="size-4" checked={data.sfx} onChange={(e) => setData('sfx', e.target.checked)} />
+                    Hiệu ứng âm thanh (đấm, lao tới, gom khí)
+                </label>
                 <Button disabled={processing || rendering || !short.all_images_ready || short.status !== 'ready'}>
                     {rendering ? <Loader2 className="animate-spin" /> : <Sparkles />} Đọc giọng + dựng video ({formatNumber(price)} Credits)
                 </Button>
             </form>
+            {suggestion.mood && (
+                <p className="text-muted-foreground text-sm">
+                    Cảm xúc chính: {moodLabels[suggestion.mood] ?? suggestion.mood}.{' '}
+                    {suggestion.track_id
+                        ? 'Đã chọn sẵn bài nhạc hợp.'
+                        : `Chưa có bài nhạc nào tên chứa từ "${suggestion.mood}", đặt tên bài nhạc theo cảm xúc để được gợi ý.`}
+                </p>
+            )}
             {rendering && <p className="text-muted-foreground text-sm">Đang đọc giọng AI và ghép video...</p>}
             {short.video_error && <p className="text-sm text-red-600 dark:text-red-400">{short.video_error}</p>}
             {short.video_url && short.video_status !== 'rendering' && (

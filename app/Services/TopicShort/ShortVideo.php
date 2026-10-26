@@ -4,6 +4,7 @@ namespace App\Services\TopicShort;
 
 use App\Models\AudioTrack;
 use App\Models\TopicShort;
+use App\Models\TopicShortScene;
 use App\Services\Audio\Tts;
 use App\Services\Film\Voices;
 use App\Services\Video\AssSubtitles;
@@ -23,6 +24,29 @@ class ShortVideo
     public const HEIGHT = 1920;
 
     public const FPS = 30;
+
+    /**
+     * Hiệu ứng âm thanh tạo ngay bằng nguồn lavfi của ffmpeg (không cần file, không bản quyền).
+     * impact: cú đấm / đá / bị đánh; whoosh: lao tới; energy: gom khí, tuyệt chiêu; pop: ngạc nhiên.
+     */
+    public const SFX = [
+        'impact' => 'anoisesrc=d=0.45:c=brown:a=1,lowpass=f=260,volume=4,afade=t=out:st=0.04:d=0.4',
+        'whoosh' => 'anoisesrc=d=0.6:c=pink:a=0.8,bandpass=f=1400:width_type=h:w=1600,afade=t=in:d=0.25,afade=t=out:st=0.3:d=0.3',
+        'energy' => 'sine=f=90:d=1.2,tremolo=f=14:d=0.7,volume=2.5,afade=t=in:d=0.4,afade=t=out:st=0.8:d=0.4',
+        'pop' => 'sine=f=1200:d=0.14,afade=t=out:st=0.02:d=0.12',
+    ];
+
+    /** Mã tư thế khung manga → hiệu ứng âm thanh. */
+    private const POSE_SFX = ['A1' => 'impact', 'A2' => 'impact', 'A6' => 'impact', 'A4' => 'whoosh', 'A5' => 'energy', 'E4' => 'pop'];
+
+    /** Từ khoá tên bài nhạc cho từng cảm xúc (gợi ý nhạc nền). */
+    public const MOOD_MUSIC = [
+        'tense' => ['tense', 'dark', 'suspense', 'căng', 'hồi hộp', 'kịch tính'],
+        'sad' => ['sad', 'piano', 'emotional', 'buồn', 'cảm động'],
+        'epic' => ['epic', 'battle', 'action', 'fight', 'hùng', 'chiến', 'trận'],
+        'funny' => ['funny', 'comedy', 'happy', 'vui', 'hài'],
+        'calm' => ['calm', 'chill', 'lofi', 'ambient', 'nhẹ', 'êm'],
+    ];
 
     /** Số từ tối đa mỗi dòng phụ đề. */
     private const CHUNK_WORDS = 7;
@@ -65,7 +89,7 @@ class ShortVideo
             File::put($local, $contents);
             $args = [...$args, '-i', $local];
             $frames = max(1, (int) round(($bounds[$i + 1] - $bounds[$i]) / 1000 * self::FPS));
-            $filters[] = self::sceneFilter($i, $frames);
+            $filters[] = self::sceneFilter($i, $frames, $scene->image_source === 'page');
 
             $title = $i === 0 && $short->title ? $short->title : (string) $scene->on_screen_text;
             $title !== '' && $events[] = [$bounds[$i], $bounds[$i + 1], $i === 0 ? 'Title' : 'Top', $title];
@@ -92,10 +116,22 @@ class ShortVideo
             $filters[] = "[{$voiceIndex}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{$seconds},asplit=2[voice][key]";
             $filters[] = '['.($voiceIndex + 1).":a]atrim=0:{$seconds},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo,volume={$volume},afade=t=out:st=".self::seconds(max(0, $total - 2000)).':d=2[m0]';
             $filters[] = '[m0][key]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[music]';
-            $filters[] = '[voice][music]amix=inputs=2:normalize=0:duration=first[a]';
+            $filters[] = '[voice][music]amix=inputs=2:normalize=0:duration=first[base]';
         } else {
-            $filters[] = "[{$voiceIndex}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{$seconds}[a]";
+            $filters[] = "[{$voiceIndex}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{$seconds}[base]";
         }
+
+        // Hiệu ứng âm thanh đặt ngay lúc đổi cảnh, theo tư thế khung manga.
+        $effects = ($options['sfx'] ?? true) ? self::effects($scenes->values()->all(), $bounds) : [];
+        $next = $voiceIndex + ($music ? 2 : 1);
+        $volume = max(0, min(100, (int) ($options['sfx_volume'] ?? 45))) / 100;
+        foreach ($effects as $k => [$name, $at]) {
+            $args = [...$args, '-f', 'lavfi', '-i', self::SFX[$name]];
+            $filters[] = '['.($next + $k).":a]aresample=44100,aformat=channel_layouts=stereo,volume={$volume},adelay={$at}|{$at}[s{$k}]";
+        }
+        $filters[] = $effects === []
+            ? '[base]anull[a]'
+            : '[base]'.implode('', array_map(fn ($k) => "[s{$k}]", array_keys($effects))).'amix=inputs='.(count($effects) + 1).':normalize=0:duration=first[a]';
 
         $out = "{$dir}/short.mp4";
         $result = Process::timeout(900)->run([
@@ -118,11 +154,53 @@ class ShortVideo
             : ['text' => $text, 'voice' => '', 'pitch' => 1.0, 'speed' => 1.0, 'lang' => 'vi'];
     }
 
-    /** Ảnh ngang: đặt giữa trên nền mờ của chính nó; ảnh dọc phủ kín. Zoom chậm, lần lượt vào / ra. */
-    private static function sceneFilter(int $i, int $frames): string
+    /**
+     * Hiệu ứng mỗi cảnh: khung manga có tư thế hợp (khung đầu tiên khớp), không có thì cảnh "epic" dùng energy.
+     *
+     * @param  list<TopicShortScene>  $scenes
+     * @param  list<int>  $bounds
+     * @return list<array{0: string, 1: int}> [tên hiệu ứng, ms]
+     */
+    public static function effects(array $scenes, array $bounds): array
+    {
+        $effects = [];
+        foreach ($scenes as $i => $scene) {
+            $name = collect($scene->panels ?? [])->map(fn ($panel) => self::POSE_SFX[$panel['pose']] ?? (str_starts_with($panel['pose'], 'S') ? 'energy' : null))->filter()->first()
+                ?? ($scene->mood === 'epic' ? 'energy' : null);
+            $name && $effects[] = [$name, $bounds[$i] + ($i === 0 ? 300 : 80)];
+        }
+
+        return $effects;
+    }
+
+    /**
+     * Gợi ý nhạc nền theo cảm xúc nhiều cảnh nhất: bài có tên chứa từ khoá của cảm xúc đó.
+     *
+     * @param  iterable<TopicShortScene>  $scenes
+     * @param  iterable<AudioTrack>  $tracks
+     * @return array{mood: ?string, track_id: ?int}
+     */
+    public static function suggestMusic(iterable $scenes, iterable $tracks): array
+    {
+        $mood = collect($scenes)->pluck('mood')->filter()->countBy()->sortDesc()->keys()->first();
+        $track = $mood ? collect($tracks)->first(fn ($track) => collect(self::MOOD_MUSIC[$mood] ?? [])->contains(fn ($word) => str_contains(mb_strtolower($track->name), $word))) : null;
+
+        return ['mood' => $mood, 'track_id' => $track?->id];
+    }
+
+    /**
+     * Trang manga dọc: phóng nhẹ rồi lia từ khung trên xuống khung dưới.
+     * Ảnh ngang: đặt giữa trên nền mờ của chính nó; ảnh dọc phủ kín. Zoom chậm, lần lượt vào / ra.
+     */
+    private static function sceneFilter(int $i, int $frames, bool $page = false): string
     {
         $w = self::WIDTH;
         $h = self::HEIGHT;
+        if ($page) {
+            return "[{$i}:v]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},scale=".($w * 2).':'.($h * 2).','
+                ."zoompan=z='1.18':x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*on/{$frames}':d={$frames}:s={$w}x{$h}:fps=".self::FPS.','
+                ."setsar=1,format=yuv420p,fade=t=in:st=0:d=0.2[v{$i}]";
+        }
         $bigW = (int) round($w * 1.5);
         $bigH = (int) round($h * 1.5);
         $zoom = $i % 2 === 0 ? "1+0.08*on/{$frames}" : "1.08-0.08*on/{$frames}";
