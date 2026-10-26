@@ -211,16 +211,22 @@ function TextEditor({ shortId, publish }: { shortId: number; publish: PublishPac
     );
 }
 
-function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
     const [done, setDone] = useState(false);
     const copy = async () => {
         try {
             await navigator.clipboard.writeText(text);
-            setDone(true);
-            setTimeout(() => setDone(false), 1500);
         } catch {
-            // Trình duyệt chặn clipboard (http không bảo mật): người dùng tự bôi đen copy.
+            // Trình duyệt chặn clipboard (http không bảo mật): copy kiểu cũ qua ô ẩn.
+            const area = Object.assign(document.createElement('textarea'), { value: text });
+            document.body.appendChild(area);
+            area.select();
+            const ok = document.execCommand('copy');
+            area.remove();
+            if (!ok) return;
         }
+        setDone(true);
+        setTimeout(() => setDone(false), 1500);
     };
 
     return (

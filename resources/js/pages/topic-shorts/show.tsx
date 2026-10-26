@@ -2,7 +2,7 @@ import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { type PronunciationRow, PronunciationPanel } from '@/components/topic-shorts/pronunciation-panel';
-import { type PublishPack, PublishPanel } from '@/components/topic-shorts/publish-panel';
+import { type PublishPack, CopyButton, PublishPanel } from '@/components/topic-shorts/publish-panel';
 import { type FactCheck, type Research, HookPicker, ResearchPanel, SceneFacts } from '@/components/topic-shorts/research-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -366,6 +366,13 @@ function ScriptForm({ short }: { short: TopicShort }) {
                 <h2 className="text-lg font-semibold">Lời kể</h2>
                 <span className="text-muted-foreground flex items-center gap-2 text-sm">
                     Ước tính {seconds} giây (mục tiêu {short.target_seconds} giây)
+                    <CopyButton
+                        text={data.scenes
+                            .map((scene) => scene.narration.trim())
+                            .filter(Boolean)
+                            .join('\n\n')}
+                        label="Copy toàn bộ lời kể"
+                    />
                     {short.use_research && short.status === 'ready' && (
                         <Button
                             type="button"
