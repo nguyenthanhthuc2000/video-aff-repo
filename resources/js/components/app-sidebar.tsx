@@ -14,6 +14,7 @@ import {
     Guitar,
     History,
     Image,
+    Library,
     Mic2,
     Music,
     Package,
@@ -57,6 +58,11 @@ const mainNavItems: NavItem[] = [
         title: 'Shorts chủ đề',
         url: '/topic-shorts',
         icon: Sparkles,
+    },
+    {
+        title: 'Kho tư liệu',
+        url: '/lore-facts',
+        icon: Library,
     },
     {
         title: 'Nhân vật Ngọc Rồng',

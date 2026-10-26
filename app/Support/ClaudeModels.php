@@ -35,6 +35,10 @@ class ClaudeModels
             'hint' => 'Shorts theo chủ đề: viết lời kể 30–60 giây và chia cảnh kèm từ khoá tìm ảnh. Cần đúng sự kiện trong truyện / phim.',
             'recommended' => 'claude-sonnet-5-5',
         ],
+        'topic_research' => [
+            'hint' => 'Video truyện: tìm tư liệu trên web (wiki, phỏng vấn), tổng hợp sự kiện kèm nguồn, kiểm chứng kịch bản. Cần đọc kỹ, không bịa.',
+            'recommended' => 'claude-sonnet-5-5',
+        ],
         'film_plan' => [
             'hint' => 'Phim hoạt hình: lên kế hoạch bộ phim (nhân vật, bối cảnh, dàn ý các tập) từ ý tưởng. Viết dài, cần sáng tạo.',
             'recommended' => 'claude-sonnet-5-5',

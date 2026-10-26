@@ -10,10 +10,16 @@ use Illuminate\Support\Facades\Process;
 
 /**
  * Gọi Claude Code CLI (`claude -p`) đăng nhập bằng gói Claude Pro/Max của người dùng, thay cho API key.
- * Token lấy bằng `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN). Mọi tool bị tắt: chỉ sinh chữ, không đọc file hay chạy lệnh.
+ * Token lấy bằng `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN). Mặc định mọi tool bị tắt: chỉ sinh chữ, không đọc file hay chạy lệnh;
+ * riêng bước research bật WebSearch / WebFetch (chỉ đọc web, không đụng máy chủ).
  */
 class ClaudeCli
 {
+    /** Tool CLI được phép bật: chỉ đọc web. */
+    public const WEB_TOOLS = ['WebSearch', 'WebFetch'];
+
+    public const WEB_TIMEOUT = 900;
+
     public function __construct(
         private readonly string $binary,
         private readonly ?string $oauthToken,
@@ -33,12 +39,14 @@ class ClaudeCli
 
     /**
      * @param  list<array>  $content  Content block theo định dạng Messages API (text, image base64).
+     * @param  list<string>  $tools  Tool chỉ đọc web được bật (WebSearch, WebFetch); rỗng = tắt hết.
      * @return array Kết quả đã kiểm tra theo $schema.
      *
      * @throws ClaudeCliException
      */
-    public function json(string $system, array $content, array $schema, string $logContext): array
+    public function json(string $system, array $content, array $schema, string $logContext, array $tools = []): array
     {
+        $tools = array_values(array_intersect($tools, self::WEB_TOOLS));
         // Thao tác cho màn hình Chi phí AI: "script:12" thành "script".
         $action = strtok($logContext, ':') ?: $logContext;
         $started = hrtime(true);
@@ -46,7 +54,7 @@ class ClaudeCli
         $model = ClaudeModels::for($action, $this->model);
 
         try {
-            $output = $this->run($system, $content, $schema, $model, $logContext, $final);
+            $output = $this->run($system, $content, $schema, $model, $logContext, $final, $tools);
         } catch (ClaudeCliException $e) {
             AiUsage::cli($action, $final, $model, (int) ((hrtime(true) - $started) / 1_000_000), $e->getMessage());
 
@@ -59,12 +67,13 @@ class ClaudeCli
     }
 
     /** @param  array|null  $final  Nhận sự kiện "result" của CLI (để ghi chi phí cả khi lỗi). */
-    private function run(string $system, array $content, array $schema, ?string $model, string $logContext, ?array &$final): array
+    private function run(string $system, array $content, array $schema, ?string $model, string $logContext, ?array &$final, array $tools = []): array
     {
         $command = [
             $this->binary, '-p',
             '--system-prompt', $system,
-            '--tools', '',
+            '--tools', implode(',', $tools),
+            ...$tools !== [] ? ['--allowedTools', implode(',', $tools)] : [],
             '--setting-sources', '',
             '--strict-mcp-config',
             '--no-session-persistence',
@@ -79,7 +88,8 @@ class ClaudeCli
 
         $input = json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => $content]], JSON_UNESCAPED_UNICODE)."\n";
 
-        $process = Process::timeout($this->timeout)
+        // Research web: nhiều lượt tìm / đọc trang, cần lâu hơn.
+        $process = Process::timeout($tools !== [] ? max($this->timeout, self::WEB_TIMEOUT) : $this->timeout)
             ->path(sys_get_temp_dir())
             ->env(array_filter(['CLAUDE_CODE_OAUTH_TOKEN' => $this->oauthToken]))
             ->input($input);

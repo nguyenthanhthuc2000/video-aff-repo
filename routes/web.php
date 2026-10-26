@@ -10,6 +10,7 @@ use App\Http\Controllers\CreditHistoryController;
 use App\Http\Controllers\EnglishController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\FashionModelController;
+use App\Http\Controllers\LoreFactController;
 use App\Http\Controllers\MuseAuthController;
 use App\Http\Controllers\MusicStudioController;
 use App\Http\Controllers\MusicVideoController;
@@ -95,11 +96,20 @@ Route::middleware(['auth'])->group(function () {
     Route::get('dragon-ball', [CharacterLibraryController::class, 'index'])->name('character-library.index');
     Route::post('dragon-ball/draw', [CharacterLibraryController::class, 'draw'])->name('character-library.draw');
     Route::post('dragon-ball/{character}/{expression}/upload', [CharacterLibraryController::class, 'upload'])->name('character-library.upload');
+    Route::get('lore-facts', [LoreFactController::class, 'index'])->name('lore-facts.index');
+    Route::put('lore-facts/{fact}', [LoreFactController::class, 'update'])->name('lore-facts.update');
+    Route::delete('lore-facts/{fact}', [LoreFactController::class, 'destroy'])->name('lore-facts.destroy');
     Route::get('topic-shorts', [TopicShortController::class, 'index'])->name('topic-shorts.index');
     Route::post('topic-shorts', [TopicShortController::class, 'store'])->name('topic-shorts.store');
     Route::get('topic-shorts/{short}', [TopicShortController::class, 'show'])->name('topic-shorts.show');
     Route::put('topic-shorts/{short}', [TopicShortController::class, 'update'])->name('topic-shorts.update');
     Route::delete('topic-shorts/{short}', [TopicShortController::class, 'destroy'])->name('topic-shorts.destroy');
+    Route::post('topic-shorts/{short}/research', [TopicShortController::class, 'research'])->name('topic-shorts.research');
+    Route::post('topic-shorts/{short}/research/approve', [TopicShortController::class, 'approveResearch'])->name('topic-shorts.research.approve');
+    Route::post('topic-shorts/{short}/hook', [TopicShortController::class, 'hook'])->name('topic-shorts.hook');
+    Route::post('topic-shorts/{short}/fact-check', [TopicShortController::class, 'factCheck'])->name('topic-shorts.fact-check');
+    Route::post('topic-shorts/{short}/compose-all', [TopicShortController::class, 'composeAll'])->name('topic-shorts.compose-all');
+    Route::post('topic-shorts/{short}/draw-missing', [TopicShortController::class, 'drawMissing'])->name('topic-shorts.draw-missing');
     Route::post('topic-shorts/{short}/rewrite', [TopicShortController::class, 'rewrite'])->name('topic-shorts.rewrite');
     Route::post('topic-shorts/{short}/render', [TopicShortController::class, 'render'])->name('topic-shorts.render');
     Route::post('topic-shorts/{short}/characters/{index}/image', [TopicShortController::class, 'characterImage'])->whereNumber('index')->name('topic-shorts.character-image');
@@ -109,6 +119,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-short-scenes/{scene}/search', [TopicShortController::class, 'search'])->name('topic-short-scenes.search');
     Route::post('topic-short-scenes/{scene}/pick', [TopicShortController::class, 'pick'])->name('topic-short-scenes.pick');
     Route::post('topic-short-scenes/{scene}/library', [TopicShortController::class, 'library'])->name('topic-short-scenes.library');
+    Route::post('topic-short-scenes/{scene}/compose', [TopicShortController::class, 'compose'])->name('topic-short-scenes.compose');
     Route::post('topic-short-scenes/{scene}/muse', [TopicShortController::class, 'muse'])->name('topic-short-scenes.muse');
     Route::post('topic-short-scenes/{scene}/upload', [TopicShortController::class, 'upload'])->name('topic-short-scenes.upload');
 

@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\CharacterPortrait;
+use App\Models\User;
 use App\Services\Image\GeneratedImage;
 use App\Services\Image\ImageGeneratorException;
+use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ScenePromptFixer;
 use App\Support\AiProviders;
 use App\Support\CreditPricing;
@@ -15,6 +17,7 @@ use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
@@ -28,6 +31,29 @@ class GenerateCharacterPortraitJob implements ShouldQueue
     public int $timeout = 600;
 
     public function __construct(public CharacterPortrait $portrait) {}
+
+    /**
+     * Đặt vẽ các ô thư viện [nhân vật, mã]: mặt thường (E1) trước để các ô khác bám theo; ô từng bị từ chối thì Claude viết lại prompt trước.
+     *
+     * @param  list<array{0: string, 1: string}>  $targets
+     */
+    public static function drawAll(User $user, array $targets): void
+    {
+        $existing = $user->characterPortraits()->get()->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
+        usort($targets, fn ($a, $b) => [$a[0], $a[1] !== 'E1'] <=> [$b[0], $b[1] !== 'E1']);
+        foreach ($targets as [$character, $expression]) {
+            $previous = $existing->get("{$character}:{$expression}");
+            $portrait = $user->characterPortraits()->updateOrCreate(
+                ['character' => $character, 'expression' => $expression],
+                ['status' => 'pending', 'request_id' => null, 'error' => null],
+            );
+            if ($previous?->status === 'failed' && str_contains((string) $previous->error, 'AI trả lời:')) {
+                $portrait->increment('attempts');
+                Cache::put(self::rewriteKey($portrait), Str::after((string) $previous->error, 'AI trả lời:'), now()->addDay());
+            }
+            self::dispatch($portrait);
+        }
+    }
 
     public function retryUntil(): DateTimeInterface
     {
@@ -136,6 +162,8 @@ class GenerateCharacterPortraitJob implements ShouldQueue
         $old = $portrait->image_path;
         $portrait->update(['status' => 'ready', 'source' => 'muse', 'image_path' => $path, 'request_id' => null, 'error' => null]);
         $old && $old !== $path && Media::delete($old);
+        // Trang manga của các cảnh đang chờ ô này được ghép lại ngay.
+        MangaPage::refreshFor($portrait);
 
         Credits::charge(
             $portrait->user_id,

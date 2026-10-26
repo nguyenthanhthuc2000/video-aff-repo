@@ -1,6 +1,7 @@
 import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { type FactCheck, type Research, HookPicker, ResearchPanel, SceneFacts } from '@/components/topic-shorts/research-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,7 @@ import AppLayout from '@/layouts/app-layout';
 import { formatNumber } from '@/lib/pricing';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { Download, ImageOff, Loader2, RefreshCw, Search, Sparkles, TriangleAlert, Upload, Wand2 } from 'lucide-react';
+import { Download, ImageOff, LayoutPanelTop, Loader2, RefreshCw, Search, ShieldCheck, Sparkles, TriangleAlert, Upload, Wand2 } from 'lucide-react';
 import { FormEventHandler, useRef, useState } from 'react';
 
 interface Candidate {
@@ -30,7 +31,7 @@ interface ShortScene {
     image_query: string | null;
     image_prompt: string | null;
     characters: string[];
-    image_source: 'web' | 'muse' | 'upload' | 'library' | null;
+    image_source: 'web' | 'muse' | 'upload' | 'library' | 'page' | null;
     expression: string | null;
     library: { id: number; name: string; expression: string; url: string }[];
     image_status: 'none' | 'searching' | 'pending' | 'ready' | 'failed';
@@ -38,6 +39,10 @@ interface ShortScene {
     image_source_url: string | null;
     image_error: string | null;
     candidates: Candidate[];
+    fact_ids: string[];
+    fact_check: FactCheck | null;
+    mood: string | null;
+    panels: { character: string; pose: string; camera: string; name: string; label: string; url: string | null; exact: boolean }[];
 }
 
 interface TopicShort {
@@ -48,8 +53,18 @@ interface TopicShort {
     style: string;
     image_style: string;
     target_seconds: number;
-    status: 'writing' | 'ready' | 'failed';
+    status: 'researching' | 'research_ready' | 'writing' | 'ready' | 'failed';
     error: string | null;
+    use_research: boolean;
+    research: Research | null;
+    research_notes: string | null;
+    hooks: { style: string; text: string }[];
+    hook_index: number | null;
+    series_parts: number;
+    part: number | null;
+    series: { id: number; parts: { id: number; part: number; title: string | null; status: string; focus: string }[] } | null;
+    unsupported_count: number;
+    missing_panels: { character: string; pose: string; name: string; label: string; status: 'none' | 'failed' | 'pending' }[];
     caption: string;
     hashtags: string[];
     art_style: string | null;
@@ -65,7 +80,7 @@ interface TopicShort {
     scenes: ShortScene[];
 }
 
-const sourceLabels = { web: 'Ảnh wiki', muse: 'Muse vẽ', upload: 'Ảnh tải lên', library: 'Ảnh nhân vật' } as const;
+const sourceLabels = { web: 'Ảnh wiki', muse: 'Muse vẽ', upload: 'Ảnh tải lên', library: 'Ảnh nhân vật', page: 'Trang manga' } as const;
 
 /** Chi tiết short: sửa lời kể, chọn ảnh từng cảnh (wiki / Muse / tải lên), dựng video có giọng AI. */
 export default function TopicShortShow({
@@ -83,7 +98,18 @@ export default function TopicShortShow({
         { title: 'Shorts chủ đề', href: '/topic-shorts' },
         { title: short.title || short.topic, href: route('topic-shorts.show', short.id) },
     ];
-    usePoll(short.status === 'writing' || short.images_busy || short.video_status === 'rendering', ['short'], 3000);
+    const checking = short.use_research && short.status === 'ready' && short.scenes.some((s) => s.fact_check === null);
+    const drawing = short.missing_panels.some((p) => p.status === 'pending');
+    usePoll(
+        short.status === 'writing' ||
+            short.status === 'researching' ||
+            checking ||
+            drawing ||
+            short.images_busy ||
+            short.video_status === 'rendering',
+        ['short'],
+        3000,
+    );
 
     const rewrite = () => {
         if (confirm('Claude viết lại từ đầu, các cảnh và ảnh hiện tại sẽ bị xoá. Tiếp tục?')) {
@@ -124,7 +150,12 @@ export default function TopicShortShow({
                         {short.status === 'writing' && <Loader2 className="size-4 animate-spin" />}
                         <Badge variant="outline">{short.style}</Badge>
                         <Badge variant="secondary">{short.language === 'en' ? 'English' : 'Tiếng Việt'}</Badge>
-                        <Button variant="outline" size="sm" onClick={rewrite} disabled={short.status === 'writing'}>
+                        {short.part && (
+                            <Badge>
+                                Phần {short.part}/{short.series_parts}
+                            </Badge>
+                        )}
+                        <Button variant="outline" size="sm" onClick={rewrite} disabled={short.status === 'writing' || short.status === 'researching'}>
                             <RefreshCw /> Viết lại
                         </Button>
                     </div>
@@ -140,6 +171,37 @@ export default function TopicShortShow({
 
                 {short.status === 'writing' && <p className="text-muted-foreground text-sm">Claude đang viết lời kể và chia cảnh...</p>}
                 {short.error && <p className="text-sm text-red-600 dark:text-red-400">{short.error}</p>}
+
+                {short.series && (
+                    <div className="flex flex-wrap gap-2 text-sm">
+                        <span className="text-muted-foreground">Series:</span>
+                        {short.series.parts.map((p) => (
+                            <a
+                                key={p.id}
+                                href={route('topic-shorts.show', p.id)}
+                                className={`rounded border px-2 py-0.5 ${p.id === short.id ? 'border-primary font-medium' : 'hover:bg-muted/50'}`}
+                                title={p.focus}
+                            >
+                                Phần {p.part}
+                                {p.status === 'writing' ? ' (đang viết)' : ''}
+                            </a>
+                        ))}
+                    </div>
+                )}
+
+                {short.use_research && (
+                    <ResearchPanel
+                        key={`${short.status}:${short.research?.facts.map((f) => `${f.id}${f.enabled}${f.text}`).join('|')}`}
+                        shortId={short.id}
+                        status={short.status}
+                        research={short.research}
+                        notes={short.research_notes}
+                        seriesParts={short.part ? 1 : short.series_parts}
+                        hasScript={short.scenes.length > 0}
+                    />
+                )}
+
+                {short.scenes.length > 0 && <HookPicker shortId={short.id} hooks={short.hooks} index={short.hook_index} />}
 
                 {short.scenes.length > 0 && <ScriptForm key={textKey} short={short} />}
 
@@ -184,6 +246,7 @@ export default function TopicShortShow({
                             {short.image_stats.pending + short.image_stats.searching > 0 &&
                                 ` · ${short.image_stats.pending + short.image_stats.searching} đang tạo`}
                         </p>
+                        <MangaPanelsBar short={short} price={prices.image} />
                         <div className="grid gap-4 lg:grid-cols-2">
                             {short.scenes.map((scene) => (
                                 <SceneImageCard key={scene.id} scene={scene} />
@@ -231,8 +294,20 @@ function ScriptForm({ short }: { short: TopicShort }) {
         <form onSubmit={submit} className="space-y-4">
             <div className="flex items-baseline justify-between gap-4">
                 <h2 className="text-lg font-semibold">1. Lời kể</h2>
-                <span className="text-muted-foreground text-sm">
+                <span className="text-muted-foreground flex items-center gap-2 text-sm">
                     Ước tính {seconds} giây (mục tiêu {short.target_seconds} giây)
+                    {short.use_research && short.status === 'ready' && (
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isDirty}
+                            title={isDirty ? 'Lưu lời kể trước' : undefined}
+                            onClick={() => router.post(route('topic-shorts.fact-check', short.id), {}, { preserveScroll: true })}
+                        >
+                            <ShieldCheck /> Kiểm chứng lại
+                        </Button>
+                    )}
                 </span>
             </div>
             <div className="grid gap-2">
@@ -245,6 +320,11 @@ function ScriptForm({ short }: { short: TopicShort }) {
                         <Label className="text-sm">Cảnh {i + 1}: lời kể</Label>
                         <Textarea rows={2} value={scene.narration} onChange={(e) => setScene(i, 'narration', e.target.value)} />
                     </div>
+                    <SceneFacts
+                        check={short.scenes[i]?.fact_check ?? null}
+                        factIds={short.scenes[i]?.fact_ids ?? []}
+                        facts={short.research?.facts ?? []}
+                    />
                     <div className="grid gap-1">
                         <Label className="text-sm font-normal">Chữ trên màn</Label>
                         <Input value={scene.on_screen_text} onChange={(e) => setScene(i, 'on_screen_text', e.target.value)} />
@@ -324,6 +404,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     const search = () => router.post(route('topic-short-scenes.search', scene.id), { query }, options);
     const pick = (url: string) => router.post(route('topic-short-scenes.pick', scene.id), { url }, options);
     const muse = () => router.post(route('topic-short-scenes.muse', scene.id), {}, options);
+    const compose = () => router.post(route('topic-short-scenes.compose', scene.id), {}, options);
     const pickLibrary = (portraitId: number) => router.post(route('topic-short-scenes.library', scene.id), { portrait_id: portraitId }, options);
     const send = (file: File | undefined) =>
         file && router.post(route('topic-short-scenes.upload', scene.id), { image: file }, { ...options, forceFormData: true });
@@ -345,6 +426,27 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                     Cảnh {scene.position}: {scene.on_screen_text}
                 </div>
                 {scene.characters.length > 0 && <p className="text-muted-foreground text-xs">Nhân vật: {scene.characters.join(', ')}</p>}
+                {scene.panels.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-muted-foreground text-xs">Khung manga:</span>
+                        {scene.panels.map((panel, i) => (
+                            <span
+                                key={i}
+                                title={`${panel.name}: ${panel.label}${panel.camera ? ` (${panel.camera})` : ''}${panel.exact ? '' : ' · chưa có ảnh đúng tư thế'}`}
+                                className={`flex h-14 w-10 items-center justify-center overflow-hidden rounded border-2 ${panel.exact ? 'border-transparent' : 'border-dashed border-amber-500'}`}
+                            >
+                                {panel.url ? (
+                                    <img src={panel.url} alt={panel.name} className="h-full w-full object-cover" loading="lazy" />
+                                ) : (
+                                    <ImageOff className="text-muted-foreground size-4" />
+                                )}
+                            </span>
+                        ))}
+                        <Button size="sm" variant="outline" disabled={busy} onClick={compose}>
+                            <LayoutPanelTop /> Ghép trang
+                        </Button>
+                    </div>
+                )}
                 {scene.image_status === 'searching' && <p className="text-muted-foreground text-xs">Đang tìm ảnh trên wiki...</p>}
                 {scene.image_status === 'pending' && <p className="text-muted-foreground text-xs">Muse đang vẽ...</p>}
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
@@ -411,12 +513,64 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     );
 }
 
+/** Khung manga các cảnh cần mà thư viện chưa có ảnh đúng tư thế: vẽ vào thư viện (dùng lại cho video sau), xong tự ghép trang. */
+function MangaPanelsBar({ short, price }: { short: TopicShort; price: number }) {
+    if (!short.scenes.some((s) => s.panels.length > 0)) {
+        return null;
+    }
+    const drawable = short.missing_panels.filter((p) => p.status !== 'pending');
+    const pending = short.missing_panels.length - drawable.length;
+    const draw = () => {
+        if (confirm(`Muse vẽ ${drawable.length} khung vào thư viện nhân vật, khoảng ${formatNumber(drawable.length * price)} Credits. Tiếp tục?`)) {
+            router.post(route('topic-shorts.draw-missing', short.id), {}, { preserveScroll: true });
+        }
+    };
+
+    return (
+        <div className="space-y-2 rounded-lg border p-3 text-sm">
+            {short.missing_panels.length === 0 ? (
+                <p>Thư viện đã có đủ ảnh cho mọi khung manga.</p>
+            ) : (
+                <>
+                    <p>
+                        Thiếu {short.missing_panels.length} khung trong thư viện (đang tạm dùng mặt thường, viền vàng):{' '}
+                        <span className="text-muted-foreground">
+                            {short.missing_panels.map((p) => `${p.name} ${p.label}${p.status === 'failed' ? ' (lỗi)' : ''}`).join(', ')}
+                        </span>
+                    </p>
+                    {pending > 0 && <p className="text-muted-foreground">Muse đang vẽ {pending} khung...</p>}
+                </>
+            )}
+            <div className="flex flex-wrap gap-2">
+                {drawable.length > 0 && (
+                    <Button size="sm" onClick={draw}>
+                        <Wand2 /> Vẽ {drawable.length} khung còn thiếu ({formatNumber(drawable.length * price)} Credits)
+                    </Button>
+                )}
+                <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.post(route('topic-shorts.compose-all', short.id), {}, { preserveScroll: true })}
+                >
+                    <LayoutPanelTop /> Ghép lại tất cả trang
+                </Button>
+                <a href={route('character-library.index')} className="text-primary self-center">
+                    Thư viện nhân vật
+                </a>
+            </div>
+        </div>
+    );
+}
+
 function RenderPanel({ short, music, price }: { short: TopicShort; music: { id: number; name: string }[]; price: number }) {
     const { data, setData, post, processing } = useForm<{ music_track_id: string; music_volume: number }>({ music_track_id: '', music_volume: 12 });
     const rendering = short.video_status === 'rendering';
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
+        if (short.unsupported_count > 0 && !confirm(`${short.unsupported_count} cảnh có câu không có trong tư liệu (đánh dấu đỏ). Vẫn dựng video?`)) {
+            return;
+        }
         post(route('topic-shorts.render', short.id), { preserveScroll: true });
     };
 
@@ -424,6 +578,11 @@ function RenderPanel({ short, music, price }: { short: TopicShort; music: { id: 
         <section className="space-y-4">
             <h2 className="text-lg font-semibold">4. Dựng video</h2>
             {!short.all_images_ready && <p className="text-muted-foreground text-sm">Mọi cảnh cần có ảnh trước khi dựng video.</p>}
+            {short.unsupported_count > 0 && (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                    {short.unsupported_count} cảnh có câu không có trong tư liệu. Sửa lời kể rồi bấm Kiểm chứng lại.
+                </p>
+            )}
             <form onSubmit={submit} className="flex flex-wrap items-end gap-4">
                 <div className="grid gap-2">
                     <Label htmlFor="music">Nhạc nền</Label>

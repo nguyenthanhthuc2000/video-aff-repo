@@ -128,6 +128,16 @@ class User extends Authenticatable
         return $this->hasMany(TopicShort::class);
     }
 
+    public function topicSeries(): HasMany
+    {
+        return $this->hasMany(TopicSeries::class);
+    }
+
+    public function loreFacts(): HasMany
+    {
+        return $this->hasMany(LoreFact::class);
+    }
+
     public function englishLessons(): HasMany
     {
         return $this->hasMany(EnglishLesson::class)->orderBy('day');

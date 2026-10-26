@@ -2,15 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\CheckTopicShortFactsJob;
 use App\Jobs\FindTopicSceneImageJob;
+use App\Jobs\GenerateCharacterPortraitJob;
 use App\Jobs\GenerateTopicSceneImageJob;
+use App\Jobs\PlanTopicSeriesJob;
 use App\Jobs\RenderTopicShortJob;
+use App\Jobs\ResearchTopicJob;
 use App\Jobs\WriteTopicShortJob;
 use App\Models\AudioTrack;
 use App\Models\CharacterPortrait;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
+use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ShortWriter;
+use App\Services\TopicShort\TopicResearcher;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\DragonBall;
@@ -41,12 +47,16 @@ class TopicShortController extends Controller
                 'status' => $short->status,
                 'video_status' => $short->video_status,
                 'scenes_count' => $short->scenes_count,
+                'use_research' => $short->use_research,
+                'part' => $short->part,
+                'series_parts' => $short->series_parts,
                 'created_at' => $short->created_at,
             ]),
             'languages' => TopicShort::LANGUAGES,
             'styles' => TopicShort::STYLES,
             'image_styles' => TopicShort::IMAGE_STYLES,
             'wikis' => collect(config('videoaff.topic_shorts.wikis'))->map(fn ($wiki) => $wiki['label']),
+            'max_series_parts' => TopicShort::MAX_SERIES_PARTS,
         ]);
     }
 
@@ -59,9 +69,24 @@ class TopicShortController extends Controller
             'image_style' => ['required', Rule::in(array_keys(TopicShort::IMAGE_STYLES))],
             'target_seconds' => ['required', 'integer', 'min:30', 'max:60'],
             'wiki' => ['required', Rule::in(array_keys(config('videoaff.topic_shorts.wikis')))],
-        ], [], ['topic' => 'chủ đề', 'target_seconds' => 'độ dài']);
+            'use_research' => ['boolean'],
+            'research_notes' => ['nullable', 'string', 'max:2000'],
+            'series_parts' => ['nullable', 'integer', 'min:1', 'max:'.TopicShort::MAX_SERIES_PARTS],
+        ], [], ['topic' => 'chủ đề', 'target_seconds' => 'độ dài', 'series_parts' => 'số phần']);
 
-        $short = $request->user()->topicShorts()->create([...$validated, 'status' => 'writing']);
+        $research = (bool) ($validated['use_research'] ?? false);
+        $short = $request->user()->topicShorts()->create([
+            ...$validated,
+            'use_research' => $research,
+            // Series chỉ có khi có tư liệu (các phần dùng chung bản tư liệu).
+            'series_parts' => $research ? (int) ($validated['series_parts'] ?? 1) : 1,
+            'status' => $research ? 'researching' : 'writing',
+        ]);
+        if ($research) {
+            ResearchTopicJob::dispatch($short);
+
+            return to_route('topic-shorts.show', $short)->with('status', 'Claude đang tìm tư liệu trên web (vài phút)...');
+        }
         WriteTopicShortJob::dispatch($short);
 
         return to_route('topic-shorts.show', $short)->with('status', 'Claude đang viết lời kể...');
@@ -71,6 +96,9 @@ class TopicShortController extends Controller
     {
         $this->authorize('view', $short);
         $scenes = $short->scenes()->get();
+        $library = CharacterPortrait::where('user_id', $short->user_id)->where('status', 'ready')->whereNotNull('image_path')
+            ->whereIn('character', $scenes->flatMap(fn ($scene) => array_column($scene->panels ?? [], 'character'))->unique())->get();
+        $missing = MangaPage::missing($scenes, $short->user_id);
         $words = $scenes->sum(fn ($scene) => count(preg_split('/\s+/u', trim($scene->narration), -1, PREG_SPLIT_NO_EMPTY) ?: []));
         $estimatedMs = (int) round($words / ShortWriter::WORDS_PER_SECOND[$short->language === 'en' ? 'en' : 'vi'] * 1000);
 
@@ -86,6 +114,19 @@ class TopicShortController extends Controller
                 'wiki' => $short->wiki,
                 'status' => $short->status,
                 'error' => $short->error,
+                'use_research' => $short->use_research,
+                'research' => $short->research,
+                'research_notes' => $short->research_notes,
+                'hooks' => $short->hooks ?? [],
+                'hook_index' => $short->hook_index,
+                'series_parts' => $short->series_parts,
+                'part' => $short->part,
+                'series' => $short->series ? [
+                    'id' => $short->series->id,
+                    'parts' => $short->series->shorts()->get(['id', 'part', 'title', 'status'])->map(fn (TopicShort $s) => ['id' => $s->id, 'part' => $s->part, 'title' => $s->title, 'status' => $s->status, 'focus' => $short->series->outline[$s->part - 1]['title'] ?? '']),
+                ] : null,
+                'missing_panels' => $missing,
+                'unsupported_count' => $scenes->filter(fn ($scene) => ($scene->fact_check['status'] ?? null) === 'unsupported')->count(),
                 'caption' => $short->content['caption'] ?? '',
                 'art_style' => $short->art_style,
                 'characters' => collect($short->characters ?? [])->map(fn ($c) => ['name' => $c['name'], 'look' => $c['look'] ?? '', 'image_url' => Media::url($c['image_path'] ?? null)])->all(),
@@ -113,6 +154,16 @@ class TopicShortController extends Controller
                     'image_error' => $scene->image_error,
                     'candidates' => $scene->candidates ?? [],
                     'expression' => $scene->expression,
+                    'fact_ids' => $scene->fact_ids ?? [],
+                    'fact_check' => $scene->fact_check,
+                    'mood' => $scene->mood,
+                    'panels' => collect(MangaPage::resolve($scene, $library))->map(fn ($item) => [
+                        ...$item['panel'],
+                        'name' => DragonBall::CHARACTERS[$item['panel']['character']][0] ?? $item['panel']['character'],
+                        'label' => DragonBall::pose($item['panel']['character'], $item['panel']['pose'])[0] ?? $item['panel']['pose'],
+                        'url' => Media::url($item['portrait']?->image_path),
+                        'exact' => $item['exact'],
+                    ])->all(),
                     // Ảnh thư viện nhân vật Ngọc Rồng của các nhân vật trong cảnh (bấm để dùng làm ảnh cảnh).
                     'library' => collect($scene->characters ?? [])->map(fn ($name) => ($key = DragonBall::keyFor($name)) ? CharacterPortrait::best($short->user_id, $key, $scene->expression) : null)
                         ->filter()->unique('id')->map(fn (CharacterPortrait $p) => ['id' => $p->id, 'name' => DragonBall::CHARACTERS[$p->character][0], 'expression' => $p->expression, 'url' => Media::url($p->image_path)])->values(),
@@ -121,6 +172,7 @@ class TopicShortController extends Controller
             'music' => AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
             'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
+            'max_attempts' => CharacterLibraryController::MAX_ATTEMPTS,
         ]);
     }
 
@@ -157,8 +209,11 @@ class TopicShortController extends Controller
             'art_style' => $validated['art_style'] ?? $short->art_style,
             'characters' => $characters,
         ]);
+        $narrations = $short->scenes()->pluck('narration', 'id');
         foreach ($validated['scenes'] as $data) {
             $short->scenes()->whereKey($data['id'])->update([
+                // Sửa lời kể thì kết quả kiểm chứng cũ không còn đúng.
+                ...$short->use_research && $narrations[$data['id']] !== $data['narration'] ? ['fact_check' => json_encode(TopicShortScene::UNCHECKED)] : [],
                 'narration' => $data['narration'],
                 'on_screen_text' => $data['on_screen_text'] ?? '',
                 'image_query' => $data['image_query'] ?? '',
@@ -170,11 +225,104 @@ class TopicShortController extends Controller
         return back()->with('status', 'Đã lưu lời kể.');
     }
 
+    /** Tìm lại tư liệu (có thể kèm ghi chú mới), xoá bản tư liệu cũ. */
+    public function research(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $validated = $request->validate(['research_notes' => ['nullable', 'string', 'max:2000']]);
+        if (in_array($short->status, ['researching', 'writing'], true) || $short->video_status === 'rendering') {
+            return back()->with('status', 'Đang chạy, chờ xong rồi tìm lại.');
+        }
+        $short->update([
+            'use_research' => true,
+            ...array_key_exists('research_notes', $validated) ? ['research_notes' => $validated['research_notes']] : [],
+            'research' => null,
+            'status' => 'researching',
+            'error' => null,
+        ]);
+        ResearchTopicJob::dispatch($short);
+
+        return back()->with('status', 'Claude đang tìm lại tư liệu...');
+    }
+
+    /** Duyệt tư liệu: giữ / bỏ / sửa từng chi tiết, lưu vào kho tư liệu rồi cho Claude viết kịch bản (series thì lên dàn ý các phần trước). */
+    public function approveResearch(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $ids = array_column($short->research['facts'] ?? [], 'id');
+        $validated = $request->validate([
+            'facts' => ['required', 'array'],
+            'facts.*.id' => ['required', 'string', Rule::in($ids)],
+            'facts.*.enabled' => ['required', 'boolean'],
+            'facts.*.text' => ['required', 'string', 'max:600'],
+            'research_notes' => ['nullable', 'string', 'max:2000'],
+        ], [], ['facts.*.text' => 'nội dung tư liệu']);
+        if (! in_array($short->status, ['research_ready', 'ready', 'failed'], true) || $short->research === null) {
+            return back()->with('status', 'Chưa có tư liệu để duyệt.');
+        }
+        if (collect($validated['facts'])->where('enabled', true)->count() < 3) {
+            return back()->withErrors(['facts' => 'Giữ ít nhất 3 chi tiết tư liệu.']);
+        }
+
+        $edits = collect($validated['facts'])->keyBy('id');
+        $research = $short->research;
+        foreach ($research['facts'] as &$fact) {
+            if ($edit = $edits->get($fact['id'])) {
+                $fact['enabled'] = (bool) $edit['enabled'];
+                if (trim($edit['text']) !== $fact['text']) {
+                    // Sửa nội dung thì là chi tiết mới của kho.
+                    $fact['text'] = trim($edit['text']);
+                    $fact['lore_id'] = null;
+                }
+            }
+        }
+        unset($fact);
+        $short->update(['research' => $research, 'research_notes' => $validated['research_notes'] ?? null]);
+        $saved = TopicResearcher::remember($short);
+
+        if ($short->series_parts > 1 && $short->topic_series_id === null) {
+            $short->update(['status' => 'writing', 'error' => null]);
+            PlanTopicSeriesJob::dispatch($short);
+
+            return back()->with('status', "Đã lưu {$saved} chi tiết vào kho. Claude đang chia {$short->series_parts} phần rồi viết kịch bản...");
+        }
+        $short->update(['status' => 'writing', 'error' => null]);
+        WriteTopicShortJob::dispatch($short);
+
+        return back()->with('status', "Đã lưu {$saved} chi tiết vào kho tư liệu. Claude đang viết kịch bản...");
+    }
+
+    /** Đổi câu hook của cảnh 1 (3 câu Claude viết sẵn). */
+    public function hook(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $hooks = $short->hooks ?? [];
+        $validated = $request->validate(['index' => ['required', 'integer', 'min:0', 'max:'.max(count($hooks) - 1, 0)]]);
+        abort_if($hooks === [], 404);
+        $short->scenes()->where('position', 1)->update(['narration' => $hooks[$validated['index']]['text'], 'fact_check' => $short->use_research ? json_encode(TopicShortScene::UNCHECKED) : null]);
+        $short->update(['hook_index' => $validated['index']]);
+
+        return back()->with('status', 'Đã đổi câu mở đầu.');
+    }
+
+    /** Kiểm chứng lại lời kể với tư liệu (sau khi sửa lời kể). */
+    public function factCheck(TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        if (! $short->use_research || $short->status !== 'ready') {
+            return back()->with('status', 'Short này không có tư liệu để kiểm chứng.');
+        }
+        $short->scenes()->update(['fact_check' => null]);
+        CheckTopicShortFactsJob::dispatch($short);
+
+        return back()->with('status', 'Claude đang kiểm chứng lời kể...');
+    }
+
     /** Claude viết lại từ đầu (xoá các cảnh và ảnh cũ). */
     public function rewrite(TopicShort $short): RedirectResponse
     {
         $this->authorize('update', $short);
-        if ($short->status === 'writing' || $short->video_status === 'rendering') {
+        if (in_array($short->status, ['writing', 'researching'], true) || $short->video_status === 'rendering') {
             return back()->with('status', 'Đang chạy, chờ xong rồi viết lại.');
         }
         $short->scenes()->get()->each(fn (TopicShortScene $scene) => Media::delete($scene->image_path));
@@ -227,6 +375,56 @@ class TopicShortController extends Controller
         FindTopicSceneImageJob::useLibrary($scene, $portrait);
 
         return back()->with('status', "Đã dùng ảnh nhân vật cho cảnh {$scene->position}.");
+    }
+
+    /** Ghép lại trang manga của cảnh từ thư viện nhân vật. */
+    public function compose(TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        if (($scene->panels ?? []) === [] || $this->busy($scene)) {
+            return back()->with('status', 'Cảnh này không có khung manga hoặc ảnh đang được tạo.');
+        }
+
+        return back()->with('status', MangaPage::compose($scene)
+            ? "Đã ghép trang manga cảnh {$scene->position}."
+            : "Chưa có ảnh thư viện nào cho các nhân vật cảnh {$scene->position}, bấm Vẽ khung còn thiếu.");
+    }
+
+    /** Ghép lại trang manga mọi cảnh có khung (trừ cảnh bạn tự tải ảnh lên). */
+    public function composeAll(TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $done = $short->scenes()->whereNotNull('panels')->get()
+            ->reject(fn (TopicShortScene $scene) => $scene->image_source === 'upload' || ($scene->panels ?? []) === [] || $this->busy($scene))
+            ->filter(fn (TopicShortScene $scene) => MangaPage::compose($scene))->count();
+
+        return back()->with('status', $done > 0 ? "Đã ghép {$done} trang manga." : 'Không có trang nào ghép được.');
+    }
+
+    /** Muse vẽ vào thư viện các tư thế cảnh cần mà chưa có; vẽ xong trang manga tự ghép lại. */
+    public function drawMissing(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $user = $request->user();
+        $existing = $user->characterPortraits()->get()->keyBy(fn (CharacterPortrait $p) => "{$p->character}:{$p->expression}");
+        $targets = collect(MangaPage::missing($short->scenes()->get(), $user->id))
+            ->reject(fn ($p) => $p['status'] === 'pending' || ($p['status'] === 'failed' && $existing->get("{$p['character']}:{$p['pose']}")->attempts >= CharacterLibraryController::MAX_ATTEMPTS))
+            ->map(fn ($p) => [$p['character'], $p['pose']])->values()->all();
+        // Nhân vật chưa có mặt thường: vẽ E1 trước để các khung khác bám theo cho giống.
+        foreach (array_unique(array_column($targets, 0)) as $key) {
+            if (! in_array($existing->get("{$key}:E1")?->status, ['ready', 'pending'], true) && ! in_array([$key, 'E1'], $targets, true)) {
+                $targets[] = [$key, 'E1'];
+            }
+        }
+        if ($targets === []) {
+            return back()->with('status', 'Không có khung nào cần vẽ (ô bị Muse từ chối 2 lần cần tải ảnh lên ở trang Nhân vật Ngọc Rồng).');
+        }
+        if ($message = Credits::shortfall($user, count($targets) * CreditPricing::settings()['steps']['image'], 'vẽ ảnh')) {
+            return back()->with('status', $message);
+        }
+        GenerateCharacterPortraitJob::drawAll($user, $targets);
+
+        return back()->with('status', 'Muse đang vẽ '.count($targets).' khung vào thư viện, xong sẽ tự ghép trang.');
     }
 
     /** Muse vẽ ảnh mới cho cảnh (có thể kèm prompt mới). */

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\TopicShort;
 use App\Services\Claude\AiUsage;
 use App\Services\Script\ScriptWriterException;
+use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ShortWriter;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -60,6 +61,8 @@ class WriteTopicShortJob implements ShouldQueue
                     'image_path' => collect($short->characters ?? [])->first(fn ($old) => mb_strtolower($old['name']) === mb_strtolower($c['name']))['image_path'] ?? null,
                 ])->all(),
                 'art_style' => $script['art_style'],
+                'hooks' => $script['hooks'],
+                'hook_index' => $script['hooks'] === [] ? null : 0,
                 'status' => 'ready',
                 'error' => null,
             ]);
@@ -68,7 +71,15 @@ class WriteTopicShortJob implements ShouldQueue
         });
 
         foreach ($scenes as $scene) {
+            // Cảnh có khung manga: ghép trang từ thư viện nhân vật (miễn phí); chưa có ảnh nào thì tìm wiki / Muse như cũ.
+            if (($scene->panels ?? []) !== [] && MangaPage::compose($scene)) {
+                continue;
+            }
             FindTopicSceneImageJob::dispatch($scene);
+        }
+        // Có tư liệu: kiểm từng câu lời kể với tư liệu đã duyệt (không chặn việc tìm ảnh, dựng video).
+        if ($short->use_research) {
+            CheckTopicShortFactsJob::dispatch($short);
         }
     }
 

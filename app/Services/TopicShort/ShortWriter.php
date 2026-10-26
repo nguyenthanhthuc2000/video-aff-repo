@@ -10,6 +10,14 @@ use App\Support\DragonBall;
 /** Claude viết lời kể cho short theo chủ đề (anime / lore), chia cảnh kèm từ khoá tìm ảnh wiki và prompt vẽ ảnh. */
 class ShortWriter
 {
+    public const HOOK_STYLES = ['question', 'shock', 'number'];
+
+    /** Cảm xúc cảnh: chọn nhạc nền, hiệu ứng âm thanh. */
+    public const MOODS = ['tense', 'sad', 'epic', 'funny', 'calm'];
+
+    /** Số khung tối đa của một trang manga. */
+    public const MAX_PANELS = 3;
+
     /** Số từ đọc mỗi giây (ước lượng để Claude viết đúng độ dài). */
     public const WORDS_PER_SECOND = ['vi' => 3.0, 'en' => 2.5];
 
@@ -40,6 +48,19 @@ class ShortWriter
     - image_prompt: English prompt for an AI image generator to draw that scene's picture, vertical 9:16. Name the characters by their official names and describe pose, expression, action, camera angle, setting, lighting and mood as in the original scene.
     - caption: 1–2 sentences for the post. hashtags: #shorts, #anime, the franchise tags (e.g. #dragonball #7vienngocrong for Dragon Ball) and 1–2 character tags.
     - Write original narration; never copy titles or scripts from other channels.
+    - hooks: exactly 3 alternative hooks for scene 1, each under 14 words, one per style: "question" (a curiosity question), "shock" (a bold or shocking claim), "number" (a number, record or comparison). Scene 1 narration must be exactly hooks[0].text.
+    - scene mood: one of tense, sad, epic, funny, calm (drives background music and sound effects).
+    - scene panels: the scene's picture as a vertical manga page of 1–3 panels stacked top to bottom (use 2–3 panels for action or a reaction, 1 big panel for a key moment). Each panel: character = a name from our picture library list exactly as given, pose = one code that exists for that character (faces E1–E9 for everyone; fighting A1 punch, A2 kick, A3 guard, A4 dash, A5 charging ki, A6 knocked back; S1–S4 signature moves as listed), camera = a few English words (e.g. "close-up", "low angle full body"). Leave panels empty when no library character fits the scene.
+    - scene fact_ids: ids of the research facts this scene is based on (empty when there is no research brief).
+    PROMPT;
+
+    /** Luật thêm khi có bản tư liệu đã duyệt: chỉ viết từ tư liệu, gắn nguồn. */
+    public const RESEARCH_RULES = <<<'PROMPT'
+    A research brief approved by the channel owner is given. It is the ONLY source of truth:
+    - Every factual statement in the narration must come from a fact in the brief; put its id in fact_ids. Never add events, quotes, numbers or names that are not in the brief.
+    - Facts of kind "theory" may only be told as opinions ("nhiều fan cho rằng...", "có giả thuyết...").
+    - Quotes: keep them short, in Vietnamese.
+    - Follow the owner's notes when given.
     PROMPT;
 
     /** Cách tổ chức phần thân theo dạng short. */
@@ -64,10 +85,30 @@ class ShortWriter
         $text = "Topic: {$short->topic}\nFormat: {$format}\nLanguage: {$language}\nTarget length: about {$short->target_seconds} seconds of narration, about {$words} words in total.";
 
         $text .= "\nDragon Ball characters in our picture library (when one of them appears, use exactly this name, including the form, e.g. \"Goku Super Saiyan\"): {$known}.";
+        $text .= "\nSignature move codes per library character: ".collect(DragonBall::SKILLS)
+            ->map(fn ($moves, $key) => DragonBall::CHARACTERS[$key][0].' '.collect($moves)->map(fn ($m, $code) => "{$code} {$m[0]}")->implode(', '))->implode('; ').'.';
+        $system = self::SYSTEM;
+        if ($short->use_research && ($facts = $short->approvedFacts()) !== []) {
+            $system .= "\n\n".self::RESEARCH_RULES;
+            $text .= "\n\nResearch brief (approved):\nSummary: ".($short->research['summary'] ?? '')."\nFacts (id [kind] era: text):\n"
+                .collect($facts)->map(fn ($f) => "{$f['id']} [{$f['kind']}] {$f['era']}: {$f['text']}")->implode("\n");
+            if (filled($short->research_notes)) {
+                $text .= "\nOwner's notes: {$short->research_notes}";
+            }
+        }
+        if ($short->topic_series_id && ($series = $short->series)) {
+            $outline = collect($series->outline ?? [])->map(fn ($p, $i) => 'Part '.($i + 1).": {$p['title']} — {$p['focus']}")->implode("\n");
+            $current = $series->outline[$short->part - 1] ?? null;
+            $text .= "\n\nThis video is part {$short->part} of {$series->parts} of a series about \"{$series->topic}\".\nSeries outline:\n{$outline}\n"
+                .'Cover ONLY this part'.($current ? ": {$current['title']} — {$current['focus']}" : '').'. '
+                .(($current['fact_ids'] ?? []) !== [] ? 'Build it mainly from facts '.implode(', ', $current['fact_ids']).'. ' : '')
+                .($short->part > 1 ? 'Start scene 2 with a one-sentence recap of the previous part. ' : '')
+                .($short->part < $series->parts ? 'End with a teaser for the next part and "Xem phần tiếp nhé" instead of a question.' : 'End the series with a question to the viewers.');
+        }
 
-        $data = FilmClaude::json(self::SYSTEM, $text, self::schema(), 'topic_short', "topic_short:{$short->id}", 6000, fn () => self::sample($short));
+        $data = FilmClaude::json($system, $text, self::schema(), 'topic_short', "topic_short:{$short->id}", 8000, fn () => self::sample($short));
 
-        return self::normalize($data);
+        return self::normalize($data, array_column($short->approvedFacts(), 'id'));
     }
 
     public static function schema(): array
@@ -77,9 +118,18 @@ class ShortWriter
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['title', 'characters', 'art_style', 'scenes', 'caption', 'hashtags'],
+            'required' => ['title', 'characters', 'art_style', 'hooks', 'scenes', 'caption', 'hashtags'],
             'properties' => [
                 'title' => $string,
+                'hooks' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['style', 'text'],
+                        'properties' => ['style' => ['type' => 'string', 'enum' => self::HOOK_STYLES], 'text' => $string],
+                    ],
+                ],
                 'characters' => [
                     'type' => 'array',
                     'items' => [
@@ -95,7 +145,7 @@ class ShortWriter
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression'],
+                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression', 'mood', 'panels', 'fact_ids'],
                         'properties' => [
                             'narration' => $string,
                             'on_screen_text' => $string,
@@ -103,6 +153,17 @@ class ShortWriter
                             'image_prompt' => $string,
                             'characters' => ['type' => 'array', 'items' => $string],
                             'expression' => ['type' => 'string', 'enum' => array_keys(DragonBall::EXPRESSIONS)],
+                            'mood' => ['type' => 'string', 'enum' => self::MOODS],
+                            'panels' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'additionalProperties' => false,
+                                    'required' => ['character', 'pose', 'camera'],
+                                    'properties' => ['character' => $string, 'pose' => $string, 'camera' => $string],
+                                ],
+                            ],
+                            'fact_ids' => ['type' => 'array', 'items' => $string],
                         ],
                     ],
                 ],
@@ -112,8 +173,12 @@ class ShortWriter
         ];
     }
 
-    /** @throws ScriptWriterException */
-    public static function normalize(mixed $data): array
+    /**
+     * @param  list<string>  $factIds  Id tư liệu đã duyệt (fact_ids ngoài danh sách bị bỏ).
+     *
+     * @throws ScriptWriterException
+     */
+    public static function normalize(mixed $data, array $factIds = []): array
     {
         $characters = [];
         foreach ((array) ($data['characters'] ?? []) as $character) {
@@ -142,20 +207,56 @@ class ShortWriter
                     fn ($name) => collect($names)->first(fn ($n) => mb_strtolower($n) === mb_strtolower(trim((string) $name))),
                     (array) ($scene['characters'] ?? []),
                 )))),
+                'mood' => in_array($scene['mood'] ?? null, self::MOODS, true) ? $scene['mood'] : null,
+                'panels' => self::panels((array) ($scene['panels'] ?? [])),
+                'fact_ids' => array_values(array_unique(array_intersect(array_map('strval', (array) ($scene['fact_ids'] ?? [])), $factIds))),
             ];
         }
         if (count($scenes) < 2) {
             throw new ScriptWriterException('Claude trả về quá ít cảnh, thử viết lại.');
         }
 
+        $hooks = [];
+        foreach ((array) ($data['hooks'] ?? []) as $hook) {
+            $text = mb_substr(trim((string) ($hook['text'] ?? '')), 0, 300);
+            if ($text !== '' && count($hooks) < 3) {
+                $hooks[] = ['style' => in_array($hook['style'] ?? null, self::HOOK_STYLES, true) ? $hook['style'] : 'question', 'text' => $text];
+            }
+        }
+
         return [
             'title' => mb_substr(trim((string) ($data['title'] ?? '')), 0, 200),
+            'hooks' => $hooks,
             'characters' => $characters,
             'art_style' => mb_substr(trim((string) ($data['art_style'] ?? '')), 0, 300),
             'scenes' => array_slice($scenes, 0, 15),
             'caption' => trim((string) ($data['caption'] ?? '')),
             'hashtags' => array_values(array_slice(array_map('strval', (array) ($data['hashtags'] ?? [])), 0, 10)),
         ];
+    }
+
+    /**
+     * Khung trang manga: chỉ nhận nhân vật có trong thư viện và mã tư thế có thật của nhân vật đó (sai mã thì dùng mặt thường E1).
+     *
+     * @return list<array{character: string, pose: string, camera: string}>
+     */
+    public static function panels(array $panels): array
+    {
+        $result = [];
+        foreach ($panels as $panel) {
+            $key = DragonBall::keyFor((string) ($panel['character'] ?? '')) ?? (isset(DragonBall::CHARACTERS[$panel['character'] ?? '']) ? $panel['character'] : null);
+            if ($key === null || count($result) >= self::MAX_PANELS) {
+                continue;
+            }
+            $pose = strtoupper(trim((string) ($panel['pose'] ?? '')));
+            $result[] = [
+                'character' => $key,
+                'pose' => DragonBall::pose($key, $pose) !== null ? $pose : 'E1',
+                'camera' => mb_substr(trim((string) ($panel['camera'] ?? '')), 0, 80),
+            ];
+        }
+
+        return $result;
     }
 
     /** Kết quả mẫu cho driver fake (test, dev không có Claude). */
@@ -168,10 +269,15 @@ class ShortWriter
                 ['name' => 'Frieza', 'look' => 'final form: white and purple smooth body, red eyes, tail'],
             ],
             'art_style' => 'Dragon Ball, Akira Toriyama character design',
+            'hooks' => [
+                ['style' => 'question', 'text' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?'],
+                ['style' => 'shock', 'text' => 'Một cơn giận đã thay đổi cả vũ trụ Ngọc Rồng.'],
+                ['style' => 'number', 'text' => 'Chỉ một giây, sức mạnh tăng gấp năm mươi lần.'],
+            ],
             'scenes' => [
-                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku'], 'expression' => 'E8'],
-                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza'], 'expression' => 'E7'],
-                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza'], 'expression' => 'E3'],
+                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku'], 'expression' => 'E8', 'mood' => 'epic', 'panels' => [['character' => 'Goku', 'pose' => 'A5', 'camera' => 'low angle full body']], 'fact_ids' => ['F1']],
+                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza'], 'expression' => 'E7', 'mood' => 'tense', 'panels' => [['character' => 'Frieza', 'pose' => 'E7', 'camera' => 'close-up'], ['character' => 'Goku', 'pose' => 'E3', 'camera' => 'close-up']], 'fact_ids' => ['F2']],
+                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza'], 'expression' => 'E3', 'mood' => 'epic', 'panels' => [], 'fact_ids' => []],
             ],
             'caption' => 'Khoảnh khắc làm nên huyền thoại.',
             'hashtags' => ['#anime', '#shorts'],

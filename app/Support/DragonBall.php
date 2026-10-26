@@ -226,4 +226,19 @@ final class DragonBall
 
         return null;
     }
+
+    /** Khoá các nhân vật được nhắc trong đoạn chữ (chủ đề, câu tư liệu), so tên không phân biệt hoa thường. @return list<string> */
+    public static function charactersIn(string $text): array
+    {
+        $haystack = mb_strtolower($text);
+        $keys = [];
+        foreach (self::CHARACTERS as $key => [$label]) {
+            $short = mb_strtolower((string) preg_replace('/^Son /', '', $label));
+            if (mb_strlen($short) >= 4 && preg_match('/(^|[^\p{L}])'.preg_quote($short, '/').'($|[^\p{L}])/u', $haystack)) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
+    }
 }

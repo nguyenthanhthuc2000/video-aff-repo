@@ -4,14 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Jobs\GenerateCharacterPortraitJob;
 use App\Models\CharacterPortrait;
+use App\Services\TopicShort\MangaPage;
 use App\Support\CreditPricing;
 use App\Support\Credits;
 use App\Support\DragonBall;
 use App\Support\Media;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -116,21 +115,7 @@ class CharacterLibraryController extends Controller
             return back()->with('status', $message);
         }
 
-        // Vẽ mặt thường (E1) trước để các biểu cảm khác bám theo.
-        usort($targets, fn ($a, $b) => [$a[0], $a[1] !== 'E1'] <=> [$b[0], $b[1] !== 'E1']);
-        foreach ($targets as [$character, $expression]) {
-            $previous = $existing->get("{$character}:{$expression}");
-            $portrait = $user->characterPortraits()->updateOrCreate(
-                ['character' => $character, 'expression' => $expression],
-                ['status' => 'pending', 'request_id' => null, 'error' => null],
-            );
-            // Ảnh từng lỗi: Claude viết lại prompt theo lời từ chối của AI trước khi vẽ (không gửi lại prompt cũ).
-            if ($previous?->status === 'failed' && str_contains((string) $previous->error, 'AI trả lời:')) {
-                $portrait->increment('attempts');
-                Cache::put(GenerateCharacterPortraitJob::rewriteKey($portrait), Str::after((string) $previous->error, 'AI trả lời:'), now()->addDay());
-            }
-            GenerateCharacterPortraitJob::dispatch($portrait);
-        }
+        GenerateCharacterPortraitJob::drawAll($user, $targets);
 
         return back()->with('status', 'Muse đang vẽ '.count($targets).' ảnh...');
     }
@@ -150,6 +135,7 @@ class CharacterLibraryController extends Controller
             'image_path' => Media::store($request->file('image'), "character-portraits/{$request->user()->id}"),
         ])->save();
         Media::delete($old);
+        MangaPage::refreshFor($portrait);
 
         return back()->with('status', 'Đã lưu ảnh '.DragonBall::CHARACTERS[$character][0].': '.DragonBall::pose($character, $expression)[0].'.');
     }
