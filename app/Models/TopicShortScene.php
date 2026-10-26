@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * Một cảnh: lời kể + ảnh. image_source: web (wiki), muse, upload.
  * image_status: none, searching (đang tìm wiki), pending (Muse đang vẽ), ready, failed.
+ * voice_path: giọng tự thu (mp3...) người dùng tải lên cho cảnh, dùng thay giọng máy khi dựng video.
  * panels: trang manga 1–3 khung [{character (khoá thư viện), pose (E1–E9, A1–A6, S1–S4), camera}]; image_source "page" khi ảnh là trang đã ghép.
  */
 class TopicShortScene extends Model
@@ -22,7 +23,7 @@ class TopicShortScene extends Model
 
     protected $fillable = [
         'position', 'narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression', 'image_source', 'image_status',
-        'image_path', 'image_url', 'image_error', 'request_id', 'candidates', 'fact_ids', 'fact_check', 'mood', 'panels',
+        'image_path', 'image_url', 'image_error', 'request_id', 'candidates', 'fact_ids', 'fact_check', 'mood', 'panels', 'voice_path', 'voice_ms',
     ];
 
     protected function casts(): array
@@ -34,6 +35,7 @@ class TopicShortScene extends Model
             'fact_ids' => 'array',
             'fact_check' => 'array',
             'panels' => 'array',
+            'voice_ms' => 'integer',
         ];
     }
 

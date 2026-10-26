@@ -130,6 +130,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-short-scenes/{scene}/library', [TopicShortController::class, 'library'])->name('topic-short-scenes.library');
     Route::post('topic-short-scenes/{scene}/compose', [TopicShortController::class, 'compose'])->name('topic-short-scenes.compose');
     Route::post('topic-short-scenes/{scene}/muse', [TopicShortController::class, 'muse'])->name('topic-short-scenes.muse');
+    Route::post('topic-short-scenes/{scene}/voice', [TopicShortController::class, 'voice'])->name('topic-short-scenes.voice');
+    Route::delete('topic-short-scenes/{scene}/voice', [TopicShortController::class, 'voiceDestroy'])->name('topic-short-scenes.voice.destroy');
     Route::post('topic-short-scenes/{scene}/upload', [TopicShortController::class, 'upload'])->name('topic-short-scenes.upload');
 
     // Học tiếng Anh mỗi ngày (A2 → B1) + video Shorts từ bài luyện.

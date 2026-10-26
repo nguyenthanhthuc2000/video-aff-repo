@@ -15,6 +15,7 @@ use App\Models\AudioTrack;
 use App\Models\CharacterPortrait;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
+use App\Services\Film\EpisodeRenderer;
 use App\Services\TopicShort\CoverImage;
 use App\Services\TopicShort\MangaPage;
 use App\Services\TopicShort\ShortVideo;
@@ -177,6 +178,8 @@ class TopicShortController extends Controller
                     'fact_ids' => $scene->fact_ids ?? [],
                     'fact_check' => $scene->fact_check,
                     'mood' => $scene->mood,
+                    'voice_url' => Media::url($scene->voice_path),
+                    'voice_ms' => $scene->voice_ms,
                     'panels' => collect(MangaPage::resolve($scene, $library))->map(fn ($item) => [
                         ...$item['panel'],
                         'name' => DragonBall::CHARACTERS[$item['panel']['character']][0] ?? $item['panel']['character'],
@@ -487,6 +490,32 @@ class TopicShortController extends Controller
         Media::delete($old);
 
         return back()->with('status', "Đã tải ảnh cảnh {$scene->position}.");
+    }
+
+    /** Giọng tự thu cho một cảnh: dựng video dùng file này thay giọng máy. */
+    public function voice(Request $request, TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        $request->validate(['voice' => ['required', 'file', 'mimes:mp3,m4a,aac,wav,ogg,mpga', 'max:20480']], [], ['voice' => 'file giọng']);
+        $file = $request->file('voice');
+        $ms = (int) round(EpisodeRenderer::duration($file->getRealPath()) * 1000);
+        if ($ms <= 0) {
+            return back()->withErrors(['voice' => 'Không đọc được file âm thanh này.']);
+        }
+        $old = $scene->voice_path;
+        $scene->update(['voice_path' => Media::store($file, "topic-shorts/{$scene->topic_short_id}/voices"), 'voice_ms' => $ms]);
+        Media::delete($old);
+
+        return back()->with('status', "Đã tải giọng cảnh {$scene->position}. Dựng lại video để dùng giọng này.");
+    }
+
+    public function voiceDestroy(TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        Media::delete($scene->voice_path);
+        $scene->update(['voice_path' => null, 'voice_ms' => null]);
+
+        return back()->with('status', "Cảnh {$scene->position} quay lại giọng máy.");
     }
 
     /** Ảnh mẫu của một nhân vật: Muse nhận kèm để vẽ đúng mặt, tóc, trang phục. */

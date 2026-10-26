@@ -16,6 +16,7 @@ use App\Services\TopicShort\WikiImageSearch;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -248,6 +249,41 @@ class TopicShortTest extends TestCase
         $this->assertSame(1, $this->user->creditTransactions()->where('reference', 'like', 'topic-short:%')->count());
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/tts') && ($request['lines'][0]['lang'] ?? null) === 'vi');
         $this->actingAs($this->user)->get(route('topic-shorts.download', $short))->assertDownload();
+    }
+
+    public function test_scene_voice_upload_replaces_machine_voice_for_that_scene()
+    {
+        Queue::fake();
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'language' => 'vi']);
+        Storage::disk(config('videoaff.disk'))->put('topic-shorts/test/scene.png', self::png());
+        foreach ([1, 2, 3] as $position) {
+            TopicShortScene::factory()->for($short)->withImage()->create(['position' => $position, 'narration' => "Câu kể số {$position}."]);
+        }
+        $scene = $short->scenes()->where('position', 2)->first();
+        $mp3 = sys_get_temp_dir().'/voice-test.mp3';
+        Process::run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1.5', $mp3])->throw();
+
+        $this->actingAs(User::factory()->create())->post(route('topic-short-scenes.voice', $scene), ['voice' => new UploadedFile($mp3, 'canh2.mp3', 'audio/mpeg', null, true)])->assertForbidden();
+        $this->actingAs($this->user)->post(route('topic-short-scenes.voice', $scene), ['voice' => UploadedFile::fake()->create('x.mp3', 10, 'audio/mpeg')])->assertSessionHasErrors('voice');
+        $this->actingAs($this->user)->post(route('topic-short-scenes.voice', $scene), ['voice' => new UploadedFile($mp3, 'canh2.mp3', 'audio/mpeg', null, true)])->assertSessionHasNoErrors();
+        $scene->refresh();
+        $this->assertEqualsWithDelta(1500, $scene->voice_ms, 100);
+        Storage::disk(config('videoaff.disk'))->assertExists($scene->voice_path);
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page->where('short.scenes.1.voice_ms', $scene->voice_ms));
+
+        $this->actingAs($this->user)->post(route('topic-shorts.render', $short))->assertSessionHas('status');
+        $short->refresh();
+        (new RenderTopicShortJob($short, $short->video_options['run']))->handle();
+        $short->refresh();
+        $this->assertSame('done', $short->video_status, (string) $short->video_error);
+        // Máy chỉ đọc cảnh 1 và 3; cảnh 2 dùng giọng tự thu: 0,3 + 0,7 + 0,25 + 1,5 + 0,25 + 0,8 + 0,8 giây.
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/tts') && array_column($request['lines'], 'text') === ['Câu kể số 1.', 'Câu kể số 3.']);
+        $this->assertEqualsWithDelta(4500, $short->video_ms, 150);
+
+        $path = $scene->voice_path;
+        $this->actingAs($this->user)->delete(route('topic-short-scenes.voice.destroy', $scene))->assertSessionHasNoErrors();
+        $this->assertNull($scene->fresh()->voice_path);
+        Storage::disk(config('videoaff.disk'))->assertMissing($path);
     }
 
     public function test_characters_get_reference_images_and_named_prompts()

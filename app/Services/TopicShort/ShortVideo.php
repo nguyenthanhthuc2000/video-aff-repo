@@ -6,6 +6,7 @@ use App\Models\AudioTrack;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Services\Audio\Tts;
+use App\Services\Film\EpisodeRenderer;
 use App\Services\Film\Voices;
 use App\Services\Video\AssSubtitles;
 use App\Support\BuiltinMusic;
@@ -66,8 +67,7 @@ class ShortVideo
             throw new RuntimeException('Mọi cảnh phải có ảnh trước khi dựng video.');
         }
 
-        $voice = ($tts ?? app(Tts::class))->speak($scenes->map(fn ($scene) => self::line($short, $scene->narration))->all(), 0.3, 0.25, 0.8);
-        File::put("{$dir}/voice.wav", $voice['contents']);
+        $voice = self::voice($short, $scenes->values()->all(), $dir, $tts ?? app(Tts::class));
         $total = $voice['duration_ms'];
         $lines = $voice['lines'];
 
@@ -149,6 +149,75 @@ class ShortVideo
         }
 
         return ['path' => $out, 'ms' => $total];
+    }
+
+    /**
+     * Ghi giọng kể vào voice.wav. Cảnh có giọng tự thu (mp3 tải lên) dùng file đó, các cảnh còn lại máy đọc;
+     * ghép lại theo thứ tự cảnh: lặng 0,3 giây đầu, 0,25 giây giữa các cảnh, 0,8 giây cuối.
+     *
+     * @param  list<TopicShortScene>  $scenes
+     * @return array{duration_ms: int, lines: list<array{start_ms: int, end_ms: int}>}
+     *
+     * @throws RuntimeException
+     */
+    private static function voice(TopicShort $short, array $scenes, string $dir, Tts $tts): array
+    {
+        $machine = array_values(array_filter($scenes, fn ($scene) => ! $scene->voice_path));
+        if (count($machine) === count($scenes)) {
+            $voice = $tts->speak(array_map(fn ($scene) => self::line($short, $scene->narration), $scenes), 0.3, 0.25, 0.8);
+            File::put("{$dir}/voice.wav", $voice['contents']);
+
+            return ['duration_ms' => $voice['duration_ms'], 'lines' => $voice['lines']];
+        }
+
+        // Máy đọc một lượt các cảnh không có giọng tự thu, rồi cắt từng câu ra theo mốc thời gian.
+        $spoken = [];
+        if ($machine !== []) {
+            $voice = $tts->speak(array_map(fn ($scene) => self::line($short, $scene->narration), $machine), 0, 0.3, 0);
+            File::put("{$dir}/tts.wav", $voice['contents']);
+            foreach ($machine as $k => $scene) {
+                $spoken[$scene->id] = $voice['lines'][$k] ?? throw new RuntimeException("Giọng máy thiếu câu của cảnh {$scene->position}.");
+            }
+        }
+
+        $args = [];
+        $filters = [];
+        $lines = [];
+        $at = 300;
+        foreach ($scenes as $i => $scene) {
+            if ($scene->voice_path) {
+                $local = "{$dir}/voice{$i}.".(pathinfo($scene->voice_path, PATHINFO_EXTENSION) ?: 'mp3');
+                $contents = Media::disk()->get($scene->voice_path);
+                if ($contents === null) {
+                    throw new RuntimeException("Không đọc được giọng tự thu của cảnh {$scene->position}.");
+                }
+                File::put($local, $contents);
+                $ms = $scene->voice_ms ?: (int) round(EpisodeRenderer::duration($local) * 1000);
+                $args = [...$args, '-i', $local];
+                $trim = '';
+            } else {
+                [$from, $to] = [$spoken[$scene->id]['start_ms'], $spoken[$scene->id]['end_ms']];
+                $ms = max(1, $to - $from);
+                $args = [...$args, '-i', "{$dir}/tts.wav"];
+                $trim = sprintf('atrim=start=%.3F:end=%.3F,asetpts=PTS-STARTPTS,', $from / 1000, $to / 1000);
+            }
+            $filters[] = "[{$i}:a]{$trim}aresample=44100,aformat=channel_layouts=mono,adelay={$at}|{$at}[c{$i}]";
+            $lines[] = ['start_ms' => $at, 'end_ms' => $at + $ms];
+            $at += $ms + 250;
+        }
+        $total = $at - 250 + 800;
+        $count = count($scenes);
+        $filters[] = implode('', array_map(fn ($i) => "[c{$i}]", range(0, $count - 1)))."amix=inputs={$count}:normalize=0:duration=longest,apad,atrim=0:".self::seconds($total).'[a]';
+
+        $result = Process::timeout(300)->run([
+            config('videoaff.ffmpeg'), '-v', 'error', '-y', '-nostdin', ...$args, '-filter_complex', implode(';', $filters),
+            '-map', '[a]', '-c:a', 'pcm_s16le', "{$dir}/voice.wav",
+        ]);
+        if ($result->failed()) {
+            throw new RuntimeException('Ghép giọng tự thu lỗi: '.mb_substr(trim($result->errorOutput()), -400));
+        }
+
+        return ['duration_ms' => $total, 'lines' => $lines];
     }
 
     /** Một câu đọc cho Tts: tiếng Việt dùng Piper (một giọng), tiếng Anh dùng giọng người kể Kokoro. */

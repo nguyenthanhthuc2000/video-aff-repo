@@ -59,6 +59,8 @@ interface ShortScene {
     fact_ids: string[];
     fact_check: FactCheck | null;
     mood: string | null;
+    voice_url: string | null;
+    voice_ms: number | null;
     panels: { character: string; pose: string; camera: string; name: string; label: string; url: string | null; exact: boolean }[];
 }
 
@@ -396,6 +398,7 @@ function ScriptForm({ short }: { short: TopicShort }) {
                     <div className="grid gap-1 md:col-span-2">
                         <Label className="text-sm">Cảnh {i + 1}: lời kể</Label>
                         <Textarea rows={2} value={scene.narration} onChange={(e) => setScene(i, 'narration', e.target.value)} />
+                        {short.scenes[i] && <SceneVoice scene={short.scenes[i]} />}
                     </div>
                     <SceneFacts
                         check={short.scenes[i]?.fact_check ?? null}
@@ -426,6 +429,60 @@ function ScriptForm({ short }: { short: TopicShort }) {
                 Lưu lời kể
             </Button>
         </form>
+    );
+}
+
+/** Giọng tự thu cho một cảnh: tải mp3 lên thì khi dựng video dùng file đó thay giọng máy. */
+function SceneVoice({ scene }: { scene: ShortScene }) {
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const upload = (file: File | undefined) =>
+        file &&
+        router.post(
+            route('topic-short-scenes.voice', scene.id),
+            { voice: file },
+            {
+                preserveScroll: true,
+                forceFormData: true,
+                onStart: () => {
+                    setUploading(true);
+                    setError(null);
+                },
+                onError: (errors) => setError(errors.voice ?? null),
+                onFinish: () => setUploading(false),
+            },
+        );
+    const remove = () => router.delete(route('topic-short-scenes.voice.destroy', scene.id), { preserveScroll: true });
+
+    return (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+            {scene.voice_url ? (
+                <>
+                    <span className="text-green-700 dark:text-green-400">Giọng tự thu ({((scene.voice_ms ?? 0) / 1000).toFixed(1)} giây)</span>
+                    <audio controls preload="none" src={scene.voice_url} className="h-8 max-w-64" />
+                    <Button type="button" size="sm" variant="ghost" className="text-destructive h-7" onClick={remove}>
+                        Bỏ, dùng giọng máy
+                    </Button>
+                </>
+            ) : (
+                <span className="text-muted-foreground">Giọng máy đọc</span>
+            )}
+            <label className="text-primary inline-flex cursor-pointer items-center gap-1 font-medium">
+                {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                {scene.voice_url ? 'Đổi file giọng' : 'Tải giọng của bạn (mp3)'}
+                <input
+                    type="file"
+                    accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/wav,audio/ogg,.mp3,.m4a,.wav,.ogg"
+                    className="hidden"
+                    aria-label={`Giọng cảnh ${scene.position}`}
+                    onChange={(e) => {
+                        upload(e.target.files?.[0]);
+                        e.target.value = '';
+                    }}
+                />
+            </label>
+            {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
+        </div>
     );
 }
 
