@@ -112,7 +112,7 @@ export default function TopicShortShow({
     prices: { image: number; render: number };
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Shorts chủ đề', href: '/topic-shorts' },
+        short.use_research ? { title: 'Video truyện', href: '/story-videos' } : { title: 'Shorts chủ đề', href: '/topic-shorts' },
         { title: short.title || short.topic, href: route('topic-shorts.show', short.id) },
     ];
     const checking = short.use_research && short.status === 'ready' && short.scenes.some((s) => s.fact_check === null);

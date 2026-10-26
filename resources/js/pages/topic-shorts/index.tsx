@@ -11,8 +11,6 @@ import { Head, Link, useForm } from '@inertiajs/react';
 import { Sparkles } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Shorts chủ đề', href: '/topic-shorts' }];
-
 interface ShortItem {
     id: number;
     topic: string;
@@ -42,6 +40,7 @@ export default function TopicShortsIndex({
     styles,
     image_styles,
     max_series_parts,
+    story,
 }: {
     shorts: ShortItem[];
     languages: Record<string, string>;
@@ -49,15 +48,18 @@ export default function TopicShortsIndex({
     image_styles: Record<string, string>;
     wikis: Record<string, string>;
     max_series_parts: number;
+    story: boolean;
 }) {
+    const pageTitle = story ? 'Video truyện' : 'Shorts chủ đề';
+    const breadcrumbs: BreadcrumbItem[] = [{ title: pageTitle, href: story ? '/story-videos' : '/topic-shorts' }];
     const { data, setData, post, processing, errors } = useForm({
         topic: '',
         style: 'moment',
         image_style: 'manga',
         language: 'vi',
-        target_seconds: 45,
+        target_seconds: story ? 60 : 45,
         wiki: 'commons',
-        use_research: true as boolean,
+        use_research: story,
         research_notes: '',
         series_parts: 1,
     });
@@ -69,11 +71,15 @@ export default function TopicShortsIndex({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Shorts chủ đề" />
+            <Head title={pageTitle} />
             <div className="space-y-6 p-4">
                 <Heading
-                    title="Shorts chủ đề"
-                    description="Short 7 Viên Ngọc Rồng: nhập chủ đề, Claude viết lời kể theo khung kênh tóm tắt anime, mỗi cảnh là một trang manga ghép từ ảnh trong thư viện Nhân vật Ngọc Rồng (không tìm ảnh trên mạng), giọng AI đọc, ghép video 9:16 dài 30–60 giây."
+                    title={pageTitle}
+                    description={
+                        story
+                            ? 'Video truyện 7 Viên Ngọc Rồng có tư liệu thật: Claude tìm tư liệu trên Dragon Ball Wiki, Kanzenshuu, Wikipedia, bạn duyệt từng chi tiết kèm nguồn, Claude viết kịch bản chỉ từ tư liệu đó, mỗi cảnh là trang manga ghép từ thư viện Nhân vật Ngọc Rồng, giọng AI đọc, video 9:16 khoảng 60 giây. Làm được series nhiều phần.'
+                            : 'Short 7 Viên Ngọc Rồng: nhập chủ đề, Claude viết lời kể theo khung kênh tóm tắt anime, mỗi cảnh là một trang manga ghép từ ảnh trong thư viện Nhân vật Ngọc Rồng, giọng AI đọc, ghép video 9:16 dài 30–60 giây. Cần kể đúng sự kiện có nguồn thì dùng menu Video truyện.'
+                    }
                 />
                 <FlashStatus />
 
@@ -85,7 +91,7 @@ export default function TopicShortsIndex({
                             rows={2}
                             value={data.topic}
                             onChange={(e) => setData('topic', e.target.value)}
-                            placeholder="Vì sao Goku biến Super Saiyan lần đầu ở Namek?"
+                            placeholder={story ? 'Vì sao Vegeta thay đổi?' : 'Vì sao Goku biến Super Saiyan lần đầu ở Namek?'}
                         />
                         <p className="text-muted-foreground text-xs">Viết chủ đề như một câu gây tò mò sẽ ra hook hay hơn một cái tên chung chung.</p>
                         <InputError message={errors.topic} />
@@ -154,61 +160,58 @@ export default function TopicShortsIndex({
                             <InputError message={errors.target_seconds} />
                         </div>
                     </div>
-                    <div className="space-y-3 rounded-md border p-3">
-                        <label className="flex items-start gap-2 text-sm">
-                            <input
-                                type="checkbox"
-                                className="mt-0.5 size-4"
-                                checked={data.use_research}
-                                onChange={(e) => setData('use_research', e.target.checked)}
-                            />
-                            <span>
-                                <span className="font-medium">Tìm tư liệu thật trước khi viết</span>
-                                <span className="text-muted-foreground block text-xs">
-                                    Claude đọc Dragon Ball Wiki, Kanzenshuu, Wikipedia rồi đưa bạn duyệt từng chi tiết kèm nguồn. Kịch bản chỉ kể
-                                    những gì có trong tư liệu. Mất thêm vài phút.
-                                </span>
-                            </span>
-                        </label>
-                        {data.use_research && (
-                            <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="research_notes">Ghi chú cho Claude (không bắt buộc)</Label>
-                                    <Textarea
-                                        id="research_notes"
-                                        rows={2}
-                                        value={data.research_notes}
-                                        onChange={(e) => setData('research_notes', e.target.value)}
-                                        placeholder="Ví dụ: chỉ kể theo manga, tập trung giai đoạn Buu."
-                                    />
-                                    <InputError message={errors.research_notes} />
+                    {story && (
+                        <div className="space-y-3 rounded-md border p-3">
+                            <p className="text-muted-foreground text-xs">
+                                Claude đọc tư liệu trên web (mất vài phút) rồi đưa bạn duyệt từng chi tiết kèm nguồn. Kịch bản chỉ kể những gì có
+                                trong tư liệu.
+                            </p>
+                            {data.use_research && (
+                                <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="research_notes">Ghi chú cho Claude (không bắt buộc)</Label>
+                                        <Textarea
+                                            id="research_notes"
+                                            rows={2}
+                                            value={data.research_notes}
+                                            onChange={(e) => setData('research_notes', e.target.value)}
+                                            placeholder="Ví dụ: chỉ kể theo manga, tập trung giai đoạn Buu."
+                                        />
+                                        <InputError message={errors.research_notes} />
+                                    </div>
+                                    <div className="grid content-start gap-2">
+                                        <Label htmlFor="series_parts">Số phần</Label>
+                                        <select
+                                            id="series_parts"
+                                            className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                                            value={data.series_parts}
+                                            onChange={(e) => setData('series_parts', Number(e.target.value))}
+                                        >
+                                            {Array.from({ length: max_series_parts }, (_, i) => i + 1).map((n) => (
+                                                <option key={n} value={n}>
+                                                    {n === 1 ? '1 video' : `Series ${n} phần`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <InputError message={errors.series_parts} />
+                                    </div>
                                 </div>
-                                <div className="grid content-start gap-2">
-                                    <Label htmlFor="series_parts">Số phần</Label>
-                                    <select
-                                        id="series_parts"
-                                        className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                                        value={data.series_parts}
-                                        onChange={(e) => setData('series_parts', Number(e.target.value))}
-                                    >
-                                        {Array.from({ length: max_series_parts }, (_, i) => i + 1).map((n) => (
-                                            <option key={n} value={n}>
-                                                {n === 1 ? '1 video' : `Series ${n} phần`}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <InputError message={errors.series_parts} />
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    )}
                     <div className="flex flex-wrap items-center gap-3">
                         <Button disabled={processing || data.topic.trim().length < 5}>
                             <Sparkles /> {data.use_research ? 'Tìm tư liệu' : 'Tạo short'}
                         </Button>
-                        <Link href={route('lore-facts.index')} className="text-primary text-sm">
-                            Kho tư liệu
-                        </Link>
+                        {story ? (
+                            <Link href={route('lore-facts.index')} className="text-primary text-sm">
+                                Kho tư liệu
+                            </Link>
+                        ) : (
+                            <Link href={route('story-videos.index')} className="text-primary text-sm">
+                                Cần tư liệu thật? Dùng Video truyện
+                            </Link>
+                        )}
                     </div>
                 </form>
 
@@ -232,7 +235,6 @@ export default function TopicShortsIndex({
                                         Phần {short.part}/{short.series_parts}
                                     </Badge>
                                 )}
-                                {short.use_research && <Badge variant="outline">Có tư liệu</Badge>}
                                 {short.video_status === 'done' && <Badge>Có video</Badge>}
                                 <Badge variant={short.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[short.status]}</Badge>
                             </div>

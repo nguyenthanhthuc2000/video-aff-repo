@@ -170,6 +170,18 @@ class TopicStoryResearchTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->where('short.part', 2)->has('short.series.parts', 3));
     }
 
+    public function test_story_videos_have_their_own_menu_list()
+    {
+        Queue::fake();
+        $story = $this->create();
+        $plain = $this->create(['use_research' => false, 'topic' => 'Goku mạnh cỡ nào?']);
+        $this->actingAs($this->user)->get(route('story-videos.index'))
+            ->assertInertia(fn (Assert $page) => $page->component('topic-shorts/index')->where('story', true)->has('shorts', 1)->where('shorts.0.id', $story->id));
+        $this->actingAs($this->user)->get(route('topic-shorts.index'))
+            ->assertInertia(fn (Assert $page) => $page->where('story', false)->has('shorts', 1)->where('shorts.0.id', $plain->id));
+        $this->actingAs($this->user)->delete(route('topic-shorts.destroy', $story))->assertRedirect(route('story-videos.index'));
+    }
+
     public function test_short_without_research_writes_directly()
     {
         Queue::fake();

@@ -37,7 +37,18 @@ class TopicShortController extends Controller
 {
     public function index(Request $request): Response
     {
-        $shorts = $request->user()->topicShorts()->latest()->withCount('scenes')->get();
+        return $this->list($request, false);
+    }
+
+    /** Menu "Video truyện": short có tư liệu thật (research → duyệt → kịch bản có nguồn), series nhiều phần. */
+    public function stories(Request $request): Response
+    {
+        return $this->list($request, true);
+    }
+
+    private function list(Request $request, bool $story): Response
+    {
+        $shorts = $request->user()->topicShorts()->where('use_research', $story)->latest()->withCount('scenes')->get();
 
         return Inertia::render('topic-shorts/index', [
             'shorts' => $shorts->map(fn (TopicShort $short) => [
@@ -58,6 +69,7 @@ class TopicShortController extends Controller
             'image_styles' => TopicShort::IMAGE_STYLES,
             'wikis' => collect(config('videoaff.topic_shorts.wikis'))->map(fn ($wiki) => $wiki['label']),
             'max_series_parts' => TopicShort::MAX_SERIES_PARTS,
+            'story' => $story,
         ]);
     }
 
@@ -570,7 +582,7 @@ class TopicShortController extends Controller
         collect($short->characters ?? [])->each(fn ($c) => Media::delete($c['image_path'] ?? null));
         $short->delete();
 
-        return to_route('topic-shorts.index')->with('status', 'Đã xoá short.');
+        return to_route($short->use_research ? 'story-videos.index' : 'topic-shorts.index')->with('status', 'Đã xoá short.');
     }
 
     private function busy(TopicShortScene $scene): bool

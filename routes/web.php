@@ -99,6 +99,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('lore-facts', [LoreFactController::class, 'index'])->name('lore-facts.index');
     Route::put('lore-facts/{fact}', [LoreFactController::class, 'update'])->name('lore-facts.update');
     Route::delete('lore-facts/{fact}', [LoreFactController::class, 'destroy'])->name('lore-facts.destroy');
+    Route::get('story-videos', [TopicShortController::class, 'stories'])->name('story-videos.index');
     Route::get('topic-shorts', [TopicShortController::class, 'index'])->name('topic-shorts.index');
     Route::post('topic-shorts', [TopicShortController::class, 'store'])->name('topic-shorts.store');
     Route::get('topic-shorts/{short}', [TopicShortController::class, 'show'])->name('topic-shorts.show');

@@ -18,6 +18,7 @@ import {
     Mic2,
     Music,
     Package,
+    ScrollText,
     ShieldCheck,
     Smile,
     Sparkles,
@@ -58,6 +59,11 @@ const mainNavItems: NavItem[] = [
         title: 'Shorts chủ đề',
         url: '/topic-shorts',
         icon: Sparkles,
+    },
+    {
+        title: 'Video truyện',
+        url: '/story-videos',
+        icon: ScrollText,
     },
     {
         title: 'Kho tư liệu',

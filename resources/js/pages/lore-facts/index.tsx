@@ -12,7 +12,7 @@ import { ExternalLink, Pencil, Search, Trash2 } from 'lucide-react';
 import { FormEventHandler, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Shorts chủ đề', href: '/topic-shorts' },
+    { title: 'Video truyện', href: '/story-videos' },
     { title: 'Kho tư liệu', href: '/lore-facts' },
 ];
 
