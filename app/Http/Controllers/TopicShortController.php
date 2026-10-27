@@ -830,6 +830,18 @@ class TopicShortController extends Controller
         return back()->with('status', 'Đã lưu ảnh bìa của bạn.');
     }
 
+    /** Tải nguyên ảnh của một cảnh (làm nền ảnh bìa ở ChatGPT...). */
+    public function sceneImageDownload(TopicShortScene $scene): StreamedResponse|RedirectResponse
+    {
+        $this->authorize('view', $scene->topicShort);
+        if (! $scene->image_path || ! Media::disk()->exists($scene->image_path)) {
+            return back()->with('status', "Cảnh {$scene->position} chưa có ảnh.");
+        }
+        $ext = pathinfo($scene->image_path, PATHINFO_EXTENSION) ?: 'jpg';
+
+        return Media::disk()->download($scene->image_path, 'nen-'.Str::slug($scene->topicShort->title ?: $scene->topicShort->topic)."-canh-{$scene->position}.{$ext}");
+    }
+
     public function coverDownload(TopicShort $short): StreamedResponse|RedirectResponse
     {
         $this->authorize('view', $short);

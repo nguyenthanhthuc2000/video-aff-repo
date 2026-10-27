@@ -358,6 +358,9 @@ class TopicStoryResearchTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->where('short.publish.title', 'Vegeta đã khóc?')->where('short.cover.text', 'Chữ khác hẳn')->whereNot('short.cover_url', null));
         $this->actingAs(User::factory()->create())->post(route('topic-shorts.publish', $short))->assertForbidden();
 
+        $this->actingAs($this->user)->get(route('topic-short-scenes.image.download', $scene))->assertDownload();
+        $this->actingAs(User::factory()->create())->get(route('topic-short-scenes.image.download', $scene))->assertForbidden();
+
         // Ảnh bìa tự làm: dùng nguyên ảnh, viết lại tiêu đề không ghi đè.
         $old = $short->fresh()->cover_path;
         $this->actingAs($this->user)->post(route('topic-shorts.cover.upload', $short), ['image' => UploadedFile::fake()->image('bia.png', 720, 1280)])->assertSessionHasNoErrors();

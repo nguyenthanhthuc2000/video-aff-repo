@@ -146,6 +146,13 @@ function CoverEditor({
                             </button>
                         ))}
                     </div>
+                    {data.scene_id > 0 && (
+                        <Button type="button" size="sm" variant="outline" asChild>
+                            <a href={route('topic-short-scenes.image.download', data.scene_id)}>
+                                <Download /> Tải ảnh nền cảnh {ready.find((s) => s.id === data.scene_id)?.position} (ảnh gốc, không chữ)
+                            </a>
+                        </Button>
+                    )}
                 </div>
             ) : (
                 <p className="text-muted-foreground text-xs">Cần có ảnh cảnh trước khi tạo ảnh bìa.</p>
