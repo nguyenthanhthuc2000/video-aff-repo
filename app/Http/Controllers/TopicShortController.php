@@ -735,6 +735,16 @@ class TopicShortController extends Controller
         return back()->with('status', 'Đang đọc giọng và dựng video (khoảng 1–2 phút)...');
     }
 
+    /** Kiểu ảnh (đen trắng / màu / anime) cho các lần Muse vẽ sau. */
+    public function imageStyle(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $validated = $request->validate(['image_style' => ['required', Rule::in(array_keys(TopicShort::IMAGE_STYLES))]]);
+        $short->update(['image_style' => $validated['image_style']]);
+
+        return back()->with('status', 'Muse sẽ vẽ theo kiểu: '.TopicShort::IMAGE_STYLES[$validated['image_style']].'.');
+    }
+
     /** Logo kênh (PNG, giữ nền trong suốt) dùng chung cho mọi video. */
     public function logo(Request $request): RedirectResponse
     {

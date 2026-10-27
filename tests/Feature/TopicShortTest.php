@@ -396,6 +396,21 @@ class TopicShortTest extends TestCase
         Storage::disk(config('videoaff.disk'))->assertMissing($logo);
     }
 
+    public function test_image_style_is_saved_and_color_rule_wins_over_old_prompt()
+    {
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'image_style' => 'manga']);
+        $scene = TopicShortScene::factory()->for($short)->create(['image_prompt' => 'Black-and-white manga panel of Goku smiling, screentone shading']);
+        $this->assertStringContainsString('black-and-white only', GenerateTopicSceneImageJob::prompt($scene));
+
+        $this->actingAs($this->user)->put(route('topic-shorts.image-style', $short), ['image_style' => 'manga_color'])->assertSessionHas('status');
+        $this->assertSame('manga_color', $short->fresh()->image_style);
+        $prompt = GenerateTopicSceneImageJob::prompt($scene->fresh());
+        $this->assertStringContainsString('FULL COLOR', $prompt);
+        $this->assertStringNotContainsStringIgnoringCase('black-and-white manga panel', $prompt);
+        $this->assertStringNotContainsStringIgnoringCase('screentone shading', $prompt);
+        $this->actingAs($this->user)->put(route('topic-shorts.image-style', $short), ['image_style' => 'oil'])->assertSessionHasErrors('image_style');
+    }
+
     public function test_scene_voice_upload_replaces_machine_voice_for_that_scene()
     {
         Queue::fake();

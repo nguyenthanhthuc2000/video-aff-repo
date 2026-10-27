@@ -47,7 +47,8 @@ final class ScenePromptFixer
         $scenes = $short->scenes()->get(['id', 'position', 'narration'])->keyBy('position');
         $before = $scenes->get($scene->position - 1)?->narration;
         $after = $scenes->get($scene->position + 1)?->narration;
-        $text = "Topic: {$short->topic}\nArt: ".($short->art_style ?: 'anime')."\n\nCharacters in this picture:\n".($characters ?: '(choose from the line)')
+        $medium = ['manga' => 'black-and-white manga', 'manga_color' => 'full-color manga', 'anime' => 'full-color TV anime'][$short->image_style] ?? 'anime';
+        $text = "Topic: {$short->topic}\nArt: ".($short->art_style ?: 'anime')."\nPicture type: {$medium} (do not mention any other color treatment)\n\nCharacters in this picture:\n".($characters ?: '(choose from the line)')
             ."\n\nPrevious line: ".($before ?? '(none)')
             ."\nTHIS SCENE'S LINE: {$scene->narration}"
             ."\nOn-screen text: ".($scene->on_screen_text ?: '(none)')

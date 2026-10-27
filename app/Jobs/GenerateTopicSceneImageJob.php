@@ -52,6 +52,23 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         'anime' => 'TV anime frame: cel animation, dramatic cel shading, high detail, characters drawn on-model like the original anime.',
     ];
 
+    /** Dòng chốt màu cuối prompt: ảnh mẫu nhân vật trong thư viện là manga đen trắng, Muse hay chép luôn màu của ảnh mẫu. */
+    public const COLOR_RULES = [
+        'manga' => 'COLOR: black-and-white only (ink and screentone, no color at all), even if a reference image is in color.',
+        'manga_color' => 'COLOR: FULL COLOR with the characters\' official colors (hair, skin, eyes, outfit). Do NOT make it black-and-white or grayscale, even though the reference images are black-and-white: they only show the design.',
+        'anime' => 'COLOR: full color like the TV anime with the characters\' official colors, even though the reference images are black-and-white: they only show the design.',
+    ];
+
+    /** Bỏ chữ về màu trái với kiểu ảnh đã chọn trong phần mô tả cảnh (prompt cũ viết lúc chọn kiểu khác). */
+    public static function matchColor(string $text, string $style): string
+    {
+        $pattern = $style === 'manga'
+            ? '/,?\s*\b(full[- ]colou?r|vivid colou?rs?|colou?red|vibrant colou?rs?)\b/iu'
+            : '/,?\s*\b(black[- ]and[- ]white|monochrome|grayscale|greyscale|b&w|screentone[s]?|ink[- ]only)\b/iu';
+
+        return trim((string) preg_replace($pattern, '', $text));
+    }
+
     /**
      * Nhân vật có trong cảnh (theo danh sách nhân vật của short). ref: ảnh mẫu gửi kèm Muse, ưu tiên ảnh tải lên cho short,
      * không có thì ảnh thư viện nhân vật Ngọc Rồng đúng biểu cảm của cảnh (hoặc mặt thường).
@@ -161,7 +178,10 @@ class GenerateTopicSceneImageJob implements ShouldQueue
             $lines[] = 'MAIN EXPRESSION: '.DragonBall::EXPRESSIONS[$scene->expression][1].'.';
         }
         $lines[] = '';
-        $lines[] = 'SCENE: '.trim((string) $scene->image_prompt);
+        $style = isset(self::MEDIUMS[$scene->topicShort->image_style]) ? $scene->topicShort->image_style : 'anime';
+        $lines[] = 'SCENE: '.self::matchColor(trim((string) $scene->image_prompt), $style);
+        $lines[] = '';
+        $lines[] = self::COLOR_RULES[$style];
 
         $text = implode("\n", $lines);
         if ($safe) {

@@ -290,7 +290,15 @@ export default function TopicShortShow({
                                         aria-label="Kiểu ảnh"
                                         className="border-input bg-background h-8 rounded-md border px-2 text-sm"
                                         value={imageStyle}
-                                        onChange={(e) => setImageStyle(e.target.value)}
+                                        onChange={(e) => {
+                                            // Lưu ngay: nút Muse vẽ ảnh từng cảnh cũng vẽ theo kiểu này.
+                                            setImageStyle(e.target.value);
+                                            router.put(
+                                                route('topic-shorts.image-style', short.id),
+                                                { image_style: e.target.value },
+                                                { preserveScroll: true },
+                                            );
+                                        }}
                                     >
                                         {Object.entries(image_styles).map(([value, label]) => (
                                             <option key={value} value={value}>
@@ -339,7 +347,7 @@ export default function TopicShortShow({
                             <MangaPanelsBar short={short} price={prices.image} />
                             <div className="grid gap-4 lg:grid-cols-2">
                                 {short.scenes.map((scene) => (
-                                    <SceneImageCard key={scene.id} scene={scene} clipPrice={prices.clip} />
+                                    <SceneImageCard key={scene.id} scene={scene} clipPrice={prices.clip} color={short.image_style !== 'manga'} />
                                 ))}
                             </div>
                         </section>
@@ -593,7 +601,7 @@ function CharactersPanel({ short }: { short: TopicShort }) {
     );
 }
 
-function SceneImageCard({ scene, clipPrice }: { scene: ShortScene; clipPrice: number }) {
+function SceneImageCard({ scene, clipPrice, color }: { scene: ShortScene; clipPrice: number; color: boolean }) {
     const upload = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState(scene.image_query ?? '');
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -633,6 +641,12 @@ function SceneImageCard({ scene, clipPrice }: { scene: ShortScene; clipPrice: nu
                 )}
                 {!busy && scene.image_url && <img src={scene.image_url} alt={`Cảnh ${scene.position}`} className="h-full w-full object-contain" />}
                 {!busy && !scene.image_url && <ImageOff className="text-muted-foreground size-5" />}
+                {/* Muse từ chối nên cảnh còn trang ghép từ thư viện nhân vật (manga đen trắng), không phải ảnh màu đã chọn. */}
+                {color && scene.image_source === 'page' && scene.image_status === 'ready' && (
+                    <Badge className="absolute right-1 bottom-1 left-1 justify-center bg-amber-500 text-[10px] text-black">
+                        Dự phòng · trắng đen
+                    </Badge>
+                )}
                 {scene.image_source && scene.image_status === 'ready' && (
                     <Badge className="absolute top-1 left-1" variant="secondary">
                         {sourceLabels[scene.image_source]}
