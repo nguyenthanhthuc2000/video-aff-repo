@@ -88,6 +88,17 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         return "muse-rewrite:topic-scene:{$scene->id}";
     }
 
+    public static function freshKey(TopicShortScene $scene): string
+    {
+        return "muse-fresh-prompt:topic-scene:{$scene->id}";
+    }
+
+    /** Lần vẽ tới: Claude viết prompt mới theo lời kể của cảnh trước khi vẽ. */
+    public static function markForFreshPrompt(TopicShortScene $scene): void
+    {
+        Cache::put(self::freshKey($scene), true, now()->addDay());
+    }
+
     /** Lần vẽ lại sau khi bị từ chối: Claude viết lại prompt theo lời từ chối, giữ tên nhân vật và ảnh mẫu. */
     public static function markForRewrite(TopicShortScene $scene, string $refusal): void
     {
@@ -148,6 +159,13 @@ class GenerateTopicSceneImageJob implements ShouldQueue
                     $this->fail(new RuntimeException($message));
 
                     return;
+                }
+                // Bấm Muse vẽ: Claude viết prompt khớp lời kể hiện tại của cảnh (lỗi thì vẽ theo prompt cũ).
+                if (Cache::pull(self::freshKey($scene))) {
+                    try {
+                        $scene->update(['image_prompt' => ScenePromptFixer::forScene($scene)]);
+                    } catch (ScriptWriterException) {
+                    }
                 }
                 if (Cache::has(self::rewriteKey($scene))) {
                     try {

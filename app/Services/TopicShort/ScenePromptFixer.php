@@ -9,7 +9,7 @@ use App\Services\Film\FilmClaude;
 use App\Services\Script\ScriptWriterException;
 use App\Support\DragonBall;
 
-/** Claude viết lại prompt cảnh short khi AI vẽ ảnh từ chối (bạo lực / đau đớn, tên nhân vật có bản quyền...). */
+/** Claude viết prompt cảnh short: khớp lời kể khi bấm Muse vẽ, và viết lại khi AI vẽ ảnh từ chối (bạo lực / đau đớn, tên nhân vật có bản quyền...). */
 final class ScenePromptFixer
 {
     public const SYSTEM = <<<'PROMPT'
@@ -17,9 +17,59 @@ final class ScenePromptFixer
     - Fix exactly what the AI objected to, and follow its suggestion when it gives one.
     - No violence shown on screen: no pain, injuries, blood, choking, gripping that hurts, destruction of living things, corpses. Keep the drama with expressions, poses, aura, energy, speed lines, dramatic sky and lighting, silhouettes, aftermath framing.
     - Keep every character's real name and form exactly as given (e.g. "Son Goku, Super Saiyan", "Vegeta, Super Saiyan Blue") and their look: the picture is for a Dragon Ball fan comic and must show those exact characters. Only soften the action, expression and effects.
-    - Keep the moment, the setting and the camera idea recognisable.
+    - Keep the moment, the setting and the camera idea recognisable. The picture must still show the MAIN ACTION of the narration line (e.g. a sneeze that releases a ki ball stays a sneeze releasing a glowing ki ball): soften only the words the AI objected to, never replace the action with "calm, relaxed, standing at ease".
     - English, under 80 words, prompt only.
     PROMPT;
+
+    public const SCENE_SYSTEM = <<<'PROMPT'
+    You write the image prompt for ONE scene of a vertical (9:16) anime recap short. The picture is shown while the narrator reads this scene's line, so it must show exactly what the line says.
+    - Read the narration line (Vietnamese) and the on-screen text; picture the single most telling moment of that line: who is there, what they do, their expression and pose, where, from which camera angle.
+    - Name the characters by their real names and forms (e.g. "Son Goku, Super Saiyan", "Frieza, final form") and keep their canonical look as given.
+    - When the line is abstract (a question, a comparison, a number), show the character it is about in a pose and expression that carries that idea (e.g. a mystery: the character half in shadow, thoughtful look).
+    - Add setting, lighting, mood and camera (close-up / low angle / full body). One clear subject, readable on a phone.
+    - No violence shown on screen: no blood, injuries, pain, corpses; keep the drama with aura, energy, speed lines, sky and lighting. Destruction of planets / stars is fine as glowing light and explosions in space. Funny moments stay comedic (exaggerated expressions).
+    - Show the main action of the line, never a generic calm pose when the line describes an action.
+    - No text, captions or speech bubbles in the picture.
+    - English, under 90 words, prompt only (style and frame are added separately).
+    PROMPT;
+
+    /**
+     * Prompt mới khớp với lời kể / chữ trên màn của cảnh (khi bấm Muse vẽ), có cảnh trước / sau để hiểu mạch.
+     *
+     * @throws ScriptWriterException
+     */
+    public static function forScene(TopicShortScene $scene): string
+    {
+        $short = $scene->topicShort;
+        $characters = collect($short->characters ?? [])->filter(fn ($c) => in_array($c['name'], $scene->characters ?? [], true))->values()
+            ->map(fn ($c) => "- {$c['name']}: ".($c['look'] ?? ''))->implode("\n");
+        $scenes = $short->scenes()->get(['id', 'position', 'narration'])->keyBy('position');
+        $before = $scenes->get($scene->position - 1)?->narration;
+        $after = $scenes->get($scene->position + 1)?->narration;
+        $text = "Topic: {$short->topic}\nArt: ".($short->art_style ?: 'anime')."\n\nCharacters in this picture:\n".($characters ?: '(choose from the line)')
+            ."\n\nPrevious line: ".($before ?? '(none)')
+            ."\nTHIS SCENE'S LINE: {$scene->narration}"
+            ."\nOn-screen text: ".($scene->on_screen_text ?: '(none)')
+            ."\nMood: ".($scene->mood ?: 'unknown')
+            ."\nNext line: ".($after ?? '(none)')
+            .(filled($scene->image_prompt) ? "\n\nOld prompt (may not match the line any more): {$scene->image_prompt}" : '');
+
+        $data = AiUsage::withContext(['user_id' => $short->user_id, 'subject' => "topic_short:{$short->id}"], fn () => FilmClaude::json(
+            self::SCENE_SYSTEM,
+            $text,
+            ['type' => 'object', 'additionalProperties' => false, 'required' => ['image_prompt'], 'properties' => ['image_prompt' => ['type' => 'string']]],
+            'topic_short',
+            "topic_short_scene:{$scene->id}",
+            1000,
+            fn () => ['image_prompt' => trim(implode(', ', $scene->characters ?? []).' — '.$scene->narration)],
+        ));
+        $prompt = trim((string) ($data['image_prompt'] ?? ''));
+        if (mb_strlen($prompt) < 15) {
+            throw new ScriptWriterException('Claude không trả prompt mới.');
+        }
+
+        return mb_substr($prompt, 0, 2000);
+    }
 
     /** @throws ScriptWriterException */
     public static function rewrite(TopicShortScene $scene, string $refusal): string
@@ -27,7 +77,7 @@ final class ScenePromptFixer
         $short = $scene->topicShort;
         $characters = collect($short->characters ?? [])->filter(fn ($c) => in_array($c['name'], $scene->characters ?? [], true))->values()
             ->map(fn ($c) => "- {$c['name']}: ".($c['look'] ?? ''))->implode("\n");
-        $text = "Characters:\n".($characters ?: '(none)')."\n\nOld prompt:\n{$scene->image_prompt}\n\nThe image AI refused it and said:\n".($refusal ?: '(no explanation)');
+        $text = "Characters:\n".($characters ?: '(none)')."\n\nNarration line this picture illustrates: {$scene->narration}\n\nOld prompt:\n{$scene->image_prompt}\n\nThe image AI refused it and said:\n".($refusal ?: '(no explanation)');
 
         $data = AiUsage::withContext(['user_id' => $short->user_id, 'subject' => "topic_short:{$short->id}"], fn () => FilmClaude::json(
             self::SYSTEM,

@@ -714,7 +714,13 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                             e.target.value = '';
                         }}
                     />
-                    <Button size="sm" variant="outline" onClick={muse} disabled={busy}>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={muse}
+                        disabled={busy}
+                        title="Claude viết prompt theo đúng lời kể của cảnh rồi Muse vẽ"
+                    >
                         <Wand2 /> Muse vẽ
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => upload.current?.click()} disabled={busy}>
@@ -729,6 +735,14 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                         onChange={(e) => send(e.target.files?.[0])}
                     />
                 </div>
+                {scene.image_prompt && (
+                    <details className="text-xs">
+                        <summary className="text-muted-foreground cursor-pointer">
+                            Prompt Muse (Claude viết lại theo lời kể mỗi lần bấm Muse vẽ)
+                        </summary>
+                        <p className="mt-1">{scene.image_prompt}</p>
+                    </details>
+                )}
             </div>
         </div>
     );

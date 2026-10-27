@@ -479,9 +479,11 @@ class TopicShortController extends Controller
             return back()->with('status', $message);
         }
         $scene->update([...filled($validated['prompt'] ?? null) ? ['image_prompt' => $validated['prompt']] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+        // Không gõ prompt riêng: Claude viết prompt khớp lời kể của cảnh trước khi Muse vẽ.
+        blank($validated['prompt'] ?? null) && GenerateTopicSceneImageJob::markForFreshPrompt($scene);
         GenerateTopicSceneImageJob::dispatch($scene);
 
-        return back()->with('status', "Muse đang vẽ ảnh cảnh {$scene->position}...");
+        return back()->with('status', "Claude viết prompt theo lời kể, rồi Muse vẽ ảnh cảnh {$scene->position}...");
     }
 
     public function upload(Request $request, TopicShortScene $scene): RedirectResponse
@@ -651,6 +653,7 @@ class TopicShortController extends Controller
         }
         foreach ($scenes as $scene) {
             $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+            GenerateTopicSceneImageJob::markForFreshPrompt($scene);
             GenerateTopicSceneImageJob::dispatch($scene);
         }
 

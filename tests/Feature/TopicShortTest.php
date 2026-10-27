@@ -201,6 +201,16 @@ class TopicShortTest extends TestCase
         $this->assertSame('muse', $scene->image_source);
         $this->assertSame(1, $this->user->creditTransactions()->where('reference', 'like', 'topic-scene-image:%')->count());
 
+        // Bấm Muse vẽ không gõ prompt: Claude (mẫu) viết prompt mới theo lời kể hiện tại của cảnh trước khi vẽ.
+        $scene->update(['narration' => 'Frieza mỉm cười trên Namek.', 'characters' => ['Frieza']]);
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene))->assertSessionHas('status');
+        (new GenerateTopicSceneImageJob($scene))->handle();
+        $scene->refresh();
+        $this->assertSame('Frieza — Frieza mỉm cười trên Namek.', $scene->image_prompt);
+        $this->assertNotNull($scene->request_id);
+        (new GenerateTopicSceneImageJob($scene))->handle();
+        $this->assertSame('ready', $scene->fresh()->image_status);
+
         $this->actingAs($this->user)->post(route('topic-short-scenes.upload', $scene), ['image' => UploadedFile::fake()->image('mine.png', 720, 1280)])->assertSessionHasNoErrors();
         $scene->refresh();
         $this->assertSame('upload', $scene->image_source);
