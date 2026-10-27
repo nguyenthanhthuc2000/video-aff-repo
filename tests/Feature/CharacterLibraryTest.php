@@ -216,14 +216,23 @@ class CharacterLibraryTest extends TestCase
         $this->actingAs($this->user)->post(route('character-library.draw'), ['failed_only' => true])->assertSessionHas('status', 'Không có ảnh nào cần vẽ.');
         $this->actingAs($this->user)->get(route('character-library.index'))->assertInertia(fn (Assert $page) => $page->where('blocked', 1)->where('failed', 0));
 
-        // Cảnh bị từ chối: Claude (driver fake: luật thay từ) viết lại prompt bớt bạo lực, giữ tên nhân vật, rồi vẽ lại.
+        // Cảnh bị từ chối: dừng, Claude (driver fake: luật thay từ) sửa prompt bớt bạo lực, giữ tên nhân vật; bấm tạo lại thì vẽ bằng prompt đó.
         $prompts->exchangeArray([]);
         $violent = TopicShortScene::factory()->for(TopicShort::factory()->for($this->user))->create([
             'image_prompt' => 'Goku collapsing in pain as a hand grips his tail', 'image_status' => 'pending', 'characters' => null,
         ]);
-        foreach (range(1, 4) as $_) {
-            (new GenerateTopicSceneImageJob($violent))->handle();
-        }
+        (new GenerateTopicSceneImageJob($violent))->withFakeQueueInteractions()->handle();
+        $job = (new GenerateTopicSceneImageJob($violent))->withFakeQueueInteractions();
+        $job->handle();
+        $job->failed($job->job->failedWith);
+        $violent->refresh();
+        $this->assertSame('failed', $violent->image_status);
+        $this->assertStringNotContainsString('in pain', (string) $violent->muse_fix_prompt);
+        $this->assertStringContainsString('Goku', (string) $violent->muse_fix_prompt);
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $violent), ['prompt' => $violent->muse_fix_prompt])->assertSessionHas('status');
+        (new GenerateTopicSceneImageJob($violent))->handle();
+        (new GenerateTopicSceneImageJob($violent))->handle();
         $violent->refresh();
         $this->assertSame('ready', $violent->image_status, (string) $violent->image_error);
         $this->assertStringNotContainsString('in pain', $violent->image_prompt);

@@ -24,7 +24,7 @@ class TopicShortScene extends Model
 
     protected $fillable = [
         'position', 'narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression', 'image_source', 'image_status',
-        'image_path', 'image_url', 'image_error', 'request_id', 'candidates', 'fact_ids', 'fact_check', 'mood', 'panels', 'manga_panels', 'voice_path', 'voice_ms',
+        'image_path', 'image_url', 'image_error', 'muse_refusal', 'muse_fix_prompt', 'request_id', 'candidates', 'fact_ids', 'fact_check', 'mood', 'panels', 'manga_panels', 'voice_path', 'voice_ms',
     ];
 
     protected function casts(): array

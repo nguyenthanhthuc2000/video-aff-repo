@@ -220,7 +220,7 @@ class TopicShortTest extends TestCase
         Storage::disk(config('videoaff.disk'))->assertExists($scene->image_path);
     }
 
-    public function test_muse_refusals_retry_once_without_names_then_stop_and_keep_old_image()
+    public function test_muse_refusal_stops_and_offers_a_fixed_prompt_to_redraw()
     {
         $calls = new \ArrayObject;
         $this->app->bind(FakeFilmImageGenerator::class, fn () => new class($calls) extends FakeFilmImageGenerator
@@ -229,14 +229,18 @@ class TopicShortTest extends TestCase
 
             public function start(array $referencePaths, string $prompt): string
             {
-                $this->calls[] = [$referencePaths, $prompt];
+                $this->calls[] = $prompt;
 
                 return parent::start($referencePaths, $prompt);
             }
 
             public function poll(string $code, array $referencePaths): ?GeneratedImage
             {
-                throw ImageGeneratorException::rejected('AI từ chối tạo yêu cầu này.', 'copyrighted character');
+                if (count($this->calls) === 1) {
+                    throw ImageGeneratorException::rejected('AI từ chối tạo yêu cầu này.', 'Declined: violent pose. Makeable alternative: a calm cat god yawning.');
+                }
+
+                return parent::poll($code, $referencePaths);
             }
         });
         Queue::fake();
@@ -244,31 +248,32 @@ class TopicShortTest extends TestCase
         $scene = TopicShortScene::factory()->for($short)->withImage()->create(['characters' => ['Beerus'], 'image_prompt' => 'Beerus yawns']);
         $old = $scene->image_path;
 
-        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus yawns on a throne'])->assertSessionHas('status');
-        $job = new GenerateTopicSceneImageJob($scene);
-        $this->assertSame('images', $job->queue);
-        foreach (range(1, 3) as $_) {
-            (new GenerateTopicSceneImageJob($scene))->withFakeQueueInteractions()->handle();
-        }
-        $last = (new GenerateTopicSceneImageJob($scene))->withFakeQueueInteractions();
-        $last->handle();
-        $last->assertFailed();
-        $last->failed($last->job->failedWith);
-        // Lần 1 có tên; bị từ chối thì lần 2 bỏ tên nhân vật và ảnh mẫu; bị từ chối nữa thì dừng.
-        $this->assertCount(2, $calls);
-        $this->assertStringContainsString('Beerus', $calls[0][1]);
-        $this->assertStringNotContainsString('Beerus', $calls[1][1]);
-        $this->assertSame([], $calls[1][0]);
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus smashes a planet'])->assertSessionHas('status');
+        $this->assertSame('images', (new GenerateTopicSceneImageJob($scene))->queue);
+        (new GenerateTopicSceneImageJob($scene))->withFakeQueueInteractions()->handle();
+        $job = (new GenerateTopicSceneImageJob($scene))->withFakeQueueInteractions();
+        $job->handle();
+        // Bị từ chối: không tự thử lại, Claude (mẫu) sửa prompt, cảnh giữ ảnh cũ và chờ bạn bấm.
+        $job->assertFailed();
+        $job->failed($job->job->failedWith);
+        $this->assertCount(1, $calls);
         $scene->refresh();
         $this->assertSame('ready', $scene->image_status);
         $this->assertSame($old, $scene->image_path);
-        $this->assertStringContainsString('Muse từ chối', (string) $scene->image_error);
+        $this->assertStringContainsString('Makeable alternative', (string) $scene->muse_refusal);
+        $this->assertNotEmpty($scene->muse_fix_prompt);
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
+            ->where('short.scenes.0.muse_fix_prompt', $scene->muse_fix_prompt));
 
-        // Bấm vẽ lại: đếm lại từ đầu, lại thử bản có tên trước.
-        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus naps'])->assertSessionHas('status');
+        // Bấm "Tạo lại ảnh với prompt này": vẽ bằng đúng prompt đó, xong thì xoá góp ý.
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus yawns calmly on his throne'])->assertSessionHas('status');
+        $this->assertNull($scene->fresh()->muse_fix_prompt);
         (new GenerateTopicSceneImageJob($scene))->handle();
-        $this->assertCount(3, $calls);
-        $this->assertStringContainsString('Beerus', $calls[2][1]);
+        (new GenerateTopicSceneImageJob($scene))->handle();
+        $this->assertStringContainsString('Beerus yawns calmly on his throne', $calls[1]);
+        $scene->refresh();
+        $this->assertSame('ready', $scene->image_status, (string) $scene->image_error);
+        $this->assertSame('muse', $scene->image_source);
     }
 
     public function test_update_script_and_other_users_are_blocked()

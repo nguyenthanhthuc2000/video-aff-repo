@@ -57,6 +57,8 @@ interface ShortScene {
     image_url: string | null;
     image_source_url: string | null;
     image_error: string | null;
+    muse_refusal: string | null;
+    muse_fix_prompt: string | null;
     candidates: Candidate[];
     fact_ids: string[];
     fact_check: FactCheck | null;
@@ -156,11 +158,11 @@ export default function TopicShortShow({
         }
     };
     const [imageStyle, setImageStyle] = useState(short.image_style);
-    const failedCount = short.scenes.filter((s) => s.image_status === 'failed').length;
+    const failedCount = short.scenes.filter((s) => s.image_status === 'failed' || (s.muse_fix_prompt && s.image_status !== 'pending')).length;
     const retryFailed = () => {
         if (
             confirm(
-                `Claude viết lại prompt theo lời từ chối của Muse rồi tạo lại ${failedCount} ảnh lỗi, khoảng ${formatNumber(failedCount * prices.image)} Credits. Tiếp tục?`,
+                `Tạo lại ${failedCount} ảnh lỗi bằng prompt Claude sửa theo góp ý của Muse, khoảng ${formatNumber(failedCount * prices.image)} Credits. Tiếp tục?`,
             )
         ) {
             router.post(route('topic-shorts.retry-failed', short.id), {}, { preserveScroll: true });
@@ -642,6 +644,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                 {scene.image_status === 'searching' && <p className="text-muted-foreground text-xs">Claude đang tìm ảnh trên mạng (vài phút)...</p>}
                 {scene.image_status === 'pending' && <p className="text-muted-foreground text-xs">Muse đang vẽ...</p>}
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
+                {scene.muse_fix_prompt && !busy && <MuseFix key={scene.muse_fix_prompt} scene={scene} />}
                 <InputError message={errors[`scene_${scene.id}`]} />
 
                 {scene.library.length > 0 && (
@@ -744,6 +747,27 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                     </details>
                 )}
             </div>
+        </div>
+    );
+}
+
+/** Muse từ chối: hiện góp ý của Muse và prompt Claude đã sửa theo đó (sửa được), bấm để vẽ lại bằng prompt này. */
+function MuseFix({ scene }: { scene: ShortScene }) {
+    const [prompt, setPrompt] = useState(scene.muse_fix_prompt ?? '');
+    const redraw = () => router.post(route('topic-short-scenes.muse', scene.id), { prompt }, { preserveScroll: true });
+
+    return (
+        <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2 text-xs">
+            {scene.muse_refusal && (
+                <p>
+                    <span className="font-medium">Muse góp ý:</span> {scene.muse_refusal}
+                </p>
+            )}
+            <Label className="text-xs">Prompt Claude đã sửa theo góp ý (sửa thêm nếu muốn)</Label>
+            <Textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="text-xs" />
+            <Button size="sm" onClick={redraw} disabled={prompt.trim().length < 5}>
+                <RefreshCw /> Tạo lại ảnh với prompt này
+            </Button>
         </div>
     );
 }

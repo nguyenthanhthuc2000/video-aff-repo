@@ -112,18 +112,12 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         Cache::put(self::rewriteKey($scene), $refusal, now()->addDay());
     }
 
-    private static function safeKey(TopicShortScene $scene): string
-    {
-        return "muse-safe:topic-scene:{$scene->id}";
-    }
-
-    /** Mỗi lần bấm vẽ: đếm lại số lần Muse từ chối / lỗi / bận từ đầu. */
+    /** Mỗi lần bấm vẽ: đếm lại số lần Muse lỗi / bận từ đầu. */
     public static function resetCounters(TopicShortScene $scene): void
     {
-        foreach (['muse-rejects', 'muse-retries', 'muse-busy'] as $prefix) {
+        foreach (['muse-retries', 'muse-busy'] as $prefix) {
             Cache::forget("{$prefix}:topic-scene:{$scene->id}");
         }
-        Cache::forget(self::safeKey($scene));
     }
 
     /** Prompt vẽ cảnh; safe (sau khi AI từ chối): bỏ tên nhân vật / phim / tác giả, gọi nhân vật theo ảnh mẫu và mô tả ngoại hình. */
@@ -197,15 +191,13 @@ class GenerateTopicSceneImageJob implements ShouldQueue
                     $scene->update(['image_prompt' => $prompt]);
                     Cache::forget(self::rewriteKey($scene));
                 }
-                // Sau một lần bị từ chối: gửi bản bỏ tên nhân vật / phim, không kèm ảnh mẫu (Muse hay chặn cả bố cục đã từ chối).
-                $safe = (bool) Cache::get(self::safeKey($scene));
-                $scene->update(['request_id' => $generator->start($safe ? [] : self::references($scene), self::prompt($scene, $safe))]);
+                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene))]);
                 $this->release(15);
 
                 return;
             }
 
-            $result = $generator->poll($scene->request_id, Cache::get(self::safeKey($scene)) ? [] : self::references($scene));
+            $result = $generator->poll($scene->request_id, self::references($scene));
             if ($result === null) {
                 $this->release(self::POLL_SECONDS);
 
@@ -222,17 +214,11 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
                 return;
             }
-            // AI từ chối (bạo lực, tên nhân vật / phim): Claude viết lại prompt theo lời từ chối, bỏ tên và ảnh mẫu, rồi thử lại một lần.
+            // AI từ chối: không tự thử lại (Muse nhớ yêu cầu bị chặn, thử lại gần giống cũng bị chặn, chỉ mất thời gian).
+            // Claude sửa prompt theo góp ý của Muse, cảnh hiện nút "Tạo lại ảnh với prompt này" để bạn xem / sửa rồi bấm.
             if ($e->rejected) {
-                if (Cache::increment("muse-rejects:topic-scene:{$scene->id}") <= 1) {
-                    self::markForRewrite($scene, (string) $e->refusal);
-                    Cache::put(self::safeKey($scene), true, now()->addDay());
-                    $scene->update(['request_id' => null]);
-                    $this->release(5);
-
-                    return;
-                }
-                $this->fail(new RuntimeException('Muse từ chối vẽ cảnh này 2 lần (kể cả bản đã bỏ tên nhân vật). Hãy bấm Claude tìm ảnh hoặc tải ảnh lên. AI trả lời: '.mb_substr((string) $e->refusal, 0, 300)));
+                self::suggestFix($scene, (string) $e->refusal);
+                $this->fail(new RuntimeException('Muse từ chối vẽ cảnh này. Xem góp ý của Muse và prompt Claude đã sửa bên dưới, rồi bấm Tạo lại ảnh (hoặc dùng Claude tìm ảnh / tải ảnh lên).'));
 
                 return;
             }
@@ -250,13 +236,24 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         $this->save($scene, $result);
     }
 
+    /** Lưu lời từ chối của Muse và prompt Claude viết lại theo đó (lỗi thì bản làm nhẹ đơn giản). */
+    public static function suggestFix(TopicShortScene $scene, string $refusal): void
+    {
+        try {
+            $prompt = ScenePromptFixer::rewrite($scene, $refusal);
+        } catch (ScriptWriterException) {
+            $prompt = ScenePromptFixer::fallback((string) $scene->image_prompt);
+        }
+        $scene->update(['muse_refusal' => mb_substr(trim($refusal), 0, 2000) ?: null, 'muse_fix_prompt' => $prompt]);
+    }
+
     private function save(TopicShortScene $scene, GeneratedImage $result): void
     {
         $path = "topic-shorts/{$scene->topic_short_id}/scene-{$scene->id}-muse-".substr(md5($result->contents), 0, 8).".{$result->extension}";
         Media::disk()->put($path, $result->contents);
         $old = $scene->image_path;
         self::resetCounters($scene);
-        $scene->update(['image_source' => 'muse', 'image_status' => 'ready', 'image_path' => $path, 'image_url' => null, 'image_error' => null, 'request_id' => null]);
+        $scene->update(['muse_refusal' => null, 'muse_fix_prompt' => null, 'image_source' => 'muse', 'image_status' => 'ready', 'image_path' => $path, 'image_url' => null, 'image_error' => null, 'request_id' => null]);
         $old && $old !== $path && Media::delete($old);
 
         Credits::charge(

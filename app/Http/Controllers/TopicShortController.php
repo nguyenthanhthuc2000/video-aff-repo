@@ -177,6 +177,8 @@ class TopicShortController extends Controller
                     'image_url' => Media::url($scene->image_path),
                     'image_source_url' => $scene->image_url,
                     'image_error' => $scene->image_error,
+                    'muse_refusal' => $scene->muse_refusal,
+                    'muse_fix_prompt' => $scene->muse_fix_prompt,
                     'candidates' => $scene->candidates ?? [],
                     'expression' => $scene->expression,
                     'fact_ids' => $scene->fact_ids ?? [],
@@ -478,7 +480,7 @@ class TopicShortController extends Controller
             return back()->with('status', $message);
         }
         GenerateTopicSceneImageJob::resetCounters($scene);
-        $scene->update([...filled($validated['prompt'] ?? null) ? ['image_prompt' => $validated['prompt']] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+        $scene->update([...filled($validated['prompt'] ?? null) ? ['image_prompt' => $validated['prompt']] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null, 'muse_refusal' => null, 'muse_fix_prompt' => null]);
         // Không gõ prompt riêng: Claude viết prompt khớp lời kể của cảnh trước khi Muse vẽ.
         blank($validated['prompt'] ?? null) && GenerateTopicSceneImageJob::markForFreshPrompt($scene);
         GenerateTopicSceneImageJob::dispatch($scene);
@@ -618,7 +620,7 @@ class TopicShortController extends Controller
     public function retryFailed(Request $request, TopicShort $short): RedirectResponse
     {
         $this->authorize('update', $short);
-        $scenes = $short->scenes()->where('image_status', 'failed')->get();
+        $scenes = $short->scenes()->where(fn ($q) => $q->where('image_status', 'failed')->orWhereNotNull('muse_fix_prompt'))->get();
         if ($scenes->isEmpty()) {
             return back()->with('status', 'Không có ảnh nào bị lỗi.');
         }
@@ -628,8 +630,9 @@ class TopicShortController extends Controller
         foreach ($scenes as $scene) {
             // Lời từ chối của AI nằm sau "AI trả lời:" trong lỗi; Claude viết lại prompt theo đó.
             GenerateTopicSceneImageJob::resetCounters($scene);
-            GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
-            $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
+            // Đã có prompt Claude sửa theo góp ý của Muse thì vẽ luôn bằng prompt đó.
+            filled($scene->muse_fix_prompt) || GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
+            $scene->update([...filled($scene->muse_fix_prompt) ? ['image_prompt' => $scene->muse_fix_prompt] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null, 'muse_refusal' => null, 'muse_fix_prompt' => null]);
             GenerateTopicSceneImageJob::dispatch($scene);
         }
 
