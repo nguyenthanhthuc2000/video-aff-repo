@@ -307,10 +307,14 @@ async function sendTask({ code, kind, prompt, images, timeoutMs, adopt = false }
     if (tasks.has(code)) return publicTask(tasks.get(code), false);
 
     if (adopt) {
-        // Dịch vụ khởi động lại thì tab cũ đã mất: chỉ tìm được nếu kết quả nằm ở trang chính.
+        // Dịch vụ khởi động lại thì tab cũ đã mất: mở lại đoạn chat có mã (theo tên trong danh sách), không thấy thì xem trang chính.
         const p = await getPage();
         await ensureReady(p);
-        const task = { code, kind, sentAt: Date.now(), deadline: Date.now() + timeoutMs, state: 'pending', candidate: null };
+        const page = await openThreadPage(code).catch((error) => {
+            console.log(`[task ${code}] không mở lại được đoạn chat: ${error.message.split('\n')[0]}`);
+            return null;
+        });
+        const task = { code, kind, sentAt: Date.now(), deadline: Date.now() + timeoutMs, state: 'pending', candidate: null, page };
         tasks.set(code, task);
         console.log(`[task ${code}] theo dõi lại (${kind})`);
         schedulePoll();
@@ -356,6 +360,10 @@ async function sendTask({ code, kind, prompt, images, timeoutMs, adopt = false }
 }
 
 const GENERATED_VIDEOS = '[data-testid="hatch-chat-attachment-presentation-video"]';
+// muse.ai đổi giao diện video vài lần: nhận cả thẻ video bất kỳ trong câu trả lời, và các kiểu nút tải xuống.
+const ANY_VIDEO = `${GENERATED_VIDEOS}, [data-message-role="assistant"] video, [data-message-role="assistant"] [data-testid*="video" i]`;
+const DOWNLOAD_BUTTONS =
+    'button[data-pel-click="media_download"], button[aria-label*="Tải" i][aria-label*="xuống" i], button[aria-label*="download" i], a[download], a[aria-label*="download" i]';
 // Lời từ chối thường gặp của Muse (tiếng Anh / tiếng Việt).
 const REFUSAL_PATTERN =
     /couldn['’]t|could not|can['’]t|cannot|unable to|not able to|won['’]t|declin|refus|not allowed|against (the|our) (policy|guidelines)|không thể|không tạo được|từ chối|không được phép/;
@@ -367,7 +375,7 @@ const REFUSAL_PATTERN =
  */
 async function scan(p) {
     return p.evaluate(
-        ({ imageSelector, videoSelector, codeSource, refusalSource }) => {
+        ({ imageSelector, videoSelector, downloadSelector, codeSource, refusalSource }) => {
             const occurrences = [];
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
             for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -401,14 +409,27 @@ async function scan(p) {
                     byTitle: new RegExp(codeSource).test(label),
                 };
             });
-            const videos = [...document.querySelectorAll(videoSelector)].filter(fromMuse).map((block) => {
+            // Mỗi khối video một lần (thẻ video nằm trong khối có data-testid thì lấy khối ngoài).
+            const blocks = [];
+            for (const el of document.querySelectorAll(videoSelector)) {
+                if (!fromMuse(el)) continue;
+                if (blocks.some((block) => block.contains(el))) continue;
+                for (let i = blocks.length - 1; i >= 0; i--) if (el.contains(blocks[i])) blocks.splice(i, 1);
+                blocks.push(el);
+            }
+            const videos = blocks.map((block) => {
                 // Nút "Tải video xuống" nằm cùng bong bóng tin nhắn với khối video.
                 let box = block;
                 let button = null;
-                for (let i = 0; i < 6 && box && !button; i++, box = box.parentElement) button = box.querySelector('button[data-pel-click="media_download"]');
+                for (let i = 0; i < 6 && box && !button; i++, box = box.parentElement) {
+                    button = box.querySelector(downloadSelector);
+                    if (box.matches?.('[data-message-role]')) break;
+                }
+                const video = block.matches('video') ? block : block.querySelector('video');
+                const src = video ? video.currentSrc || video.src || video.querySelector('source')?.src || '' : '';
                 const id = idOf(block);
                 if (button) button.dataset.vaDownload = id;
-                return { id, kind: 'video', src: null, ready: !!button, code: nearestCode(block), byTitle: false };
+                return { id, kind: 'video', src: src || null, ready: !!button || !!src, code: nearestCode(block), byTitle: false };
             });
             // Câu trả lời dạng chữ (đã viết xong, không kèm ảnh/video) có ý từ chối: Muse không tạo yêu cầu đó.
             // Mã = mã nhắc trong câu trả lời; không có thì là mã trong tin gần nhất của mình phía trước nó.
@@ -442,12 +463,20 @@ async function scan(p) {
                 .filter((reply) => reply.code && reply.text.length > 0);
             return { anchors: [...new Set(occurrences.map((occ) => occ.code))], media: [...images, ...videos], refusals, replies };
         },
-        { imageSelector: GENERATED_IMAGES, videoSelector: GENERATED_VIDEOS, codeSource: CODE_PATTERN.source, refusalSource: REFUSAL_PATTERN.source },
+        { imageSelector: GENERATED_IMAGES, videoSelector: ANY_VIDEO, downloadSelector: DOWNLOAD_BUTTONS, codeSource: CODE_PATTERN.source, refusalSource: REFUSAL_PATTERN.source },
     );
 }
 
-/** Tải video bằng nút "Tải video xuống" của muse.ai (Chromium không phát được H.264 nên không đọc thẻ video). */
-async function downloadVideo(p, id) {
+/**
+ * Tải video bằng nút "Tải video xuống" của muse.ai (Chromium không phát được H.264 nên không đọc thẻ video);
+ * không thấy nút thì tải thẳng từ địa chỉ của thẻ video.
+ */
+async function downloadVideo(p, id, src = null) {
+    if ((await p.locator(`[data-va-download="${id}"]`).count()) === 0 && src) {
+        const data = await download(p, src);
+        const mime = /webm/.test(data.mime) ? 'video/webm' : /quicktime/.test(data.mime) ? 'video/quicktime' : 'video/mp4';
+        return { mime, base64: data.base64 };
+    }
     const [file] = await Promise.all([p.waitForEvent('download', { timeout: 120000 }), p.locator(`[data-va-download="${id}"]`).first().click()]);
     const path = await file.path();
     const name = file.suggestedFilename().toLowerCase();
@@ -593,7 +622,7 @@ async function pollPage(p, pending) {
             try {
                 task.result =
                     match.kind === 'video'
-                        ? { ...(await downloadVideo(p, match.id)), url: null }
+                        ? { ...(await downloadVideo(p, match.id, match.src)), url: null }
                         : { ...(await download(p, match.src)), url: match.src.startsWith('blob:') ? null : match.src };
                 task.result.matched = match.byTitle ? 'title' : 'nearest_code';
                 task.state = 'done';
@@ -927,11 +956,36 @@ async function debugTasks() {
                 streaming: !!msg.querySelector('[data-hatch-markdown-streaming="true"], [aria-busy="true"]'),
                 body: !!msg.querySelector('[data-hatch-assistant-message-body]'),
                 text: (msg.innerText ?? '').trim().slice(0, 3000),
+                // Cấu trúc câu trả lời (bỏ class / path svg) để sửa bộ chọn khi muse.ai đổi giao diện.
+                html:
+                    msg.getAttribute('data-message-role') === 'assistant'
+                        ? msg.outerHTML.replace(/ class="[^"]*"/g, '').replace(/ d="[^"]*"/g, '').replace(/ style="[^"]*"/g, '').slice(0, 8000)
+                        : undefined,
             })),
         );
         result.push({ code: task.code, kind: task.kind, state: task.state, url: p.url(), messages, screenshot: (await p.screenshot()).toString('base64') });
     }
     return result;
+}
+
+/** Tab mới mở đoạn chat có mã (theo tên trong danh sách đoạn chat). */
+async function openThreadPage(code) {
+    await getPage();
+    const p = await context.newPage();
+    try {
+        await p.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await ensureReady(p);
+        const row = p.locator(`[data-testid="hatch-thread-row"]:has-text("${code}")`).first();
+        for (let i = 0; i < 2 && !(await visible(row, 4000)); i++) {
+            await p.locator('[data-testid="hatch-chat-switcher-trigger"]').first().click({ timeout: 10000 });
+        }
+        await row.click({ timeout: 10000 });
+        await p.waitForTimeout(5000);
+        return p;
+    } catch (error) {
+        await p.close().catch(() => {});
+        throw error;
+    }
 }
 
 /** Mở lại đoạn chat có mã (theo tên trong danh sách đoạn chat) và đọc tin nhắn: lấy kết quả trả về muộn / chẩn đoán. */
