@@ -125,6 +125,7 @@ export default function TopicShortShow({
     image_styles,
     pronunciations,
     render_defaults,
+    logo_url,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
@@ -133,7 +134,8 @@ export default function TopicShortShow({
     image_styles: Record<string, string>;
     prices: { image: number; clip: number; render: number };
     pronunciations: PronunciationRow[];
-    render_defaults: { style: 'fast' | 'page'; watermark: string };
+    render_defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean };
+    logo_url: string | null;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
         short.use_research ? { title: 'Video truyện', href: '/story-videos' } : { title: 'Shorts chủ đề', href: '/topic-shorts' },
@@ -353,6 +355,7 @@ export default function TopicShortShow({
                             suggestion={music_suggestion}
                             price={prices.render}
                             defaults={render_defaults}
+                            logoUrl={logo_url}
                         />
                         <VoicesPanel short={short} />
                         {short.language !== 'en' && <PronunciationPanel rows={pronunciations} />}
@@ -1064,13 +1067,15 @@ function RenderPanel({
     suggestion,
     price,
     defaults,
+    logoUrl,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
     builtin: { file: string; name: string }[];
     suggestion: { mood: string | null; track_id: number | null; file: string | null };
     price: number;
-    defaults: { style: 'fast' | 'page'; watermark: string };
+    defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean };
+    logoUrl: string | null;
 }) {
     // Giá trị ô nhạc: "track:<id>" (nhạc của bạn) hoặc "file:<tên file>" (nhạc có sẵn trong public/nhac).
     const { data, setData, post, processing, transform } = useForm<{
@@ -1079,6 +1084,7 @@ function RenderPanel({
         sfx: boolean;
         style: 'fast' | 'page';
         watermark: string;
+        logo: boolean;
     }>({
         music: suggestion.track_id
             ? `track:${suggestion.track_id}`
@@ -1091,7 +1097,17 @@ function RenderPanel({
         sfx: true,
         style: defaults.style,
         watermark: defaults.watermark,
+        logo: defaults.logo,
     });
+    const logoFile = useRef<HTMLInputElement>(null);
+    const uploadLogo = (logo: File | undefined) =>
+        logo &&
+        router.post(
+            route('channel-logo.store'),
+            { logo },
+            { preserveScroll: true, forceFormData: true, onError: (errors) => errors.logo && alert(errors.logo) },
+        );
+    const removeLogo = () => confirm('Xoá logo?') && router.delete(route('channel-logo.destroy'), { preserveScroll: true });
     const rendering = short.video_status === 'rendering';
 
     const submit: FormEventHandler = (e) => {
@@ -1099,8 +1115,9 @@ function RenderPanel({
         if (short.unsupported_count > 0 && !confirm(`${short.unsupported_count} cảnh có câu không có trong tư liệu (đánh dấu đỏ). Vẫn dựng video?`)) {
             return;
         }
-        transform(({ music, ...rest }) => ({
+        transform(({ music, logo, ...rest }) => ({
             ...rest,
+            logo: logo && !!logoUrl,
             music_track_id: music.startsWith('track:') ? Number(music.slice(6)) : null,
             music_file: music.startsWith('file:') ? music.slice(5) : null,
         }));
@@ -1193,6 +1210,43 @@ function RenderPanel({
                         />
                     </div>
                 )}
+                <div className="grid gap-2">
+                    <Label>Logo kênh (PNG, góc trên phải)</Label>
+                    <div className="flex items-center gap-2">
+                        {logoUrl && (
+                            <img
+                                src={logoUrl}
+                                alt="Logo"
+                                className="h-9 w-9 rounded border bg-[repeating-conic-gradient(#ddd_0_25%,#fff_0_50%)] bg-[length:10px_10px] object-contain"
+                            />
+                        )}
+                        {logoUrl && (
+                            <label className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" className="size-4" checked={data.logo} onChange={(e) => setData('logo', e.target.checked)} />
+                                Gắn logo
+                            </label>
+                        )}
+                        <Button type="button" size="sm" variant="outline" onClick={() => logoFile.current?.click()}>
+                            <Upload /> {logoUrl ? 'Đổi logo' : 'Tải logo lên'}
+                        </Button>
+                        {logoUrl && (
+                            <Button type="button" size="sm" variant="ghost" onClick={removeLogo}>
+                                Xoá
+                            </Button>
+                        )}
+                        <input
+                            ref={logoFile}
+                            type="file"
+                            accept="image/png"
+                            className="hidden"
+                            aria-label="Logo kênh"
+                            onChange={(e) => {
+                                uploadLogo(e.target.files?.[0]);
+                                e.target.value = '';
+                            }}
+                        />
+                    </div>
+                </div>
                 <label className="flex h-9 items-center gap-2 text-sm">
                     <input type="checkbox" className="size-4" checked={data.sfx} onChange={(e) => setData('sfx', e.target.checked)} />
                     Hiệu ứng âm thanh (đấm, lao tới, gom khí)

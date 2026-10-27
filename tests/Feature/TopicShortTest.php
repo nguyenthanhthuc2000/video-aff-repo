@@ -368,6 +368,34 @@ class TopicShortTest extends TestCase
         $this->assertNull($scene->clip_path);
     }
 
+    public function test_channel_logo_upload_and_render_overlay()
+    {
+        Queue::fake();
+        $this->actingAs($this->user)->post(route('channel-logo.store'), ['logo' => UploadedFile::fake()->image('logo.jpg')])->assertSessionHasErrors('logo');
+        $this->actingAs($this->user)->post(route('channel-logo.store'), ['logo' => UploadedFile::fake()->image('logo.png', 300, 300)])->assertSessionHasNoErrors();
+        $logo = $this->user->fresh()->logo_path;
+        Storage::disk(config('videoaff.disk'))->assertExists($logo);
+
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'language' => 'vi']);
+        Storage::disk(config('videoaff.disk'))->put('topic-shorts/test/scene.png', self::png());
+        TopicShortScene::factory()->for($short)->withImage()->create(['position' => 1, 'narration' => 'Câu kể.', 'image_path' => 'topic-shorts/test/scene.png']);
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
+            ->whereNot('logo_url', null)->where('render_defaults.logo', true));
+
+        foreach (['fast', 'page'] as $style) {
+            $dir = storage_path('framework/testing/logo-'.$style);
+            File::ensureDirectoryExists($dir);
+            $video = ShortVideo::render($short->fresh(), $dir, ['style' => $style, 'sfx' => true, 'logo' => true]);
+            $this->assertFileExists($video['path']);
+            $this->assertFileExists("{$dir}/logo.png");
+            File::deleteDirectory($dir);
+        }
+
+        $this->actingAs($this->user)->delete(route('channel-logo.destroy'))->assertSessionHas('status');
+        $this->assertNull($this->user->fresh()->logo_path);
+        Storage::disk(config('videoaff.disk'))->assertMissing($logo);
+    }
+
     public function test_scene_voice_upload_replaces_machine_voice_for_that_scene()
     {
         Queue::fake();

@@ -134,7 +134,9 @@ class ShortVideo
         $mark = trim((string) ($options['watermark'] ?? ''));
         $fast && $mark !== '' && $events[] = [0, $total, 'Mark', mb_strtoupper($mark)];
         File::put("{$dir}/text.ass", self::ass($events));
-        $filters[] = "[vc]subtitles='".self::escapePath("{$dir}/text.ass")."':fontsdir='".self::escapePath(resource_path('fonts'))."',format=yuv420p[v]";
+        // Logo kênh (PNG) góc trên phải, rộng ~14% khung, giữ nền trong suốt; nhận input sau cùng.
+        $logo = ($options['logo'] ?? false) ? self::logo($short, $dir) : null;
+        $filters[] = "[vc]subtitles='".self::escapePath("{$dir}/text.ass")."':fontsdir='".self::escapePath(resource_path('fonts'))."',format=yuv420p".($logo ? '[vs]' : '[v]');
 
         $seconds = self::seconds($total);
         $args = [...$args, '-i', "{$dir}/voice.wav"];
@@ -167,6 +169,12 @@ class ShortVideo
         $filters[] = $effects === []
             ? '[base]anull[a]'
             : '[base]'.implode('', array_map(fn ($k) => "[s{$k}]", array_keys($effects))).'amix=inputs='.(count($effects) + 1).':normalize=0:duration=first[a]';
+        if ($logo) {
+            $index = $next + count($effects);
+            $args = [...$args, '-i', $logo];
+            $filters[] = "[{$index}:v]format=rgba,scale=".(int) round(self::WIDTH * 0.14).':-1[logo]';
+            $filters[] = '[vs][logo]overlay=W-w-40:40:format=auto,format=yuv420p[v]';
+        }
 
         $out = "{$dir}/short.mp4";
         $result = Process::timeout(900)->run([
@@ -377,6 +385,19 @@ class ShortVideo
             ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps=".self::FPS.',setsar=1,format=yuv420p'."[v{$k}]",
             ['-i', $local],
         ];
+    }
+
+    /** File tạm của logo kênh của chủ short (PNG), chưa có logo thì null. */
+    private static function logo(TopicShort $short, string $dir): ?string
+    {
+        $path = $short->user?->logo_path;
+        $contents = $path ? Media::disk()->get($path) : null;
+        if ($contents === null) {
+            return null;
+        }
+        File::put("{$dir}/logo.png", $contents);
+
+        return "{$dir}/logo.png";
     }
 
     /** File tạm của video ngắn của cảnh (đã xong), không có thì null. */

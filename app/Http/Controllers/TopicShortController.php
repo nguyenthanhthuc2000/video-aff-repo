@@ -212,7 +212,10 @@ class TopicShortController extends Controller
                 'style' => $short->video_options['style'] ?? 'fast',
                 'watermark' => $short->video_options['watermark']
                     ?? TopicShort::where('user_id', $short->user_id)->whereNotNull('video_options')->latest('updated_at')->get(['video_options'])->pluck('video_options.watermark')->filter()->first() ?? '',
+                // Có logo thì mặc định gắn, trừ khi lần dựng trước của short này bỏ tích.
+                'logo' => (bool) ($short->video_options['logo'] ?? true),
             ],
+            'logo_url' => Media::url($request->user()->logo_path),
             'music_suggestion' => ShortVideo::suggestMusic($scenes, $music, $builtin),
             'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'clip' => GenerateTopicSceneClipJob::price(), 'render' => RenderTopicShortJob::price($estimatedMs)],
@@ -714,6 +717,7 @@ class TopicShortController extends Controller
             'sfx' => ['boolean'],
             'style' => ['nullable', Rule::in(['fast', 'page'])],
             'watermark' => ['nullable', 'string', 'max:30'],
+            'logo' => ['boolean'],
         ]);
         if ($short->status !== 'ready' || ! $short->allImagesReady()) {
             return back()->with('status', 'Mọi cảnh cần có ảnh trước khi dựng video.');
@@ -729,6 +733,27 @@ class TopicShortController extends Controller
         RenderTopicShortJob::dispatch($short, $run);
 
         return back()->with('status', 'Đang đọc giọng và dựng video (khoảng 1–2 phút)...');
+    }
+
+    /** Logo kênh (PNG, giữ nền trong suốt) dùng chung cho mọi video. */
+    public function logo(Request $request): RedirectResponse
+    {
+        $request->validate(['logo' => ['required', 'file', 'mimes:png', 'max:5120']], [], ['logo' => 'logo']);
+        $user = $request->user();
+        $old = $user->logo_path;
+        $user->update(['logo_path' => Media::store($request->file('logo'), "logos/{$user->id}")]);
+        $old && Media::delete($old);
+
+        return back()->with('status', 'Đã lưu logo. Tích "Gắn logo" khi dựng video.');
+    }
+
+    public function logoDestroy(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        Media::delete($user->logo_path);
+        $user->update(['logo_path' => null]);
+
+        return back()->with('status', 'Đã xoá logo.');
     }
 
     /** Claude viết (lại) tiêu đề, mô tả, hashtag và chữ ảnh bìa. */
