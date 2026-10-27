@@ -125,7 +125,6 @@ export default function TopicShortShow({
     image_styles,
     pronunciations,
     render_defaults,
-    logo_url,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
@@ -134,8 +133,7 @@ export default function TopicShortShow({
     image_styles: Record<string, string>;
     prices: { image: number; clip: number; render: number };
     pronunciations: PronunciationRow[];
-    render_defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean; logo_size: number };
-    logo_url: string | null;
+    render_defaults: RenderDefaults;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
         short.use_research ? { title: 'Video truyện', href: '/story-videos' } : { title: 'Shorts chủ đề', href: '/topic-shorts' },
@@ -363,7 +361,6 @@ export default function TopicShortShow({
                             suggestion={music_suggestion}
                             price={prices.render}
                             defaults={render_defaults}
-                            logoUrl={logo_url}
                         />
                         <VoicesPanel short={short} />
                         {short.language !== 'en' && <PronunciationPanel rows={pronunciations} />}
@@ -851,6 +848,138 @@ function MuseFix({ scene }: { scene: ShortScene }) {
     );
 }
 
+type OverlayKind = 'logo' | 'copyright';
+
+interface Overlay {
+    on: boolean;
+    size: number;
+    opacity: number;
+    position: string;
+    url: string | null;
+}
+
+interface RenderDefaults {
+    style: 'fast' | 'page';
+    watermark: string;
+    overlays: Record<OverlayKind, Overlay>;
+}
+
+const overlayTitles: Record<OverlayKind, string> = { logo: 'Logo kênh', copyright: 'Logo bản quyền' };
+
+/** Vị trí logo (khớp ShortVideo::POSITIONS) và chỗ đặt tương ứng trên khung xem trước. */
+const overlayPositions: Record<string, { label: string; style: React.CSSProperties }> = {
+    tl: { label: 'Trên trái', style: { top: '2.1%', left: '3.7%' } },
+    tc: { label: 'Trên giữa', style: { top: '2.1%', left: '50%', transform: 'translateX(-50%)' } },
+    tr: { label: 'Trên phải', style: { top: '2.1%', right: '3.7%' } },
+    ml: { label: 'Giữa trái', style: { top: '50%', left: '3.7%', transform: 'translateY(-50%)' } },
+    c: { label: 'Chính giữa', style: { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' } },
+    mr: { label: 'Giữa phải', style: { top: '50%', right: '3.7%', transform: 'translateY(-50%)' } },
+    bl: { label: 'Dưới trái', style: { bottom: '2.1%', left: '3.7%' } },
+    bc: { label: 'Dưới giữa', style: { bottom: '2.1%', left: '50%', transform: 'translateX(-50%)' } },
+    br: { label: 'Dưới phải', style: { bottom: '2.1%', right: '3.7%' } },
+};
+
+/** Một lớp logo: tải PNG lên (dùng cho mọi video), tích để gắn, chỉnh cỡ, độ đậm, vị trí. */
+function OverlayControl({ kind, value, onChange }: { kind: OverlayKind; value: Overlay; onChange: (value: Overlay) => void }) {
+    const file = useRef<HTMLInputElement>(null);
+    const title = overlayTitles[kind];
+    const upload = (logo: File | undefined) =>
+        logo &&
+        router.post(
+            route('channel-logo.store', kind),
+            { logo },
+            { preserveScroll: true, forceFormData: true, onError: (errors) => errors.logo && alert(errors.logo) },
+        );
+    const remove = () => confirm(`Xoá ${title.toLowerCase()}?`) && router.delete(route('channel-logo.destroy', kind), { preserveScroll: true });
+    const set = (patch: Partial<Overlay>) => onChange({ ...value, ...patch });
+
+    return (
+        <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+                <Label className="w-28">{title} (PNG)</Label>
+                {value.url && (
+                    <img
+                        src={value.url}
+                        alt={title}
+                        className="h-9 w-9 rounded border bg-[repeating-conic-gradient(#ddd_0_25%,#fff_0_50%)] bg-[length:10px_10px] object-contain"
+                    />
+                )}
+                {value.url && (
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" className="size-4" checked={value.on} onChange={(e) => set({ on: e.target.checked })} />
+                        Gắn {title.toLowerCase()}
+                    </label>
+                )}
+                <Button type="button" size="sm" variant="outline" onClick={() => file.current?.click()}>
+                    <Upload /> {value.url ? 'Đổi ảnh' : 'Tải lên'}
+                </Button>
+                {value.url && (
+                    <Button type="button" size="sm" variant="ghost" onClick={remove}>
+                        Xoá
+                    </Button>
+                )}
+                <input
+                    ref={file}
+                    type="file"
+                    accept="image/png"
+                    className="hidden"
+                    aria-label={title}
+                    onChange={(e) => {
+                        upload(e.target.files?.[0]);
+                        e.target.value = '';
+                    }}
+                />
+            </div>
+            {value.url && value.on && (
+                <div className="flex flex-wrap items-center gap-4 pl-30 text-sm">
+                    <label className="flex items-center gap-2">
+                        Cỡ {value.size}%
+                        <input type="range" min={5} max={80} value={value.size} onChange={(e) => set({ size: Number(e.target.value) })} />
+                    </label>
+                    <label className="flex items-center gap-2">
+                        Độ đậm {value.opacity}%
+                        <input type="range" min={5} max={100} value={value.opacity} onChange={(e) => set({ opacity: Number(e.target.value) })} />
+                    </label>
+                    <select
+                        aria-label={`Vị trí ${title.toLowerCase()}`}
+                        className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+                        value={value.position}
+                        onChange={(e) => set({ position: e.target.value })}
+                    >
+                        {Object.entries(overlayPositions).map(([key, { label }]) => (
+                            <option key={key} value={key}>
+                                {label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Xem trước các logo đang gắn trên khung 9:16 (đúng cỡ, độ đậm, vị trí). */
+function OverlayPreview({ overlays }: { overlays: Overlay[] }) {
+    const shown = overlays.filter((o) => o.on && o.url);
+    if (shown.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="relative aspect-[9/16] w-28 overflow-hidden rounded border bg-neutral-700" title="Xem trước logo trên video">
+            {shown.map((o, i) => (
+                <img
+                    key={i}
+                    src={o.url!}
+                    alt=""
+                    className="absolute h-auto"
+                    style={{ ...overlayPositions[o.position]?.style, width: `${o.size}%`, opacity: o.opacity / 100 }}
+                />
+            ))}
+        </div>
+    );
+}
+
 type StepKey = 'research' | 'script' | 'images' | 'video' | 'publish';
 
 interface Step {
@@ -1081,15 +1210,13 @@ function RenderPanel({
     suggestion,
     price,
     defaults,
-    logoUrl,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
     builtin: { file: string; name: string }[];
     suggestion: { mood: string | null; track_id: number | null; file: string | null };
     price: number;
-    defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean; logo_size: number };
-    logoUrl: string | null;
+    defaults: RenderDefaults;
 }) {
     // Giá trị ô nhạc: "track:<id>" (nhạc của bạn) hoặc "file:<tên file>" (nhạc có sẵn trong public/nhac).
     const { data, setData, post, processing, transform } = useForm<{
@@ -1098,8 +1225,7 @@ function RenderPanel({
         sfx: boolean;
         style: 'fast' | 'page';
         watermark: string;
-        logo: boolean;
-        logo_size: number;
+        overlays: Record<OverlayKind, Overlay>;
     }>({
         music: suggestion.track_id
             ? `track:${suggestion.track_id}`
@@ -1112,18 +1238,8 @@ function RenderPanel({
         sfx: true,
         style: defaults.style,
         watermark: defaults.watermark,
-        logo: defaults.logo,
-        logo_size: defaults.logo_size,
+        overlays: defaults.overlays,
     });
-    const logoFile = useRef<HTMLInputElement>(null);
-    const uploadLogo = (logo: File | undefined) =>
-        logo &&
-        router.post(
-            route('channel-logo.store'),
-            { logo },
-            { preserveScroll: true, forceFormData: true, onError: (errors) => errors.logo && alert(errors.logo) },
-        );
-    const removeLogo = () => confirm('Xoá logo?') && router.delete(route('channel-logo.destroy'), { preserveScroll: true });
     const rendering = short.video_status === 'rendering';
 
     const submit: FormEventHandler = (e) => {
@@ -1131,9 +1247,16 @@ function RenderPanel({
         if (short.unsupported_count > 0 && !confirm(`${short.unsupported_count} cảnh có câu không có trong tư liệu (đánh dấu đỏ). Vẫn dựng video?`)) {
             return;
         }
-        transform(({ music, logo, ...rest }) => ({
+        transform(({ music, overlays, ...rest }) => ({
             ...rest,
-            logo: logo && !!logoUrl,
+            ...Object.fromEntries(
+                (Object.entries(overlays) as [OverlayKind, Overlay][]).flatMap(([kind, o]) => [
+                    [kind, o.on && !!o.url],
+                    [`${kind}_size`, o.size],
+                    [`${kind}_opacity`, o.opacity],
+                    [`${kind}_position`, o.position],
+                ]),
+            ),
             music_track_id: music.startsWith('track:') ? Number(music.slice(6)) : null,
             music_file: music.startsWith('file:') ? music.slice(5) : null,
         }));
@@ -1226,64 +1349,18 @@ function RenderPanel({
                         />
                     </div>
                 )}
-                <div className="grid gap-2">
-                    <Label>Logo kênh (PNG, góc trên phải)</Label>
-                    <div className="flex items-center gap-2">
-                        {logoUrl && (
-                            <img
-                                src={logoUrl}
-                                alt="Logo"
-                                className="h-9 w-9 rounded border bg-[repeating-conic-gradient(#ddd_0_25%,#fff_0_50%)] bg-[length:10px_10px] object-contain"
+                <div className="flex basis-full flex-wrap items-start gap-6">
+                    <div className="space-y-4">
+                        {(['logo', 'copyright'] as const).map((kind) => (
+                            <OverlayControl
+                                key={kind}
+                                kind={kind}
+                                value={data.overlays[kind]}
+                                onChange={(value) => setData('overlays', { ...data.overlays, [kind]: value })}
                             />
-                        )}
-                        {logoUrl && (
-                            <label className="flex items-center gap-2 text-sm">
-                                <input type="checkbox" className="size-4" checked={data.logo} onChange={(e) => setData('logo', e.target.checked)} />
-                                Gắn logo
-                            </label>
-                        )}
-                        <Button type="button" size="sm" variant="outline" onClick={() => logoFile.current?.click()}>
-                            <Upload /> {logoUrl ? 'Đổi logo' : 'Tải logo lên'}
-                        </Button>
-                        {logoUrl && (
-                            <Button type="button" size="sm" variant="ghost" onClick={removeLogo}>
-                                Xoá
-                            </Button>
-                        )}
-                        <input
-                            ref={logoFile}
-                            type="file"
-                            accept="image/png"
-                            className="hidden"
-                            aria-label="Logo kênh"
-                            onChange={(e) => {
-                                uploadLogo(e.target.files?.[0]);
-                                e.target.value = '';
-                            }}
-                        />
+                        ))}
                     </div>
-                    {logoUrl && data.logo && (
-                        <div className="flex items-center gap-2 text-sm">
-                            <label htmlFor="logo_size">Cỡ logo: {data.logo_size}% bề ngang</label>
-                            <input
-                                id="logo_size"
-                                type="range"
-                                min={8}
-                                max={50}
-                                value={data.logo_size}
-                                onChange={(e) => setData('logo_size', Number(e.target.value))}
-                            />
-                            {/* Xem trước vị trí và cỡ logo trên khung 9:16. */}
-                            <div className="relative aspect-[9/16] w-16 overflow-hidden rounded border bg-neutral-700">
-                                <img
-                                    src={logoUrl}
-                                    alt=""
-                                    className="absolute top-[2.1%] right-[3.7%] h-auto"
-                                    style={{ width: `${data.logo_size}%` }}
-                                />
-                            </div>
-                        </div>
-                    )}
+                    <OverlayPreview overlays={Object.values(data.overlays)} />
                 </div>
                 <label className="flex h-9 items-center gap-2 text-sm">
                     <input type="checkbox" className="size-4" checked={data.sfx} onChange={(e) => setData('sfx', e.target.checked)} />

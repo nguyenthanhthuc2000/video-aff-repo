@@ -30,6 +30,22 @@ class ShortVideo
     /** Bề rộng logo mặc định, % bề rộng khung. */
     public const LOGO_SIZE = 22;
 
+    /**
+     * Hai lớp logo (PNG, tải lên một lần, dùng cho mọi video): logo kênh và logo bản quyền.
+     * Mặc định: [cột ảnh trên bảng users, cỡ % bề ngang, độ đậm %, vị trí].
+     */
+    public const OVERLAYS = [
+        'logo' => ['logo_path', self::LOGO_SIZE, 100, 'tr'],
+        'copyright' => ['copyright_logo_path', 40, 35, 'c'],
+    ];
+
+    /** Vị trí logo: 4 góc, giữa các cạnh, chính giữa (cách mép 40px). */
+    public const POSITIONS = [
+        'tl' => '40:40', 'tc' => '(W-w)/2:40', 'tr' => 'W-w-40:40',
+        'ml' => '40:(H-h)/2', 'c' => '(W-w)/2:(H-h)/2', 'mr' => 'W-w-40:(H-h)/2',
+        'bl' => '40:H-h-40', 'bc' => '(W-w)/2:H-h-40', 'br' => 'W-w-40:H-h-40',
+    ];
+
     public const FPS = 30;
 
     /**
@@ -137,9 +153,18 @@ class ShortVideo
         $mark = trim((string) ($options['watermark'] ?? ''));
         $fast && $mark !== '' && $events[] = [0, $total, 'Mark', mb_strtoupper($mark)];
         File::put("{$dir}/text.ass", self::ass($events));
-        // Logo kênh (PNG) góc trên phải, rộng ~14% khung, giữ nền trong suốt; nhận input sau cùng.
-        $logo = ($options['logo'] ?? false) ? self::logo($short, $dir) : null;
-        $filters[] = "[vc]subtitles='".self::escapePath("{$dir}/text.ass")."':fontsdir='".self::escapePath(resource_path('fonts'))."',format=yuv420p".($logo ? '[vs]' : '[v]');
+        // Logo kênh / logo bản quyền (PNG, giữ nền trong suốt) phủ lên sau phụ đề; nhận input sau cùng.
+        $overlays = [];
+        foreach (self::OVERLAYS as $key => [$column, $size, $opacity, $position]) {
+            $file = ($options[$key] ?? false) ? self::logo($short, $dir, $column, $key) : null;
+            $file && $overlays[] = [
+                $file,
+                max(5, min(80, (int) ($options["{$key}_size"] ?? $size))),
+                max(5, min(100, (int) ($options["{$key}_opacity"] ?? $opacity))),
+                self::POSITIONS[$options["{$key}_position"] ?? $position] ?? self::POSITIONS[$position],
+            ];
+        }
+        $filters[] = "[vc]subtitles='".self::escapePath("{$dir}/text.ass")."':fontsdir='".self::escapePath(resource_path('fonts'))."',format=yuv420p".($overlays ? '[o0]' : '[v]');
 
         $seconds = self::seconds($total);
         $args = [...$args, '-i', "{$dir}/voice.wav"];
@@ -172,12 +197,13 @@ class ShortVideo
         $filters[] = $effects === []
             ? '[base]anull[a]'
             : '[base]'.implode('', array_map(fn ($k) => "[s{$k}]", array_keys($effects))).'amix=inputs='.(count($effects) + 1).':normalize=0:duration=first[a]';
-        if ($logo) {
-            $index = $next + count($effects);
-            $args = [...$args, '-i', $logo];
-            $size = max(8, min(50, (int) ($options['logo_size'] ?? self::LOGO_SIZE)));
-            $filters[] = "[{$index}:v]format=rgba,scale=".(int) round(self::WIDTH * $size / 100).':-1[logo]';
-            $filters[] = '[vs][logo]overlay=W-w-40:40:format=auto,format=yuv420p[v]';
+        foreach ($overlays as $k => [$file, $size, $opacity, $xy]) {
+            $index = $next + count($effects) + $k;
+            $args = [...$args, '-i', $file];
+            $alpha = $opacity < 100 ? ',colorchannelmixer=aa='.round($opacity / 100, 2) : '';
+            $filters[] = "[{$index}:v]format=rgba,scale=".(int) round(self::WIDTH * $size / 100).":-1{$alpha}[logo{$k}]";
+            $label = $k === count($overlays) - 1 ? '[v]' : '[o'.($k + 1).']';
+            $filters[] = "[o{$k}][logo{$k}]overlay={$xy}:format=auto,format=yuv420p{$label}";
         }
 
         $out = "{$dir}/short.mp4";
@@ -391,17 +417,17 @@ class ShortVideo
         ];
     }
 
-    /** File tạm của logo kênh của chủ short (PNG), chưa có logo thì null. */
-    private static function logo(TopicShort $short, string $dir): ?string
+    /** File tạm của một logo của chủ short (PNG), chưa tải lên thì null. */
+    private static function logo(TopicShort $short, string $dir, string $column, string $key): ?string
     {
-        $path = $short->user?->logo_path;
+        $path = $short->user?->{$column};
         $contents = $path ? Media::disk()->get($path) : null;
         if ($contents === null) {
             return null;
         }
-        File::put("{$dir}/logo.png", $contents);
+        File::put("{$dir}/{$key}.png", $contents);
 
-        return "{$dir}/logo.png";
+        return "{$dir}/{$key}.png";
     }
 
     /** File tạm của video ngắn của cảnh (đã xong), không có thì null. */

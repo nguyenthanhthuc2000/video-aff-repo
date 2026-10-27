@@ -371,8 +371,11 @@ class TopicShortTest extends TestCase
     public function test_channel_logo_upload_and_render_overlay()
     {
         Queue::fake();
-        $this->actingAs($this->user)->post(route('channel-logo.store'), ['logo' => UploadedFile::fake()->image('logo.jpg')])->assertSessionHasErrors('logo');
-        $this->actingAs($this->user)->post(route('channel-logo.store'), ['logo' => UploadedFile::fake()->image('logo.png', 300, 300)])->assertSessionHasNoErrors();
+        $this->actingAs($this->user)->post(route('channel-logo.store', 'logo'), ['logo' => UploadedFile::fake()->image('logo.jpg')])->assertSessionHasErrors('logo');
+        $this->actingAs($this->user)->post(route('channel-logo.store', 'logo'), ['logo' => UploadedFile::fake()->image('logo.png', 300, 300)])->assertSessionHasNoErrors();
+        $this->actingAs($this->user)->post(route('channel-logo.store', 'copyright'), ['logo' => UploadedFile::fake()->image('c.png', 400, 100)])->assertSessionHasNoErrors();
+        $this->actingAs($this->user)->post(route('channel-logo.store', 'other'), ['logo' => UploadedFile::fake()->image('c.png')])->assertNotFound();
+        $this->assertNotNull($this->user->fresh()->copyright_logo_path);
         $logo = $this->user->fresh()->logo_path;
         Storage::disk(config('videoaff.disk'))->assertExists($logo);
 
@@ -380,18 +383,22 @@ class TopicShortTest extends TestCase
         Storage::disk(config('videoaff.disk'))->put('topic-shorts/test/scene.png', self::png());
         TopicShortScene::factory()->for($short)->withImage()->create(['position' => 1, 'narration' => 'Câu kể.', 'image_path' => 'topic-shorts/test/scene.png']);
         $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
-            ->whereNot('logo_url', null)->where('render_defaults.logo', true));
+            ->whereNot('render_defaults.overlays.logo.url', null)->where('render_defaults.overlays.logo.on', true)
+            ->where('render_defaults.overlays.copyright.position', 'c')->where('render_defaults.overlays.copyright.opacity', 35));
 
         foreach (['fast', 'page'] as $style) {
             $dir = storage_path('framework/testing/logo-'.$style);
             File::ensureDirectoryExists($dir);
-            $video = ShortVideo::render($short->fresh(), $dir, ['style' => $style, 'sfx' => true, 'logo' => true, 'logo_size' => 30]);
+            $video = ShortVideo::render($short->fresh(), $dir, ['style' => $style, 'sfx' => true, 'logo' => true, 'logo_size' => 30,
+                'copyright' => true, 'copyright_size' => 50, 'copyright_opacity' => 40, 'copyright_position' => 'bl']);
             $this->assertFileExists($video['path']);
             $this->assertFileExists("{$dir}/logo.png");
+            $this->assertFileExists("{$dir}/copyright.png");
             File::deleteDirectory($dir);
         }
 
-        $this->actingAs($this->user)->delete(route('channel-logo.destroy'))->assertSessionHas('status');
+        $this->actingAs($this->user)->post(route('topic-shorts.render', $short), ['copyright_position' => 'middle'])->assertSessionHasErrors('copyright_position');
+        $this->actingAs($this->user)->delete(route('channel-logo.destroy', 'logo'))->assertSessionHas('status');
         $this->assertNull($this->user->fresh()->logo_path);
         Storage::disk(config('videoaff.disk'))->assertMissing($logo);
     }

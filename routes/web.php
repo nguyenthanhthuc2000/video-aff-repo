@@ -131,8 +131,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-shorts/{short}/cover', [TopicShortController::class, 'cover'])->name('topic-shorts.cover');
     Route::put('topic-shorts/{short}/image-style', [TopicShortController::class, 'imageStyle'])->name('topic-shorts.image-style');
     Route::get('topic-short-scenes/{scene}/image', [TopicShortController::class, 'sceneImageDownload'])->name('topic-short-scenes.image.download');
-    Route::post('channel-logo', [TopicShortController::class, 'logo'])->name('channel-logo.store');
-    Route::delete('channel-logo', [TopicShortController::class, 'logoDestroy'])->name('channel-logo.destroy');
+    Route::post('channel-logo/{kind}', [TopicShortController::class, 'logo'])->name('channel-logo.store');
+    Route::delete('channel-logo/{kind}', [TopicShortController::class, 'logoDestroy'])->name('channel-logo.destroy');
     Route::post('topic-shorts/{short}/cover-upload', [TopicShortController::class, 'coverUpload'])->name('topic-shorts.cover.upload');
     Route::get('topic-shorts/{short}/cover', [TopicShortController::class, 'coverDownload'])->name('topic-shorts.cover.download');
     Route::post('pronunciations', [PronunciationController::class, 'store'])->name('pronunciations.store');
