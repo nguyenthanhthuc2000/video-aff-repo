@@ -6,6 +6,7 @@ use App\Jobs\CheckTopicShortFactsJob;
 use App\Jobs\FindSceneImagesJob;
 use App\Jobs\FindTopicSceneImageJob;
 use App\Jobs\GenerateCharacterPortraitJob;
+use App\Jobs\GenerateTopicSceneClipJob;
 use App\Jobs\GenerateTopicSceneImageJob;
 use App\Jobs\PlanTopicSeriesJob;
 use App\Jobs\ProcessMangaScanJob;
@@ -161,7 +162,7 @@ class TopicShortController extends Controller
                 'video_url' => Media::url($short->video_path),
                 'video_ms' => $short->video_ms,
                 'estimated_ms' => $estimatedMs,
-                'images_busy' => $scenes->contains(fn ($scene) => in_array($scene->image_status, ['searching', 'pending'], true)),
+                'images_busy' => $scenes->contains(fn ($scene) => in_array($scene->image_status, ['searching', 'pending'], true) || $scene->clip_status === 'pending'),
                 'image_stats' => collect(['ready', 'failed', 'pending', 'searching'])->mapWithKeys(fn ($status) => [$status => $scenes->where('image_status', $status)->count()]),
                 'all_images_ready' => $scenes->isNotEmpty() && $scenes->every(fn ($scene) => $scene->image_status === 'ready'),
                 'scenes' => $scenes->map(fn (TopicShortScene $scene) => [
@@ -186,6 +187,9 @@ class TopicShortController extends Controller
                     'mood' => $scene->mood,
                     'manga_panels' => collect($scene->manga_panels ?? [])->map(fn ($id) => $mangaPanels->get($id))->filter()->map(fn (MangaPanel $panel) => MangaPanelController::present($panel))->values(),
                     'voice_url' => Media::url($scene->voice_path),
+                    'clip_url' => Media::url($scene->clip_path),
+                    'clip_status' => $scene->clip_status,
+                    'clip_error' => $scene->clip_error,
                     'voice_ms' => $scene->voice_ms,
                     'panels' => collect(MangaPage::resolve($scene, $library))->map(fn ($item) => [
                         ...$item['panel'],
@@ -209,7 +213,7 @@ class TopicShortController extends Controller
             ],
             'music_suggestion' => ShortVideo::suggestMusic($scenes, $music, $builtin),
             'image_styles' => TopicShort::IMAGE_STYLES,
-            'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
+            'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'clip' => GenerateTopicSceneClipJob::price(), 'render' => RenderTopicShortJob::price($estimatedMs)],
             'max_attempts' => CharacterLibraryController::MAX_ATTEMPTS,
             // Tên tiếng Anh trong lời kể và cách giọng Việt sẽ đọc (chỉ cho short tiếng Việt).
             'pronunciations' => $short->language === 'en' ? [] : Pronounce::found($scenes->pluck('narration')->implode("\n"), $short->user_id),
@@ -591,6 +595,36 @@ class TopicShortController extends Controller
         Media::delete($old);
 
         return back()->with('status', "Đã tải giọng cảnh {$scene->position}. Dựng lại video để dùng giọng này.");
+    }
+
+    /** Muse làm video ngắn từ ảnh hiện tại của cảnh (riêng với nút Muse vẽ ảnh). */
+    public function clip(Request $request, TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        if ($scene->clip_status === 'pending') {
+            return back()->with('status', 'Video cảnh này đang được tạo.');
+        }
+        if (! $scene->image_path || $this->busy($scene)) {
+            return back()->with('status', 'Cảnh cần có ảnh xong trước khi làm video.');
+        }
+        if ($message = Credits::shortfall($request->user(), GenerateTopicSceneClipJob::price(), 'làm video cảnh')) {
+            return back()->with('status', $message);
+        }
+        GenerateTopicSceneClipJob::resetCounters($scene);
+        $scene->update(['clip_status' => 'pending', 'clip_request_id' => null, 'clip_error' => null]);
+        GenerateTopicSceneClipJob::dispatch($scene);
+
+        return back()->with('status', "Muse đang làm video cảnh {$scene->position} từ ảnh hiện tại (vài phút)...");
+    }
+
+    public function clipDestroy(TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        abort_if($scene->clip_status === 'pending', 409);
+        Media::delete($scene->clip_path);
+        $scene->update(['clip_path' => null, 'clip_status' => 'none', 'clip_error' => null]);
+
+        return back()->with('status', "Cảnh {$scene->position} quay lại dùng ảnh động.");
     }
 
     public function voiceDestroy(TopicShortScene $scene): RedirectResponse

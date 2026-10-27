@@ -86,11 +86,13 @@ class ShortVideo
         $events = [];
         $count = 0;
         foreach ($scenes->values() as $i => $scene) {
+            // Cảnh có video ngắn Muse làm: dùng video (lặp nếu ngắn hơn lời kể) thay ảnh động.
+            $clip = self::clip($scene, $dir, $i);
             if ($fast) {
                 // Kiểu cắt nhanh: mỗi khung manga thật là một cảnh quay riêng 2–4 giây, phủ kín màn hình, zoom / lia liên tục.
-                foreach (self::shots($scene, $dir, $i, $bounds[$i], $bounds[$i + 1]) as [$local, $from, $to]) {
+                foreach ($clip ? [[$clip, $bounds[$i], $bounds[$i + 1]]] : self::shots($scene, $dir, $i, $bounds[$i], $bounds[$i + 1]) as [$local, $from, $to]) {
                     $frames = max(1, (int) round(($to - $from) / 1000 * self::FPS));
-                    [$filter, $input] = self::shotFilter($count, $local, $frames);
+                    [$filter, $input] = $clip ? self::clipFilter($count, $local, $frames) : self::shotFilter($count, $local, $frames);
                     $args = [...$args, ...$input];
                     $filters[] = $filter;
                     $count++;
@@ -103,15 +105,21 @@ class ShortVideo
 
                 continue;
             }
-            $local = "{$dir}/img{$i}.".(pathinfo($scene->image_path, PATHINFO_EXTENSION) ?: 'jpg');
-            $contents = Media::disk()->get($scene->image_path);
-            if ($contents === null) {
-                throw new RuntimeException("Không đọc được ảnh cảnh {$scene->position}.");
-            }
-            File::put($local, $contents);
-            $args = [...$args, '-i', $local];
             $frames = max(1, (int) round(($bounds[$i + 1] - $bounds[$i]) / 1000 * self::FPS));
-            $filters[] = self::sceneFilter($count, $frames, $scene->image_source === 'page');
+            if ($clip) {
+                [$filter, $input] = self::clipFilter($count, $clip, $frames);
+                $args = [...$args, ...$input];
+                $filters[] = $filter;
+            } else {
+                $local = "{$dir}/img{$i}.".(pathinfo($scene->image_path, PATHINFO_EXTENSION) ?: 'jpg');
+                $contents = Media::disk()->get($scene->image_path);
+                if ($contents === null) {
+                    throw new RuntimeException("Không đọc được ảnh cảnh {$scene->position}.");
+                }
+                File::put($local, $contents);
+                $args = [...$args, '-i', $local];
+                $filters[] = self::sceneFilter($count, $frames, $scene->image_source === 'page');
+            }
             $count++;
 
             $title = $i === 0 && $short->title ? $short->title : (string) $scene->on_screen_text;
@@ -368,6 +376,39 @@ class ShortVideo
             "[{$k}:v]scale={$bigW}:{$bigH}:force_original_aspect_ratio=increase,crop={$bigW}:{$bigH},"
             ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps=".self::FPS.',setsar=1,format=yuv420p'."[v{$k}]",
             ['-i', $local],
+        ];
+    }
+
+    /** File tạm của video ngắn của cảnh (đã xong), không có thì null. */
+    private static function clip(TopicShortScene $scene, string $dir, int $i): ?string
+    {
+        if ($scene->clip_status !== 'ready' || ! $scene->clip_path) {
+            return null;
+        }
+        $contents = Media::disk()->get($scene->clip_path);
+        if ($contents === null) {
+            return null;
+        }
+        $local = "{$dir}/clip{$i}.".(pathinfo($scene->clip_path, PATHINFO_EXTENSION) ?: 'mp4');
+        File::put($local, $contents);
+
+        return $local;
+    }
+
+    /**
+     * Video ngắn phủ kín 9:16, lặp lại nếu ngắn hơn đoạn lời kể, bỏ tiếng của video.
+     *
+     * @return array{0: string, 1: list<string>} [filter, tham số input ffmpeg]
+     */
+    private static function clipFilter(int $k, string $local, int $frames): array
+    {
+        $w = self::WIDTH;
+        $h = self::HEIGHT;
+
+        return [
+            "[{$k}:v]fps=".self::FPS.",scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},"
+            ."trim=end_frame={$frames},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v{$k}]",
+            ['-stream_loop', '-1', '-i', $local],
         ];
     }
 

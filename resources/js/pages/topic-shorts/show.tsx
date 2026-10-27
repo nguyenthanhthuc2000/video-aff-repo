@@ -20,6 +20,7 @@ import {
     Check,
     ChevronLeft,
     ChevronRight,
+    Clapperboard,
     Download,
     ImageOff,
     LayoutPanelTop,
@@ -65,6 +66,9 @@ interface ShortScene {
     mood: string | null;
     manga_panels: Panel[];
     voice_url: string | null;
+    clip_url: string | null;
+    clip_status: 'none' | 'pending' | 'ready' | 'failed';
+    clip_error: string | null;
     voice_ms: number | null;
     panels: { character: string; pose: string; camera: string; name: string; label: string; url: string | null; exact: boolean }[];
 }
@@ -125,7 +129,7 @@ export default function TopicShortShow({
     builtin_music: { file: string; name: string }[];
     music_suggestion: { mood: string | null; track_id: number | null; file: string | null };
     image_styles: Record<string, string>;
-    prices: { image: number; render: number };
+    prices: { image: number; clip: number; render: number };
     pronunciations: PronunciationRow[];
     render_defaults: { style: 'fast' | 'page'; watermark: string };
 }) {
@@ -324,7 +328,7 @@ export default function TopicShortShow({
                             <MangaPanelsBar short={short} price={prices.image} />
                             <div className="grid gap-4 lg:grid-cols-2">
                                 {short.scenes.map((scene) => (
-                                    <SceneImageCard key={scene.id} scene={scene} />
+                                    <SceneImageCard key={scene.id} scene={scene} clipPrice={prices.clip} />
                                 ))}
                             </div>
                         </section>
@@ -577,7 +581,7 @@ function CharactersPanel({ short }: { short: TopicShort }) {
     );
 }
 
-function SceneImageCard({ scene }: { scene: ShortScene }) {
+function SceneImageCard({ scene, clipPrice }: { scene: ShortScene; clipPrice: number }) {
     const upload = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState(scene.image_query ?? '');
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -587,6 +591,11 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     const search = () => router.post(route('topic-short-scenes.search', scene.id), { query }, options);
     const pick = (url: string) => router.post(route('topic-short-scenes.pick', scene.id), { url }, options);
     const muse = () => router.post(route('topic-short-scenes.muse', scene.id), {}, options);
+    const clipBusy = scene.clip_status === 'pending';
+    const makeClip = () =>
+        confirm(`Muse làm video ngắn từ ảnh hiện tại của cảnh ${scene.position}, khoảng ${formatNumber(clipPrice)} Credits. Tiếp tục?`) &&
+        router.post(route('topic-short-scenes.clip', scene.id), {}, options);
+    const dropClip = () => router.delete(route('topic-short-scenes.clip.destroy', scene.id), options);
     const compose = () => router.post(route('topic-short-scenes.compose', scene.id), {}, options);
     const pickLibrary = (portraitId: number) => router.post(route('topic-short-scenes.library', scene.id), { portrait_id: portraitId }, options);
     const more = useRef<HTMLInputElement>(null);
@@ -645,6 +654,26 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                 {scene.image_status === 'pending' && <p className="text-muted-foreground text-xs">Muse đang vẽ...</p>}
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
                 {scene.muse_fix_prompt && !busy && <MuseFix key={scene.muse_fix_prompt} scene={scene} />}
+                {clipBusy && <p className="text-muted-foreground text-xs">Muse đang làm video ngắn (vài phút)...</p>}
+                {scene.clip_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.clip_error}</p>}
+                {scene.clip_status === 'ready' && scene.clip_url && (
+                    <div className="flex items-end gap-2">
+                        <video
+                            src={scene.clip_url}
+                            className="aspect-[9/16] w-24 rounded-md border bg-black object-cover"
+                            controls
+                            muted
+                            loop
+                            playsInline
+                        />
+                        <div className="space-y-1 text-xs">
+                            <p className="text-muted-foreground">Khi dựng, cảnh này dùng video thay ảnh động.</p>
+                            <Button size="sm" variant="ghost" onClick={dropClip}>
+                                Bỏ video, dùng ảnh động
+                            </Button>
+                        </div>
+                    </div>
+                )}
                 <InputError message={errors[`scene_${scene.id}`]} />
 
                 {scene.library.length > 0 && (
@@ -724,7 +753,16 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                         disabled={busy}
                         title="Claude viết prompt theo đúng lời kể của cảnh rồi Muse vẽ"
                     >
-                        <Wand2 /> Muse vẽ
+                        <Wand2 /> Muse vẽ ảnh
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={makeClip}
+                        disabled={busy || clipBusy || !scene.image_url}
+                        title="Muse làm video ngắn từ ảnh hiện tại của cảnh; khi dựng, cảnh dùng video thay ảnh động"
+                    >
+                        <Clapperboard /> Muse tạo video ngắn
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => upload.current?.click()} disabled={busy}>
                         <Upload /> Thay bằng 1 ảnh

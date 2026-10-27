@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\FindTopicSceneImageJob;
+use App\Jobs\GenerateTopicSceneClipJob;
 use App\Jobs\GenerateTopicSceneImageJob;
 use App\Jobs\RenderTopicShortJob;
 use App\Jobs\WriteTopicShortJob;
@@ -18,6 +19,7 @@ use App\Services\TopicShort\ShortWriter;
 use App\Services\TopicShort\WikiImageSearch;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
@@ -324,6 +326,46 @@ class TopicShortTest extends TestCase
         $this->assertSame(1, $this->user->creditTransactions()->where('reference', 'like', 'topic-short:%')->count());
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/tts') && ($request['lines'][0]['lang'] ?? null) === 'vi');
         $this->actingAs($this->user)->get(route('topic-shorts.download', $short))->assertDownload();
+    }
+
+    public function test_scene_clip_from_muse_replaces_still_image_in_render()
+    {
+        Queue::fake();
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'language' => 'vi']);
+        Storage::disk(config('videoaff.disk'))->put('topic-shorts/test/scene.png', self::png());
+        foreach ([1, 2] as $position) {
+            TopicShortScene::factory()->for($short)->withImage()->create(['position' => $position, 'narration' => "Câu kể số {$position}.", 'image_path' => 'topic-shorts/test/scene.png']);
+        }
+        $scene = $short->scenes()->where('position', 1)->first();
+
+        $this->actingAs($this->user)->post(route('topic-short-scenes.clip', $scene))->assertSessionHas('status');
+        $this->assertSame('pending', $scene->fresh()->clip_status);
+        Queue::assertPushed(GenerateTopicSceneClipJob::class, fn ($job) => $job->queue === 'images');
+        $this->actingAs($this->user)->post(route('topic-short-scenes.clip', $scene))->assertSessionHas('status', 'Video cảnh này đang được tạo.');
+        // Muse (driver giả): lần đầu gửi ảnh cảnh, lần sau lấy video và trừ Credits.
+        (new GenerateTopicSceneClipJob($scene))->handle();
+        $this->assertNotNull($scene->fresh()->clip_request_id);
+        (new GenerateTopicSceneClipJob($scene))->handle();
+        $scene->refresh();
+        $this->assertSame('ready', $scene->clip_status, (string) $scene->clip_error);
+        Storage::disk(config('videoaff.disk'))->assertExists($scene->clip_path);
+        $this->assertSame(1, $this->user->creditTransactions()->where('reference', 'like', 'topic-scene-clip:%')->count());
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page
+            ->where('short.scenes.0.clip_status', 'ready')->whereNot('short.scenes.0.clip_url', null));
+
+        // Dựng (cả hai kiểu): cảnh 1 dùng video, cảnh 2 ảnh động.
+        foreach (['fast', 'page'] as $style) {
+            $dir = storage_path('framework/testing/clip-'.$style);
+            File::ensureDirectoryExists($dir);
+            $video = ShortVideo::render($short->fresh(), $dir, ['style' => $style, 'sfx' => false]);
+            $this->assertFileExists($video['path']);
+            File::deleteDirectory($dir);
+        }
+
+        $this->actingAs($this->user)->delete(route('topic-short-scenes.clip.destroy', $scene))->assertSessionHas('status');
+        $scene->refresh();
+        $this->assertSame('none', $scene->clip_status);
+        $this->assertNull($scene->clip_path);
     }
 
     public function test_scene_voice_upload_replaces_machine_voice_for_that_scene()

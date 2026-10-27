@@ -143,6 +143,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-short-scenes/{scene}/add-images', [TopicShortController::class, 'addImages'])->name('topic-short-scenes.add-images');
     Route::post('topic-shorts/{short}/find-images', [TopicShortController::class, 'findImages'])->name('topic-shorts.find-images');
     Route::put('topic-short-scenes/{scene}/manga', [TopicShortController::class, 'manga'])->name('topic-short-scenes.manga');
+    Route::post('topic-short-scenes/{scene}/clip', [TopicShortController::class, 'clip'])->name('topic-short-scenes.clip');
+    Route::delete('topic-short-scenes/{scene}/clip', [TopicShortController::class, 'clipDestroy'])->name('topic-short-scenes.clip.destroy');
     Route::post('topic-short-scenes/{scene}/voice', [TopicShortController::class, 'voice'])->name('topic-short-scenes.voice');
     Route::delete('topic-short-scenes/{scene}/voice', [TopicShortController::class, 'voiceDestroy'])->name('topic-short-scenes.voice.destroy');
     Route::post('topic-short-scenes/{scene}/upload', [TopicShortController::class, 'upload'])->name('topic-short-scenes.upload');
