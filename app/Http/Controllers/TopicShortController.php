@@ -472,7 +472,7 @@ class TopicShortController extends Controller
     {
         $short = $scene->topicShort;
         $this->authorize('update', $short);
-        $validated = $request->validate(['prompt' => ['nullable', 'string', 'max:2000']]);
+        $validated = $request->validate(['prompt' => ['nullable', 'string', 'max:2000'], 'fix' => ['boolean']]);
         if ($this->busy($scene)) {
             return back()->with('status', 'Ảnh cảnh này đang được tạo.');
         }
@@ -480,6 +480,8 @@ class TopicShortController extends Controller
             return back()->with('status', $message);
         }
         GenerateTopicSceneImageJob::resetCounters($scene);
+        // Nút "Tạo lại ảnh với prompt này" (prompt sửa theo góp ý của Muse).
+        ($validated['fix'] ?? false) && filled($validated['prompt'] ?? null) && GenerateTopicSceneImageJob::markAsFix($scene);
         $scene->update([...filled($validated['prompt'] ?? null) ? ['image_prompt' => $validated['prompt']] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null, 'muse_refusal' => null, 'muse_fix_prompt' => null]);
         // Không gõ prompt riêng: Claude viết prompt khớp lời kể của cảnh trước khi Muse vẽ.
         blank($validated['prompt'] ?? null) && GenerateTopicSceneImageJob::markForFreshPrompt($scene);
@@ -631,7 +633,9 @@ class TopicShortController extends Controller
             // Lời từ chối của AI nằm sau "AI trả lời:" trong lỗi; Claude viết lại prompt theo đó.
             GenerateTopicSceneImageJob::resetCounters($scene);
             // Đã có prompt Claude sửa theo góp ý của Muse thì vẽ luôn bằng prompt đó.
-            filled($scene->muse_fix_prompt) || GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
+            filled($scene->muse_fix_prompt)
+                ? GenerateTopicSceneImageJob::markAsFix($scene)
+                : GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
             $scene->update([...filled($scene->muse_fix_prompt) ? ['image_prompt' => $scene->muse_fix_prompt] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null, 'muse_refusal' => null, 'muse_fix_prompt' => null]);
             GenerateTopicSceneImageJob::dispatch($scene);
         }

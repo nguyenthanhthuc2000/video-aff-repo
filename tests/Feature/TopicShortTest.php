@@ -244,8 +244,8 @@ class TopicShortTest extends TestCase
             }
         });
         Queue::fake();
-        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'characters' => [['name' => 'Beerus', 'look' => 'purple cat god']]]);
-        $scene = TopicShortScene::factory()->for($short)->withImage()->create(['characters' => ['Beerus'], 'image_prompt' => 'Beerus yawns']);
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'art_style' => 'Dragon Ball Super, Akira Toriyama', 'characters' => [['name' => 'Beerus', 'look' => 'purple cat god']]]);
+        $scene = TopicShortScene::factory()->for($short)->withImage()->create(['characters' => ['Beerus'], 'image_prompt' => 'Beerus yawns', 'expression' => 'E4']);
         $old = $scene->image_path;
 
         $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus smashes a planet'])->assertSessionHas('status');
@@ -266,11 +266,17 @@ class TopicShortTest extends TestCase
             ->where('short.scenes.0.muse_fix_prompt', $scene->muse_fix_prompt));
 
         // Bấm "Tạo lại ảnh với prompt này": vẽ bằng đúng prompt đó, xong thì xoá góp ý.
-        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus yawns calmly on his throne'])->assertSessionHas('status');
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus yawns calmly on his throne', 'fix' => true])->assertSessionHas('status');
         $this->assertNull($scene->fresh()->muse_fix_prompt);
         (new GenerateTopicSceneImageJob($scene))->handle();
         (new GenerateTopicSceneImageJob($scene))->handle();
         $this->assertStringContainsString('Beerus yawns calmly on his throne', $calls[1]);
+        // Bản sửa theo góp ý: bỏ dòng biểu cảm cũ (ngạc nhiên) và tên phim / tác giả, vẫn giữ tên nhân vật.
+        $this->assertStringContainsString('MAIN EXPRESSION', $calls[0]);
+        $this->assertStringContainsString('Toriyama', $calls[0]);
+        $this->assertStringNotContainsString('MAIN EXPRESSION', $calls[1]);
+        $this->assertStringNotContainsString('Toriyama', $calls[1]);
+        $this->assertStringContainsString('Beerus', $calls[1]);
         $scene->refresh();
         $this->assertSame('ready', $scene->image_status, (string) $scene->image_error);
         $this->assertSame('muse', $scene->image_source);

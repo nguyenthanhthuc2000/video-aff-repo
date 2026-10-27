@@ -14,10 +14,11 @@ final class ScenePromptFixer
 {
     public const SYSTEM = <<<'PROMPT'
     You rewrite one image prompt for a vertical (9:16) anime / manga style picture in a short recap video. The image AI refused the old prompt; its explanation is given.
-    - Fix exactly what the AI objected to, and follow its suggestion when it gives one.
+    - When the AI offers a "makeable alternative" (or any suggestion), build the new prompt from that alternative: same pose, expression, setting and effects it describes. It overrides the narration's action.
+    - Remove EVERY element the AI named as declined (e.g. "shocked", "surprised", "sneeze", "sniffle", a glow from the nose, a composition "family"), including close synonyms and the same idea in other words. The AI remembers declined compositions: a similar picture with softer words is declined again, so change the expression, pose and framing, not just the wording.
     - No violence shown on screen: no pain, injuries, blood, choking, gripping that hurts, destruction of living things, corpses. Keep the drama with expressions, poses, aura, energy, speed lines, dramatic sky and lighting, silhouettes, aftermath framing.
-    - Keep every character's real name and form exactly as given (e.g. "Son Goku, Super Saiyan", "Vegeta, Super Saiyan Blue") and their look: the picture is for a Dragon Ball fan comic and must show those exact characters. Only soften the action, expression and effects.
-    - Keep the moment, the setting and the camera idea recognisable. The picture must still show the MAIN ACTION of the narration line (e.g. a sneeze that releases a ki ball stays a sneeze releasing a glowing ki ball): soften only the words the AI objected to, never replace the action with "calm, relaxed, standing at ease".
+    - Keep every character's real name and form exactly as given (e.g. "Son Goku, Super Saiyan", "Vegeta, Super Saiyan Blue") and their look: the picture is for a Dragon Ball fan comic and must show those exact characters. Change the action, expression, pose and effects as needed.
+    - Only when the AI gives no alternative and names no declined element: keep the MAIN ACTION of the narration line and soften just the objected words, rather than a generic calm pose.
     - English, under 80 words, prompt only.
     PROMPT;
 

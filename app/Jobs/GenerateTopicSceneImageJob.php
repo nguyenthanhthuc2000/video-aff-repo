@@ -58,15 +58,16 @@ class GenerateTopicSceneImageJob implements ShouldQueue
      *
      * @return list<array{name: string, look: string, ref: ?string}>
      */
-    public static function characters(TopicShortScene $scene): array
+    public static function characters(TopicShortScene $scene, bool $fix = false): array
     {
         $names = array_map('mb_strtolower', $scene->characters ?? []);
         $short = $scene->topicShort;
 
-        return array_values(array_map(function ($c) use ($scene, $short) {
+        return array_values(array_map(function ($c) use ($scene, $short, $fix) {
             $ref = $c['image_path'] ?? null;
             if (! $ref && ($key = DragonBall::keyFor($c['name']))) {
-                $ref = CharacterPortrait::best($short->user_id, $key, $scene->expression)?->image_path;
+                // Vẽ lại theo góp ý của Muse: dùng mặt thường (E1), ảnh biểu cảm cũ (vd. ngạc nhiên) chính là bố cục Muse đã chặn.
+                $ref = CharacterPortrait::best($short->user_id, $key, $fix ? 'E1' : $scene->expression)?->image_path;
             }
 
             return ['name' => $c['name'], 'look' => $c['look'] ?? '', 'ref' => $ref];
@@ -74,10 +75,10 @@ class GenerateTopicSceneImageJob implements ShouldQueue
     }
 
     /** @return list<string> Ảnh mẫu nhân vật, rồi ảnh hiện tại của cảnh (wiki / tải lên) làm mẫu bố cục; Muse nhận tối đa 4 ảnh. */
-    public static function references(TopicShortScene $scene): array
+    public static function references(TopicShortScene $scene, bool $fix = false): array
     {
-        $paths = array_slice(array_values(array_filter(array_column(self::characters($scene), 'ref'))), 0, 4);
-        if (self::layoutReference($scene)) {
+        $paths = array_slice(array_values(array_filter(array_column(self::characters($scene, $fix), 'ref'))), 0, 4);
+        if (! $fix && self::layoutReference($scene)) {
             $paths = [...array_slice($paths, 0, 3), $scene->image_path];
         }
 
@@ -115,19 +116,33 @@ class GenerateTopicSceneImageJob implements ShouldQueue
     /** Mỗi lần bấm vẽ: đếm lại số lần Muse lỗi / bận từ đầu. */
     public static function resetCounters(TopicShortScene $scene): void
     {
-        foreach (['muse-retries', 'muse-busy'] as $prefix) {
+        foreach (['muse-retries', 'muse-busy', 'muse-fix'] as $prefix) {
             Cache::forget("{$prefix}:topic-scene:{$scene->id}");
         }
     }
 
-    /** Prompt vẽ cảnh; safe (sau khi AI từ chối): bỏ tên nhân vật / phim / tác giả, gọi nhân vật theo ảnh mẫu và mô tả ngoại hình. */
-    public static function prompt(TopicShortScene $scene, bool $safe = false): string
+    /**
+     * Lần vẽ tới dùng prompt đã sửa theo góp ý của Muse: bỏ dòng biểu cảm của cảnh, bỏ tên phim / tác giả ở dòng phong cách,
+     * ảnh mẫu là mặt thường thay vì ảnh biểu cảm / ảnh bố cục Muse đã chặn.
+     */
+    public static function markAsFix(TopicShortScene $scene): void
     {
-        $work = $safe ? '' : trim((string) $scene->topicShort->art_style);
+        Cache::put("muse-fix:topic-scene:{$scene->id}", true, now()->addDay());
+    }
+
+    public static function isFix(TopicShortScene $scene): bool
+    {
+        return (bool) Cache::get("muse-fix:topic-scene:{$scene->id}");
+    }
+
+    /** Prompt vẽ cảnh; safe (sau khi AI từ chối): bỏ tên nhân vật / phim / tác giả, gọi nhân vật theo ảnh mẫu và mô tả ngoại hình. */
+    public static function prompt(TopicShortScene $scene, bool $safe = false, bool $fix = false): string
+    {
+        $work = $safe || $fix ? '' : trim((string) $scene->topicShort->art_style);
         $medium = self::MEDIUMS[$scene->topicShort->image_style] ?? self::MEDIUMS['anime'];
         $lines = ['FRAME: vertical 9:16 portrait.', 'STYLE: '.($work !== '' ? "{$work}. " : '').$medium];
 
-        $characters = self::characters($scene);
+        $characters = self::characters($scene, $fix);
         if ($characters !== []) {
             $lines[] = '';
             $lines[] = 'CHARACTERS (keep each one identical to the original design: face, hair, eyes, outfit, colors):';
@@ -137,11 +152,11 @@ class GenerateTopicSceneImageJob implements ShouldQueue
                 $lines[] = "- {$character['name']}{$tag}: {$character['look']}";
             }
         }
-        if (! $safe && self::layoutReference($scene)) {
+        if (! $safe && ! $fix && self::layoutReference($scene)) {
             $lines[] = '';
             $lines[] = 'The LAST attached image is a reference of this scene from the original anime: redraw that moment (composition, pose, setting) as a clean vertical frame.';
         }
-        if ($scene->expression && isset(DragonBall::EXPRESSIONS[$scene->expression])) {
+        if (! $fix && $scene->expression && isset(DragonBall::EXPRESSIONS[$scene->expression])) {
             $lines[] = '';
             $lines[] = 'MAIN EXPRESSION: '.DragonBall::EXPRESSIONS[$scene->expression][1].'.';
         }
@@ -191,13 +206,14 @@ class GenerateTopicSceneImageJob implements ShouldQueue
                     $scene->update(['image_prompt' => $prompt]);
                     Cache::forget(self::rewriteKey($scene));
                 }
-                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene))]);
+                $fix = self::isFix($scene);
+                $scene->update(['request_id' => $generator->start(self::references($scene, $fix), self::prompt($scene, false, $fix))]);
                 $this->release(15);
 
                 return;
             }
 
-            $result = $generator->poll($scene->request_id, self::references($scene));
+            $result = $generator->poll($scene->request_id, self::references($scene, self::isFix($scene)));
             if ($result === null) {
                 $this->release(self::POLL_SECONDS);
 
@@ -217,8 +233,11 @@ class GenerateTopicSceneImageJob implements ShouldQueue
             // AI từ chối: không tự thử lại (Muse nhớ yêu cầu bị chặn, thử lại gần giống cũng bị chặn, chỉ mất thời gian).
             // Claude sửa prompt theo góp ý của Muse, cảnh hiện nút "Tạo lại ảnh với prompt này" để bạn xem / sửa rồi bấm.
             if ($e->rejected) {
+                $again = self::isFix($scene);
                 self::suggestFix($scene, (string) $e->refusal);
-                $this->fail(new RuntimeException('Muse từ chối vẽ cảnh này. Xem góp ý của Muse và prompt Claude đã sửa bên dưới, rồi bấm Tạo lại ảnh (hoặc dùng Claude tìm ảnh / tải ảnh lên).'));
+                $this->fail(new RuntimeException($again
+                    ? 'Muse vẫn từ chối cả prompt đã sửa (Muse nhớ các bố cục đã chặn). Nên bấm Claude tìm ảnh hoặc tải ảnh lên cho cảnh này; muốn thử Muse lần nữa thì xem góp ý mới bên dưới.'
+                    : 'Muse từ chối vẽ cảnh này. Xem góp ý của Muse và prompt Claude đã sửa bên dưới, rồi bấm Tạo lại ảnh (hoặc dùng Claude tìm ảnh / tải ảnh lên).'));
 
                 return;
             }

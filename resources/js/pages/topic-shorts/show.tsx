@@ -754,7 +754,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
 /** Muse từ chối: hiện góp ý của Muse và prompt Claude đã sửa theo đó (sửa được), bấm để vẽ lại bằng prompt này. */
 function MuseFix({ scene }: { scene: ShortScene }) {
     const [prompt, setPrompt] = useState(scene.muse_fix_prompt ?? '');
-    const redraw = () => router.post(route('topic-short-scenes.muse', scene.id), { prompt }, { preserveScroll: true });
+    const redraw = () => router.post(route('topic-short-scenes.muse', scene.id), { prompt, fix: true }, { preserveScroll: true });
 
     return (
         <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2 text-xs">
