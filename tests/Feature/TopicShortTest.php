@@ -9,6 +9,9 @@ use App\Jobs\WriteTopicShortJob;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Models\User;
+use App\Services\Film\FakeFilmImageGenerator;
+use App\Services\Image\GeneratedImage;
+use App\Services\Image\ImageGeneratorException;
 use App\Services\TopicShort\RemoteImage;
 use App\Services\TopicShort\ShortVideo;
 use App\Services\TopicShort\ShortWriter;
@@ -215,6 +218,57 @@ class TopicShortTest extends TestCase
         $scene->refresh();
         $this->assertSame('upload', $scene->image_source);
         Storage::disk(config('videoaff.disk'))->assertExists($scene->image_path);
+    }
+
+    public function test_muse_refusals_retry_once_without_names_then_stop_and_keep_old_image()
+    {
+        $calls = new \ArrayObject;
+        $this->app->bind(FakeFilmImageGenerator::class, fn () => new class($calls) extends FakeFilmImageGenerator
+        {
+            public function __construct(private \ArrayObject $calls) {}
+
+            public function start(array $referencePaths, string $prompt): string
+            {
+                $this->calls[] = [$referencePaths, $prompt];
+
+                return parent::start($referencePaths, $prompt);
+            }
+
+            public function poll(string $code, array $referencePaths): ?GeneratedImage
+            {
+                throw ImageGeneratorException::rejected('AI từ chối tạo yêu cầu này.', 'copyrighted character');
+            }
+        });
+        Queue::fake();
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'characters' => [['name' => 'Beerus', 'look' => 'purple cat god']]]);
+        $scene = TopicShortScene::factory()->for($short)->withImage()->create(['characters' => ['Beerus'], 'image_prompt' => 'Beerus yawns']);
+        $old = $scene->image_path;
+
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus yawns on a throne'])->assertSessionHas('status');
+        $job = new GenerateTopicSceneImageJob($scene);
+        $this->assertSame('images', $job->queue);
+        foreach (range(1, 3) as $_) {
+            (new GenerateTopicSceneImageJob($scene))->withFakeQueueInteractions()->handle();
+        }
+        $last = (new GenerateTopicSceneImageJob($scene))->withFakeQueueInteractions();
+        $last->handle();
+        $last->assertFailed();
+        $last->failed($last->job->failedWith);
+        // Lần 1 có tên; bị từ chối thì lần 2 bỏ tên nhân vật và ảnh mẫu; bị từ chối nữa thì dừng.
+        $this->assertCount(2, $calls);
+        $this->assertStringContainsString('Beerus', $calls[0][1]);
+        $this->assertStringNotContainsString('Beerus', $calls[1][1]);
+        $this->assertSame([], $calls[1][0]);
+        $scene->refresh();
+        $this->assertSame('ready', $scene->image_status);
+        $this->assertSame($old, $scene->image_path);
+        $this->assertStringContainsString('Muse từ chối', (string) $scene->image_error);
+
+        // Bấm vẽ lại: đếm lại từ đầu, lại thử bản có tên trước.
+        $this->actingAs($this->user)->post(route('topic-short-scenes.muse', $scene), ['prompt' => 'Beerus naps'])->assertSessionHas('status');
+        (new GenerateTopicSceneImageJob($scene))->handle();
+        $this->assertCount(3, $calls);
+        $this->assertStringContainsString('Beerus', $calls[2][1]);
     }
 
     public function test_update_script_and_other_users_are_blocked()

@@ -31,7 +31,14 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
     public int $timeout = 600;
 
-    public function __construct(public TopicShortScene $scene) {}
+    /** Muse bận (đủ 4 yêu cầu) quá số lần này (mỗi lần chờ 30 giây) thì dừng, để cảnh không treo hàng giờ. */
+    public const MAX_BUSY = 40;
+
+    public function __construct(public TopicShortScene $scene)
+    {
+        // Hàng riêng: job Claude / dựng video dài không chặn việc hỏi kết quả Muse.
+        $this->onQueue('images');
+    }
 
     public function retryUntil(): DateTimeInterface
     {
@@ -105,6 +112,20 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         Cache::put(self::rewriteKey($scene), $refusal, now()->addDay());
     }
 
+    private static function safeKey(TopicShortScene $scene): string
+    {
+        return "muse-safe:topic-scene:{$scene->id}";
+    }
+
+    /** Mỗi lần bấm vẽ: đếm lại số lần Muse từ chối / lỗi / bận từ đầu. */
+    public static function resetCounters(TopicShortScene $scene): void
+    {
+        foreach (['muse-rejects', 'muse-retries', 'muse-busy'] as $prefix) {
+            Cache::forget("{$prefix}:topic-scene:{$scene->id}");
+        }
+        Cache::forget(self::safeKey($scene));
+    }
+
     /** Prompt vẽ cảnh; safe (sau khi AI từ chối): bỏ tên nhân vật / phim / tác giả, gọi nhân vật theo ảnh mẫu và mô tả ngoại hình. */
     public static function prompt(TopicShortScene $scene, bool $safe = false): string
     {
@@ -176,13 +197,15 @@ class GenerateTopicSceneImageJob implements ShouldQueue
                     $scene->update(['image_prompt' => $prompt]);
                     Cache::forget(self::rewriteKey($scene));
                 }
-                $scene->update(['request_id' => $generator->start(self::references($scene), self::prompt($scene))]);
+                // Sau một lần bị từ chối: gửi bản bỏ tên nhân vật / phim, không kèm ảnh mẫu (Muse hay chặn cả bố cục đã từ chối).
+                $safe = (bool) Cache::get(self::safeKey($scene));
+                $scene->update(['request_id' => $generator->start($safe ? [] : self::references($scene), self::prompt($scene, $safe))]);
                 $this->release(15);
 
                 return;
             }
 
-            $result = $generator->poll($scene->request_id, self::references($scene));
+            $result = $generator->poll($scene->request_id, Cache::get(self::safeKey($scene)) ? [] : self::references($scene));
             if ($result === null) {
                 $this->release(self::POLL_SECONDS);
 
@@ -190,15 +213,26 @@ class GenerateTopicSceneImageJob implements ShouldQueue
             }
         } catch (ImageGeneratorException $e) {
             if ($e->busy) {
+                if (Cache::increment("muse-busy:topic-scene:{$scene->id}") > self::MAX_BUSY) {
+                    $this->fail(new RuntimeException('Muse bận quá lâu (hơn 20 phút). Bấm vẽ lại sau, hoặc dùng Claude tìm ảnh / tải ảnh lên.'));
+
+                    return;
+                }
                 $this->release(30);
 
                 return;
             }
-            // AI từ chối (bạo lực, tên nhân vật / phim): Claude viết lại prompt theo lời từ chối, bỏ tên, rồi thử lại một lần.
-            if ($e->rejected && Cache::increment("muse-rejects:topic-scene:{$scene->id}") <= 1) {
-                self::markForRewrite($scene, (string) $e->refusal);
-                $scene->update(['request_id' => null]);
-                $this->release(5);
+            // AI từ chối (bạo lực, tên nhân vật / phim): Claude viết lại prompt theo lời từ chối, bỏ tên và ảnh mẫu, rồi thử lại một lần.
+            if ($e->rejected) {
+                if (Cache::increment("muse-rejects:topic-scene:{$scene->id}") <= 1) {
+                    self::markForRewrite($scene, (string) $e->refusal);
+                    Cache::put(self::safeKey($scene), true, now()->addDay());
+                    $scene->update(['request_id' => null]);
+                    $this->release(5);
+
+                    return;
+                }
+                $this->fail(new RuntimeException('Muse từ chối vẽ cảnh này 2 lần (kể cả bản đã bỏ tên nhân vật). Hãy bấm Claude tìm ảnh hoặc tải ảnh lên. AI trả lời: '.mb_substr((string) $e->refusal, 0, 300)));
 
                 return;
             }
@@ -221,6 +255,7 @@ class GenerateTopicSceneImageJob implements ShouldQueue
         $path = "topic-shorts/{$scene->topic_short_id}/scene-{$scene->id}-muse-".substr(md5($result->contents), 0, 8).".{$result->extension}";
         Media::disk()->put($path, $result->contents);
         $old = $scene->image_path;
+        self::resetCounters($scene);
         $scene->update(['image_source' => 'muse', 'image_status' => 'ready', 'image_path' => $path, 'image_url' => null, 'image_error' => null, 'request_id' => null]);
         $old && $old !== $path && Media::delete($old);
 
@@ -235,6 +270,8 @@ class GenerateTopicSceneImageJob implements ShouldQueue
 
     public function failed(?Throwable $e): void
     {
-        $this->scene->fresh()?->update(['image_status' => 'failed', 'request_id' => null, 'image_error' => mb_substr($e?->getMessage() ?: 'Vẽ ảnh thất bại.', 0, 500)]);
+        $scene = $this->scene->fresh();
+        // Cảnh đã có ảnh (wiki / tải lên / lần vẽ trước) thì vẫn dùng ảnh đó, chỉ kèm lời nhắn.
+        $scene?->update(['image_status' => $scene->image_path ? 'ready' : 'failed', 'request_id' => null, 'image_error' => mb_substr($e?->getMessage() ?: 'Vẽ ảnh thất bại.', 0, 500)]);
     }
 }

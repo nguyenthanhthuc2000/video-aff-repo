@@ -69,6 +69,7 @@ class FindTopicSceneImageJob implements ShouldQueue
         }
         // Muse vẽ theo prompt (nếu đủ Credits).
         if (filled($scene->image_prompt) && Credits::shortfall($short->user, CreditPricing::settings()['steps']['image'], 'vẽ ảnh') === null) {
+            GenerateTopicSceneImageJob::resetCounters($scene);
             $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
             GenerateTopicSceneImageJob::dispatch($scene);
 

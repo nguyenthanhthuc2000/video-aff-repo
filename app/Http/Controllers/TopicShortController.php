@@ -32,7 +32,6 @@ use App\Support\Media;
 use App\Support\Pronounce;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -478,6 +477,7 @@ class TopicShortController extends Controller
         if ($message = Credits::shortfall($request->user(), CreditPricing::settings()['steps']['image'], 'vẽ ảnh')) {
             return back()->with('status', $message);
         }
+        GenerateTopicSceneImageJob::resetCounters($scene);
         $scene->update([...filled($validated['prompt'] ?? null) ? ['image_prompt' => $validated['prompt']] : [], 'image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
         // Không gõ prompt riêng: Claude viết prompt khớp lời kể của cảnh trước khi Muse vẽ.
         blank($validated['prompt'] ?? null) && GenerateTopicSceneImageJob::markForFreshPrompt($scene);
@@ -627,7 +627,7 @@ class TopicShortController extends Controller
         }
         foreach ($scenes as $scene) {
             // Lời từ chối của AI nằm sau "AI trả lời:" trong lỗi; Claude viết lại prompt theo đó.
-            Cache::forget("muse-rejects:topic-scene:{$scene->id}");
+            GenerateTopicSceneImageJob::resetCounters($scene);
             GenerateTopicSceneImageJob::markForRewrite($scene, Str::after((string) $scene->image_error, 'AI trả lời:'));
             $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
             GenerateTopicSceneImageJob::dispatch($scene);
@@ -652,6 +652,7 @@ class TopicShortController extends Controller
             return back()->with('status', $message);
         }
         foreach ($scenes as $scene) {
+            GenerateTopicSceneImageJob::resetCounters($scene);
             $scene->update(['image_status' => 'pending', 'request_id' => null, 'image_error' => null]);
             GenerateTopicSceneImageJob::markForFreshPrompt($scene);
             GenerateTopicSceneImageJob::dispatch($scene);
