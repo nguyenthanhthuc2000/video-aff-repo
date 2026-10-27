@@ -12,7 +12,8 @@ use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
- * Ảnh bìa 1080x1920 cho short: ảnh một cảnh phủ kín, nền tối dần phía dưới, chữ lớn vàng viền đen (Be Vietnam Pro).
+ * Ảnh bìa 1080x1920 cho short, kiểu chữ chèn tay trên TikTok / Shorts: ảnh một cảnh phủ kín (tối nhẹ),
+ * chữ trắng đậm trên dải đen từng dòng, đặt giữa khung (Be Vietnam Pro). Không viền vàng, không dải màu, cho đỡ "chất AI".
  * Nền ghép bằng GD, chữ vẽ bằng ffmpeg, chạy trên máy, không tốn Credits.
  */
 final class CoverImage
@@ -21,14 +22,16 @@ final class CoverImage
 
     public const HEIGHT = 1920;
 
-    private const FONT_SIZE = 96;
+    private const FONT_SIZE = 84;
 
     private const MAX_LINES = 4;
 
-    /** Cảnh mặc định làm nền: cảnh 1 (hook) nếu có ảnh, không thì cảnh đầu tiên có ảnh. */
+    /** Cảnh mặc định làm nền: ưu tiên ảnh thật (khung manga, ảnh tải lên / tìm trên mạng) hơn ảnh Muse vẽ, cảnh đầu trước. */
     public static function defaultScene(TopicShort $short): ?TopicShortScene
     {
-        return $short->scenes()->where('image_status', 'ready')->whereNotNull('image_path')->orderBy('position')->first();
+        $scenes = $short->scenes()->where('image_status', 'ready')->whereNotNull('image_path')->orderBy('position')->get();
+
+        return $scenes->first(fn (TopicShortScene $scene) => $scene->image_source !== 'muse') ?? $scenes->first();
     }
 
     /** @throws RuntimeException */
@@ -44,7 +47,7 @@ final class CoverImage
         self::cover($page, $source);
         imagedestroy($source);
         self::shade($page);
-        $jpeg = self::title($page, mb_strtoupper(trim($text)));
+        $jpeg = self::title($page, trim($text));
         imagedestroy($page);
 
         $path = "topic-shorts/{$short->id}/cover-".substr(md5($jpeg), 0, 8).'.jpg';
@@ -67,18 +70,14 @@ final class CoverImage
         imagecopyresampled($page, $image, 0, 0, intdiv($sw - $cw, 2), (int) round(($sh - $ch) / 4), self::WIDTH, self::HEIGHT, $cw, $ch);
     }
 
-    /** Nền tối dần ở nửa dưới cho chữ dễ đọc. */
+    /** Tối nhẹ cả ảnh để chữ nổi, không làm dải màu. */
     private static function shade(GdImage $page): void
     {
-        $from = (int) (self::HEIGHT * 0.45);
-        for ($y = $from; $y < self::HEIGHT; $y++) {
-            $alpha = 127 - (int) round(100 * ($y - $from) / (self::HEIGHT - $from));
-            imageline($page, 0, $y, self::WIDTH, $y, imagecolorallocatealpha($page, 0, 0, 0, max(0, $alpha)));
-        }
+        imagefilledrectangle($page, 0, 0, self::WIDTH, self::HEIGHT, imagecolorallocatealpha($page, 0, 0, 0, 100));
     }
 
     /**
-     * Chữ lớn vàng viền đen, căn giữa, tối đa 4 dòng. Vẽ bằng ffmpeg drawtext: FreeType cũ của GD đặt sai dấu tiếng Việt
+     * Chữ trắng trên dải đen từng dòng, căn giữa khung, tối đa 4 dòng. Vẽ bằng ffmpeg drawtext: FreeType cũ của GD đặt sai dấu tiếng Việt
      * (dấu nặng, dấu mũ bị lệch hoặc mất).
      *
      * @throws RuntimeException
@@ -95,19 +94,21 @@ final class CoverImage
                 $length = mb_strlen($text);
                 $size = match (true) {
                     $length <= 24 => self::FONT_SIZE,
-                    $length <= 40 => 84,
-                    $length <= 56 => 72,
-                    default => 60,
+                    $length <= 40 => 72,
+                    $length <= 56 => 62,
+                    default => 54,
                 };
-                $lines = array_slice(self::wrap($text, $font, $size, self::WIDTH - 140), 0, self::MAX_LINES);
+                $lines = array_slice(self::balanced($text, $font, $size, self::WIDTH - 220), 0, self::MAX_LINES);
                 // GD đo theo point (96 dpi), ffmpeg vẽ theo pixel.
                 $px = (int) round($size * 96 / 72);
-                $lineHeight = (int) round($px * 1.2);
-                $y = self::HEIGHT - 300 - (count($lines) - 1) * $lineHeight;
+                $pad = (int) round($px * 0.28);
+                $lineHeight = $px + 2 * $pad + 8;
+                $y = (int) round((self::HEIGHT - count($lines) * $lineHeight) / 2) + $pad;
                 foreach ($lines as $i => $line) {
                     File::put("{$dir}/line{$i}.txt", $line);
                     $filters[] = "drawtext=fontfile='".self::escape($font)."':textfile='".self::escape("{$dir}/line{$i}.txt")."'"
-                        .":fontsize={$px}:fontcolor=0xFFD600:borderw=9:bordercolor=black:x=(w-text_w)/2:y=".($y + $i * $lineHeight);
+                        .":fontsize={$px}:fontcolor=white:box=1:boxcolor=black@0.88:boxborderw={$pad}"
+                        .':x=(w-text_w)/2:y='.($y + $i * $lineHeight);
                 }
             }
             $result = Process::timeout(60)->run([
@@ -127,6 +128,25 @@ final class CoverImage
     private static function escape(string $path): string
     {
         return str_replace(['\\', "'", ':'], ['\\\\', "\\'", '\\:'], $path);
+    }
+
+    /**
+     * Xuống dòng đều tay: giữ số dòng ít nhất, rồi thu hẹp dần bề rộng để các dòng dài gần bằng nhau (không để một chữ lẻ ở dòng cuối).
+     *
+     * @return list<string>
+     */
+    private static function balanced(string $text, string $font, int $size, int $width): array
+    {
+        $lines = self::wrap($text, $font, $size, $width);
+        for ($w = $width - 20; count($lines) > 1 && $w > $width / 3; $w -= 20) {
+            $narrower = self::wrap($text, $font, $size, $w);
+            if (count($narrower) > count($lines)) {
+                break;
+            }
+            $lines = $narrower;
+        }
+
+        return $lines;
     }
 
     /** @return list<string> */

@@ -5,6 +5,7 @@ namespace App\Services\TopicShort;
 use App\Models\TopicShort;
 use App\Services\Film\FilmClaude;
 use App\Services\Script\ScriptWriterException;
+use Illuminate\Support\Str;
 
 /** Claude viết bộ đăng bài cho short: 3 tiêu đề gợi ý, chữ ảnh bìa, mô tả, hashtag (YouTube Shorts / TikTok / Facebook Reels). */
 final class PublishWriter
@@ -12,7 +13,7 @@ final class PublishWriter
     public const SYSTEM = <<<'PROMPT'
     You write the posting package for a vertical anime recap short (YouTube Shorts, TikTok, Facebook Reels) of a Vietnamese channel about Dragon Ball.
     - titles: exactly 3 different titles in the video's language, each under 70 characters, curiosity-driven (question, bold claim, or number), no clickbait lies, no emojis spam (at most one emoji), include the main character name.
-    - cover_text: 2–6 words in capitals for the thumbnail, punchy, readable at a glance (e.g. "VEGETA ĐÃ KHÓC?").
+    - cover_text: 2–7 words for the thumbnail, written the way a creator types on-screen text by hand: normal sentence case (not all capitals), no emoji, no hashtags, punchy, readable at a glance (e.g. "Vegeta đã từng khóc?").
     - description: 3–5 short lines in the video's language: one line summarising the story hook, one line inviting viewers to comment with a direct question, one line asking them to follow for the next part (if a series) or more stories. If sources are given, add a line "Nguồn: " with the site names (not URLs). Always end with the line "Video có sử dụng AI (giọng đọc, hình minh hoạ). Dragon Ball © Akira Toriyama / Shueisha / Toei Animation."
     - hashtags: 5–8 tags starting with #, always #shorts and #dragonball, plus Vietnamese tags like #7vienngocrong and character tags.
     Never copy titles from other channels. Do not invent facts that are not in the narration.
@@ -48,7 +49,7 @@ final class PublishWriter
 
         return [
             'titles' => $titles,
-            'cover_text' => mb_substr(trim((string) ($data['cover_text'] ?? '')), 0, 80) ?: mb_strtoupper($short->topic),
+            'cover_text' => mb_substr(trim((string) ($data['cover_text'] ?? '')), 0, 80) ?: Str::ucfirst(trim($short->topic)),
             'description' => mb_substr(trim((string) ($data['description'] ?? '')), 0, 3000),
             'hashtags' => $tags,
         ];
@@ -75,7 +76,7 @@ final class PublishWriter
     {
         return [
             'titles' => ["{$short->topic}", "Sự thật về: {$short->topic}", "3 lý do: {$short->topic}"],
-            'cover_text' => mb_strtoupper($short->topic),
+            'cover_text' => Str::ucfirst(trim($short->topic)),
             'description' => "Câu chuyện: {$short->topic}.\nBạn nghĩ sao? Comment cho mình biết nhé!\nFollow để xem thêm truyện Ngọc Rồng.\nVideo có sử dụng AI (giọng đọc, hình minh hoạ). Dragon Ball © Akira Toriyama / Shueisha / Toei Animation.",
             'hashtags' => ['#shorts', '#dragonball', '#7vienngocrong'],
         ];
