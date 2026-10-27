@@ -94,7 +94,7 @@ interface TopicShort {
     series: { id: number; parts: { id: number; part: number; title: string | null; status: string; focus: string }[] } | null;
     unsupported_count: number;
     cover_url: string | null;
-    cover: { scene_id: number; text: string } | null;
+    cover: { scene_id?: number; text?: string; uploaded?: boolean } | null;
     publish: PublishPack | null;
     missing_panels: { character: string; pose: string; name: string; label: string; status: 'none' | 'failed' | 'pending' }[];
     caption: string;

@@ -779,14 +779,27 @@ class TopicShortController extends Controller
         return back()->with('status', 'Đã tạo ảnh bìa.');
     }
 
+    /** Ảnh bìa bạn tự làm (ChatGPT, Canva...): dùng nguyên ảnh, không ghép chữ, lần viết tiêu đề sau không ghi đè. */
+    public function coverUpload(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $request->validate(['image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:15360']], [], ['image' => 'ảnh bìa']);
+        $old = $short->cover_path;
+        $short->update(['cover_path' => Media::store($request->file('image'), "topic-shorts/{$short->id}"), 'cover' => ['uploaded' => true]]);
+        $old && Media::delete($old);
+
+        return back()->with('status', 'Đã lưu ảnh bìa của bạn.');
+    }
+
     public function coverDownload(TopicShort $short): StreamedResponse|RedirectResponse
     {
         $this->authorize('view', $short);
         if ($short->cover_path === null) {
             return back()->with('status', 'Chưa có ảnh bìa.');
         }
+        $ext = pathinfo($short->cover_path, PATHINFO_EXTENSION) ?: 'jpg';
 
-        return Media::disk()->download($short->cover_path, 'bia-'.Str::slug($short->publish['title'] ?? $short->title ?: $short->topic).'.jpg');
+        return Media::disk()->download($short->cover_path, 'bia-'.Str::slug($short->publish['title'] ?? $short->title ?: $short->topic).".{$ext}");
     }
 
     public function download(TopicShort $short): StreamedResponse|RedirectResponse

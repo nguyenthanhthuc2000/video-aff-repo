@@ -4,8 +4,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { router, useForm, usePage } from '@inertiajs/react';
-import { Check, Copy, Download, ImageOff, Loader2, Sparkles } from 'lucide-react';
-import { FormEventHandler, useState } from 'react';
+import { Check, Copy, Download, ImageOff, Loader2, Sparkles, Upload } from 'lucide-react';
+import { FormEventHandler, useRef, useState } from 'react';
 
 export interface PublishPack {
     status: 'writing' | 'ready' | 'failed';
@@ -34,7 +34,7 @@ export function PublishPanel({
 }: {
     shortId: number;
     publish: PublishPack | null;
-    cover: { scene_id: number; text: string } | null;
+    cover: { scene_id?: number; text?: string; uploaded?: boolean } | null;
     coverUrl: string | null;
     scenes: SceneThumb[];
 }) {
@@ -83,7 +83,7 @@ function CoverEditor({
     scenes,
 }: {
     shortId: number;
-    cover: { scene_id: number; text: string } | null;
+    cover: { scene_id?: number; text?: string; uploaded?: boolean } | null;
     coverUrl: string | null;
     defaultText: string;
     scenes: SceneThumb[];
@@ -93,6 +93,21 @@ function CoverEditor({
     const { errors } = usePage().props as { errors: Record<string, string> };
     // Báo ngay trong khung ảnh bìa (thông báo đầu trang bị khuất khi đang cuộn xuống), ảnh xem trước luôn tải lại.
     const [madeAt, setMadeAt] = useState<number | null>(null);
+    const file = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+    const upload = (image: File | undefined) =>
+        image &&
+        router.post(
+            route('topic-shorts.cover.upload', shortId),
+            { image },
+            {
+                preserveScroll: true,
+                forceFormData: true,
+                onStart: () => setUploading(true),
+                onFinish: () => setUploading(false),
+                onSuccess: () => setMadeAt(Date.now()),
+            },
+        );
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
         post(route('topic-shorts.cover', shortId), { preserveScroll: true, onSuccess: () => setMadeAt(Date.now()) });
@@ -135,7 +150,8 @@ function CoverEditor({
             ) : (
                 <p className="text-muted-foreground text-xs">Cần có ảnh cảnh trước khi tạo ảnh bìa.</p>
             )}
-            <InputError message={errors.cover ?? errors.scene_id ?? errors.text} />
+            <InputError message={errors.cover ?? errors.scene_id ?? errors.text ?? errors.image} />
+            {cover?.uploaded && <p className="text-muted-foreground text-xs">Đang dùng ảnh bìa bạn tải lên (giữ nguyên, không ghép chữ).</p>}
             {madeAt && !processing && (
                 <p className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
                     <Check className="size-4" /> Đã tạo ảnh bìa lúc {new Date(madeAt).toLocaleTimeString('vi-VN')}.
@@ -146,6 +162,20 @@ function CoverEditor({
                     {processing && <Loader2 className="animate-spin" />}
                     {processing ? 'Đang tạo...' : coverUrl ? 'Tạo lại ảnh bìa' : 'Tạo ảnh bìa'}
                 </Button>
+                <Button type="button" size="sm" variant="outline" disabled={uploading} onClick={() => file.current?.click()}>
+                    {uploading ? <Loader2 className="animate-spin" /> : <Upload />} Tải ảnh bìa của bạn lên
+                </Button>
+                <input
+                    ref={file}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    aria-label="Ảnh bìa của bạn"
+                    onChange={(e) => {
+                        upload(e.target.files?.[0]);
+                        e.target.value = '';
+                    }}
+                />
                 {coverUrl && (
                     <Button size="sm" variant="outline" asChild>
                         <a href={route('topic-shorts.cover.download', shortId)}>

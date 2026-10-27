@@ -46,7 +46,8 @@ final class CoverImage
         $page = imagecreatetruecolor(self::WIDTH, self::HEIGHT);
         self::cover($page, $source);
         imagedestroy($source);
-        self::shade($page);
+        // Không có chữ thì để nguyên ảnh, không làm tối.
+        trim($text) !== '' && self::shade($page);
         $jpeg = self::title($page, trim($text));
         imagedestroy($page);
 

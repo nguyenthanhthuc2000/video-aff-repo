@@ -47,7 +47,8 @@ class WriteTopicShortPublishJob implements ShouldQueue
         }
 
         $short->update(['publish' => [...$pack, 'title' => $pack['titles'][0], 'status' => 'ready', 'error' => null]]);
-        if ($scene = CoverImage::defaultScene($short)) {
+        // Ảnh bìa bạn tự tải lên thì giữ nguyên.
+        if (! ($short->cover['uploaded'] ?? false) && ($scene = CoverImage::defaultScene($short))) {
             try {
                 $chosen = ($id = $short->cover['scene_id'] ?? null) ? $short->scenes()->find($id) : null;
                 CoverImage::make($short, $chosen ?? $scene, $pack['cover_text']);

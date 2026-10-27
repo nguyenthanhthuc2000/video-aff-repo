@@ -129,6 +129,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-shorts/{short}/publish', [TopicShortController::class, 'publish'])->name('topic-shorts.publish');
     Route::put('topic-shorts/{short}/publish', [TopicShortController::class, 'savePublish'])->name('topic-shorts.publish.save');
     Route::post('topic-shorts/{short}/cover', [TopicShortController::class, 'cover'])->name('topic-shorts.cover');
+    Route::post('topic-shorts/{short}/cover-upload', [TopicShortController::class, 'coverUpload'])->name('topic-shorts.cover.upload');
     Route::get('topic-shorts/{short}/cover', [TopicShortController::class, 'coverDownload'])->name('topic-shorts.cover.download');
     Route::post('pronunciations', [PronunciationController::class, 'store'])->name('pronunciations.store');
     Route::delete('pronunciations', [PronunciationController::class, 'destroy'])->name('pronunciations.destroy');

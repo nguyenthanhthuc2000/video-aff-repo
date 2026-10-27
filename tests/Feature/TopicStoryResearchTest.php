@@ -357,6 +357,18 @@ class TopicStoryResearchTest extends TestCase
         $this->actingAs($this->user)->get(route('topic-shorts.show', $short))
             ->assertInertia(fn (Assert $page) => $page->where('short.publish.title', 'Vegeta đã khóc?')->where('short.cover.text', 'Chữ khác hẳn')->whereNot('short.cover_url', null));
         $this->actingAs(User::factory()->create())->post(route('topic-shorts.publish', $short))->assertForbidden();
+
+        // Ảnh bìa tự làm: dùng nguyên ảnh, viết lại tiêu đề không ghi đè.
+        $old = $short->fresh()->cover_path;
+        $this->actingAs($this->user)->post(route('topic-shorts.cover.upload', $short), ['image' => UploadedFile::fake()->image('bia.png', 720, 1280)])->assertSessionHasNoErrors();
+        $short->refresh();
+        $this->assertTrue($short->cover['uploaded']);
+        $this->assertStringEndsWith('.png', $short->cover_path);
+        Storage::disk(config('videoaff.disk'))->assertMissing($old);
+        $mine = $short->cover_path;
+        (new WriteTopicShortPublishJob($short))->handle();
+        $this->assertSame($mine, $short->fresh()->cover_path);
+        $this->actingAs(User::factory()->create())->post(route('topic-shorts.cover.upload', $short), ['image' => UploadedFile::fake()->image('x.png')])->assertForbidden();
     }
 
     public function test_music_suggestion_follows_main_mood()
