@@ -134,7 +134,7 @@ export default function TopicShortShow({
     image_styles: Record<string, string>;
     prices: { image: number; clip: number; render: number };
     pronunciations: PronunciationRow[];
-    render_defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean };
+    render_defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean; logo_size: number };
     logo_url: string | null;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
@@ -1088,7 +1088,7 @@ function RenderPanel({
     builtin: { file: string; name: string }[];
     suggestion: { mood: string | null; track_id: number | null; file: string | null };
     price: number;
-    defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean };
+    defaults: { style: 'fast' | 'page'; watermark: string; logo: boolean; logo_size: number };
     logoUrl: string | null;
 }) {
     // Giá trị ô nhạc: "track:<id>" (nhạc của bạn) hoặc "file:<tên file>" (nhạc có sẵn trong public/nhac).
@@ -1099,6 +1099,7 @@ function RenderPanel({
         style: 'fast' | 'page';
         watermark: string;
         logo: boolean;
+        logo_size: number;
     }>({
         music: suggestion.track_id
             ? `track:${suggestion.track_id}`
@@ -1112,6 +1113,7 @@ function RenderPanel({
         style: defaults.style,
         watermark: defaults.watermark,
         logo: defaults.logo,
+        logo_size: defaults.logo_size,
     });
     const logoFile = useRef<HTMLInputElement>(null);
     const uploadLogo = (logo: File | undefined) =>
@@ -1260,6 +1262,28 @@ function RenderPanel({
                             }}
                         />
                     </div>
+                    {logoUrl && data.logo && (
+                        <div className="flex items-center gap-2 text-sm">
+                            <label htmlFor="logo_size">Cỡ logo: {data.logo_size}% bề ngang</label>
+                            <input
+                                id="logo_size"
+                                type="range"
+                                min={8}
+                                max={50}
+                                value={data.logo_size}
+                                onChange={(e) => setData('logo_size', Number(e.target.value))}
+                            />
+                            {/* Xem trước vị trí và cỡ logo trên khung 9:16. */}
+                            <div className="relative aspect-[9/16] w-16 overflow-hidden rounded border bg-neutral-700">
+                                <img
+                                    src={logoUrl}
+                                    alt=""
+                                    className="absolute top-[2.1%] right-[3.7%] h-auto"
+                                    style={{ width: `${data.logo_size}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <label className="flex h-9 items-center gap-2 text-sm">
                     <input type="checkbox" className="size-4" checked={data.sfx} onChange={(e) => setData('sfx', e.target.checked)} />

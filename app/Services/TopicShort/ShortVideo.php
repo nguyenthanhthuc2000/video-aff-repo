@@ -27,6 +27,9 @@ class ShortVideo
 
     public const HEIGHT = 1920;
 
+    /** Bề rộng logo mặc định, % bề rộng khung. */
+    public const LOGO_SIZE = 22;
+
     public const FPS = 30;
 
     /**
@@ -172,7 +175,8 @@ class ShortVideo
         if ($logo) {
             $index = $next + count($effects);
             $args = [...$args, '-i', $logo];
-            $filters[] = "[{$index}:v]format=rgba,scale=".(int) round(self::WIDTH * 0.14).':-1[logo]';
+            $size = max(8, min(50, (int) ($options['logo_size'] ?? self::LOGO_SIZE)));
+            $filters[] = "[{$index}:v]format=rgba,scale=".(int) round(self::WIDTH * $size / 100).':-1[logo]';
             $filters[] = '[vs][logo]overlay=W-w-40:40:format=auto,format=yuv420p[v]';
         }
 

@@ -385,7 +385,7 @@ class TopicShortTest extends TestCase
         foreach (['fast', 'page'] as $style) {
             $dir = storage_path('framework/testing/logo-'.$style);
             File::ensureDirectoryExists($dir);
-            $video = ShortVideo::render($short->fresh(), $dir, ['style' => $style, 'sfx' => true, 'logo' => true]);
+            $video = ShortVideo::render($short->fresh(), $dir, ['style' => $style, 'sfx' => true, 'logo' => true, 'logo_size' => 30]);
             $this->assertFileExists($video['path']);
             $this->assertFileExists("{$dir}/logo.png");
             File::deleteDirectory($dir);

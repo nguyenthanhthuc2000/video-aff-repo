@@ -214,6 +214,9 @@ class TopicShortController extends Controller
                     ?? TopicShort::where('user_id', $short->user_id)->whereNotNull('video_options')->latest('updated_at')->get(['video_options'])->pluck('video_options.watermark')->filter()->first() ?? '',
                 // Có logo thì mặc định gắn, trừ khi lần dựng trước của short này bỏ tích.
                 'logo' => (bool) ($short->video_options['logo'] ?? true),
+                'logo_size' => (int) ($short->video_options['logo_size']
+                    ?? TopicShort::where('user_id', $short->user_id)->whereNotNull('video_options')->latest('updated_at')->get(['video_options'])->pluck('video_options.logo_size')->filter()->first()
+                    ?? ShortVideo::LOGO_SIZE),
             ],
             'logo_url' => Media::url($request->user()->logo_path),
             'music_suggestion' => ShortVideo::suggestMusic($scenes, $music, $builtin),
@@ -718,6 +721,7 @@ class TopicShortController extends Controller
             'style' => ['nullable', Rule::in(['fast', 'page'])],
             'watermark' => ['nullable', 'string', 'max:30'],
             'logo' => ['boolean'],
+            'logo_size' => ['nullable', 'integer', 'min:8', 'max:50'],
         ]);
         if ($short->status !== 'ready' || ! $short->allImagesReady()) {
             return back()->with('status', 'Mọi cảnh cần có ảnh trước khi dựng video.');
