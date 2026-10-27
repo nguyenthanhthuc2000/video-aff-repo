@@ -3,14 +3,17 @@
 namespace Tests\Feature;
 
 use App\Jobs\ProcessMangaScanJob;
+use App\Jobs\RenderTopicShortJob;
 use App\Jobs\WriteTopicShortJob;
 use App\Models\MangaPanel;
 use App\Models\TopicShort;
 use App\Models\User;
 use App\Services\Manga\PanelCutter;
+use App\Services\TopicShort\ShortVideo;
 use App\Support\Media;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -140,5 +143,33 @@ class MangaPanelTest extends TestCase
         $this->assertSame('page', $scene->image_source);
         $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page->where('short.scenes.1.manga_panels.0.id', $ids[4]));
         $this->actingAs($this->user)->put(route('topic-short-scenes.manga', $scene), ['ids' => [1, 2, 3, 4]])->assertSessionHasErrors('ids');
+
+        // Kiểu cắt nhanh: mỗi khung thật là một cảnh quay (khung ngang lia, khung dọc lia, khung vuông zoom), chữ từng từ, tên kênh mờ.
+        Http::fake(['*/tts' => fn ($request) => Http::response(['base64' => base64_encode(self::wav(6)), 'duration' => 6.0, 'lines' => [
+            ['start' => 0.3, 'end' => 2.0], ['start' => 2.2, 'end' => 4.0], ['start' => 4.2, 'end' => 5.8],
+        ]])]);
+        $this->actingAs($this->user)->put(route('topic-short-scenes.manga', $scenes[2]), ['ids' => [$ids[2], $ids[3]]])->assertSessionHasNoErrors();
+        $this->actingAs($this->user)->post(route('topic-shorts.render', $short), ['style' => 'fast', 'watermark' => 'Wow Anime'])->assertSessionHas('status');
+        $short->refresh();
+        (new RenderTopicShortJob($short, $short->video_options['run']))->handle();
+        $short->refresh();
+        $this->assertSame('done', $short->video_status, (string) $short->video_error);
+        $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page->where('render_defaults.watermark', 'Wow Anime'));
+    }
+
+    public function test_word_captions_split_by_length_without_punctuation()
+    {
+        $words = ShortVideo::words('Đại thiên sứ, mạnh nhất!', 1000, 3000);
+        $this->assertSame(['ĐẠI', 'THIÊN', 'SỨ', 'MẠNH', 'NHẤT'], array_column($words, 2));
+        $this->assertSame(1000, $words[0][0]);
+        $this->assertSame(3000, $words[4][1]);
+        $this->assertGreaterThan($words[0][1] - $words[0][0], $words[1][1] - $words[1][0]);
+    }
+
+    private static function wav(float $seconds): string
+    {
+        $data = str_repeat("\0\0", (int) (24000 * $seconds));
+
+        return 'RIFF'.pack('V', 36 + strlen($data)).'WAVEfmt '.pack('VvvVVvv', 16, 1, 1, 24000, 48000, 2, 16).'data'.pack('V', strlen($data)).$data;
     }
 }

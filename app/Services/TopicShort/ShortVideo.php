@@ -3,6 +3,7 @@
 namespace App\Services\TopicShort;
 
 use App\Models\AudioTrack;
+use App\Models\MangaPanel;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Services\Audio\Tts;
@@ -79,10 +80,29 @@ class ShortVideo
         $bounds[] = max($total, end($bounds) + 500);
         $total = end($bounds);
 
+        $fast = ($options['style'] ?? 'fast') === 'fast';
         $args = [];
         $filters = [];
         $events = [];
+        $count = 0;
         foreach ($scenes->values() as $i => $scene) {
+            if ($fast) {
+                // Kiểu cắt nhanh: mỗi khung manga thật là một cảnh quay riêng 2–4 giây, phủ kín màn hình, zoom / lia liên tục.
+                foreach (self::shots($scene, $dir, $i, $bounds[$i], $bounds[$i + 1]) as [$local, $from, $to]) {
+                    $frames = max(1, (int) round(($to - $from) / 1000 * self::FPS));
+                    [$filter, $input] = self::shotFilter($count, $local, $frames);
+                    $args = [...$args, ...$input];
+                    $filters[] = $filter;
+                    $count++;
+                }
+                $start = (int) ($lines[$i]['start_ms'] ?? $bounds[$i]);
+                $end = (int) ($lines[$i]['end_ms'] ?? $bounds[$i + 1]);
+                foreach (self::words($scene->narration, $start, $end) as $word) {
+                    $events[] = [$word[0], $word[1], 'Word', $word[2]];
+                }
+
+                continue;
+            }
             $local = "{$dir}/img{$i}.".(pathinfo($scene->image_path, PATHINFO_EXTENSION) ?: 'jpg');
             $contents = Media::disk()->get($scene->image_path);
             if ($contents === null) {
@@ -91,7 +111,8 @@ class ShortVideo
             File::put($local, $contents);
             $args = [...$args, '-i', $local];
             $frames = max(1, (int) round(($bounds[$i + 1] - $bounds[$i]) / 1000 * self::FPS));
-            $filters[] = self::sceneFilter($i, $frames, $scene->image_source === 'page');
+            $filters[] = self::sceneFilter($count, $frames, $scene->image_source === 'page');
+            $count++;
 
             $title = $i === 0 && $short->title ? $short->title : (string) $scene->on_screen_text;
             $title !== '' && $events[] = [$bounds[$i], $bounds[$i + 1], $i === 0 ? 'Title' : 'Top', $title];
@@ -101,8 +122,9 @@ class ShortVideo
                 $events[] = [$chunk[0], $chunk[1], 'Sub', $chunk[2]];
             }
         }
-        $count = $scenes->count();
-        $filters[] = implode('', array_map(fn ($i) => "[v{$i}]", range(0, $count - 1)))."concat=n={$count}:v=1:a=0,tpad=stop_mode=clone:stop_duration=2[vc]";
+        $filters[] = implode('', array_map(fn ($k) => "[v{$k}]", range(0, $count - 1)))."concat=n={$count}:v=1:a=0,tpad=stop_mode=clone:stop_duration=2[vc]";
+        $mark = trim((string) ($options['watermark'] ?? ''));
+        $fast && $mark !== '' && $events[] = [0, $total, 'Mark', mb_strtoupper($mark)];
         File::put("{$dir}/text.ass", self::ass($events));
         $filters[] = "[vc]subtitles='".self::escapePath("{$dir}/text.ass")."':fontsdir='".self::escapePath(resource_path('fonts'))."',format=yuv420p[v]";
 
@@ -292,6 +314,91 @@ class ShortVideo
     }
 
     /**
+     * Các cảnh quay của một cảnh (kiểu cắt nhanh): từng khung manga thật (tối đa số khung đủ 1,5 giây mỗi khung), không có thì ảnh cảnh.
+     *
+     * @return list<array{0: string, 1: int, 2: int}> [file tạm, bắt đầu ms, kết thúc ms]
+     */
+    private static function shots(TopicShortScene $scene, string $dir, int $i, int $from, int $to): array
+    {
+        $ids = array_map('intval', $scene->manga_panels ?? []);
+        $paths = $ids === [] ? [] : MangaPanel::where('user_id', $scene->topicShort->user_id)->whereIn('id', $ids)->get()
+            ->sortBy(fn (MangaPanel $panel) => array_search($panel->id, $ids, true))->pluck('image_path')->all();
+        $paths = array_slice($paths ?: [$scene->image_path], 0, max(1, intdiv($to - $from, 1500)));
+        $shots = [];
+        $step = ($to - $from) / count($paths);
+        foreach (array_values($paths) as $k => $path) {
+            $contents = Media::disk()->get($path);
+            if ($contents === null) {
+                throw new RuntimeException("Không đọc được ảnh cảnh {$scene->position}.");
+            }
+            $local = "{$dir}/shot{$i}-{$k}.".(pathinfo($path, PATHINFO_EXTENSION) ?: 'jpg');
+            File::put($local, $contents);
+            $shots[] = [$local, $from + (int) round($k * $step), $k === count($paths) - 1 ? $to : $from + (int) round(($k + 1) * $step)];
+        }
+
+        return $shots;
+    }
+
+    /**
+     * Một cảnh quay phủ kín 9:16 có chuyển động: khung ngang lia từ phải sang trái (chiều đọc manga), khung dọc lia từ trên xuống,
+     * khung gần 9:16 thì zoom vào / zoom ra xen kẽ.
+     *
+     * @return array{0: string, 1: list<string>} [filter, tham số input ffmpeg]
+     */
+    private static function shotFilter(int $k, string $local, int $frames): array
+    {
+        $w = self::WIDTH;
+        $h = self::HEIGHT;
+        [$iw, $ih] = (@getimagesize($local) ?: [$w, $h]);
+        $ratio = $iw / max(1, $ih);
+        $target = $w / $h;
+        $loop = ['-loop', '1', '-framerate', (string) self::FPS, '-t', self::seconds((int) ceil($frames / self::FPS * 1000) + 200), '-i', $local];
+        $end = ",trim=end_frame={$frames},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v{$k}]";
+        if ($ratio > $target * 1.25) {
+            return ["[{$k}:v]scale=-2:{$h},crop={$w}:{$h}:x='(iw-ow)*(1-n/{$frames})':y=0{$end}", $loop];
+        }
+        if ($ratio < $target / 1.25) {
+            return ["[{$k}:v]scale={$w}:-2,crop={$w}:{$h}:x=0:y='(ih-oh)*n/{$frames}'{$end}", $loop];
+        }
+        $bigW = (int) round($w * 1.5);
+        $bigH = (int) round($h * 1.5);
+        $zoom = $k % 2 === 0 ? "1+0.22*on/{$frames}" : "1.22-0.22*on/{$frames}";
+
+        return [
+            "[{$k}:v]scale={$bigW}:{$bigH}:force_original_aspect_ratio=increase,crop={$bigW}:{$bigH},"
+            ."zoompan=z='{$zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={$frames}:s={$w}x{$h}:fps=".self::FPS.',setsar=1,format=yuv420p'."[v{$k}]",
+            ['-i', $local],
+        ];
+    }
+
+    /**
+     * Phụ đề từng chữ (kiểu cắt nhanh): in hoa, bỏ dấu câu, thời gian chia theo độ dài chữ.
+     *
+     * @return list<array{0: int, 1: int, 2: string}>
+     */
+    public static function words(string $text, int $start, int $end): array
+    {
+        $words = array_values(array_filter(array_map(
+            fn ($word) => mb_strtoupper(preg_replace('/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/u', '', $word) ?? ''),
+            preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: [],
+        ), fn ($word) => $word !== ''));
+        if ($words === [] || $end <= $start) {
+            return [];
+        }
+        $weights = array_map(fn ($word) => mb_strlen($word) + 2, $words);
+        $total = array_sum($weights);
+        $result = [];
+        $cursor = $start;
+        foreach ($words as $k => $word) {
+            $next = $k === count($words) - 1 ? $end : $cursor + (int) round(($end - $start) * $weights[$k] / $total);
+            $result[] = [$cursor, max($cursor + 1, $next), $word];
+            $cursor = $next;
+        }
+
+        return $result;
+    }
+
+    /**
      * Chia câu đọc thành các dòng phụ đề ngắn, thời gian chia theo độ dài chữ.
      *
      * @return list<array{0: int, 1: int, 2: string}>
@@ -337,10 +444,18 @@ class ShortVideo
             "Style: Title,{$font},84,&H0000D7FF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,8,70,70,240,1",
             "Style: Top,{$font},72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,6,2,8,80,80,260,1",
             "Style: Sub,{$font},62,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,1,2,80,80,520,1",
+            // Kiểu cắt nhanh: một chữ một lần, in hoa, vàng viền đen ở giữa màn hình; tên kênh mờ ngay bên dưới.
+            "Style: Word,{$font},124,&H0000D4FF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,9,4,5,40,40,0,1",
+            "Style: Mark,{$font},58,&H7000D4FF,&H00FFFFFF,&H90000000,&H00000000,-1,0,0,0,100,100,2,0,1,2,0,5,40,40,0,1",
             '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
         ];
         foreach ($events as [$start, $end, $style, $text]) {
-            $fade = $style === 'Sub' ? '' : '{\fad(150,150)}';
+            $fade = match ($style) {
+                'Sub' => '',
+                'Word' => '{\fscx112\fscy112\t(0,90,\fscx100\fscy100)}',
+                'Mark' => '{\pos('.intdiv(self::WIDTH, 2).','.(intdiv(self::HEIGHT, 2) + 130).')}',
+                default => '{\fad(150,150)}',
+            };
             $lines[] = 'Dialogue: 0,'.AssSubtitles::time($start).','.AssSubtitles::time($end).",{$style},,0,0,0,,{$fade}".AssSubtitles::escape($text);
         }
 

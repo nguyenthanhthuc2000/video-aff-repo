@@ -198,6 +198,12 @@ class TopicShortController extends Controller
             ],
             'music' => $music = AudioTrack::where('user_id', $request->user()->id)->latest()->get(['id', 'name']),
             'builtin_music' => $builtin = BuiltinMusic::all(),
+            // Kiểu dựng và tên kênh lần trước (đỡ gõ lại mỗi video).
+            'render_defaults' => [
+                'style' => $short->video_options['style'] ?? 'fast',
+                'watermark' => $short->video_options['watermark']
+                    ?? TopicShort::where('user_id', $short->user_id)->whereNotNull('video_options')->latest('updated_at')->get(['video_options'])->pluck('video_options.watermark')->filter()->first() ?? '',
+            ],
             'music_suggestion' => ShortVideo::suggestMusic($scenes, $music, $builtin),
             'image_styles' => TopicShort::IMAGE_STYLES,
             'prices' => ['image' => CreditPricing::settings()['steps']['image'], 'render' => RenderTopicShortJob::price($estimatedMs)],
@@ -604,6 +610,8 @@ class TopicShortController extends Controller
             'music_file' => ['nullable', 'string', Rule::in(array_column(BuiltinMusic::all(), 'file'))],
             'music_volume' => ['nullable', 'integer', 'min:0', 'max:40'],
             'sfx' => ['boolean'],
+            'style' => ['nullable', Rule::in(['fast', 'page'])],
+            'watermark' => ['nullable', 'string', 'max:30'],
         ]);
         if ($short->status !== 'ready' || ! $short->allImagesReady()) {
             return back()->with('status', 'Mọi cảnh cần có ảnh trước khi dựng video.');

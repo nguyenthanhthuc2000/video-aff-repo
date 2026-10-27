@@ -116,6 +116,7 @@ export default function TopicShortShow({
     prices,
     image_styles,
     pronunciations,
+    render_defaults,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
@@ -124,6 +125,7 @@ export default function TopicShortShow({
     image_styles: Record<string, string>;
     prices: { image: number; render: number };
     pronunciations: PronunciationRow[];
+    render_defaults: { style: 'fast' | 'page'; watermark: string };
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
         short.use_research ? { title: 'Video truyện', href: '/story-videos' } : { title: 'Shorts chủ đề', href: '/topic-shorts' },
@@ -322,7 +324,14 @@ export default function TopicShortShow({
 
                 {step === 'video' && short.scenes.length > 0 && (
                     <>
-                        <RenderPanel short={short} music={music} builtin={builtin_music} suggestion={music_suggestion} price={prices.render} />
+                        <RenderPanel
+                            short={short}
+                            music={music}
+                            builtin={builtin_music}
+                            suggestion={music_suggestion}
+                            price={prices.render}
+                            defaults={render_defaults}
+                        />
                         <VoicesPanel short={short} />
                         {short.language !== 'en' && <PronunciationPanel rows={pronunciations} />}
                     </>
@@ -918,15 +927,23 @@ function RenderPanel({
     builtin,
     suggestion,
     price,
+    defaults,
 }: {
     short: TopicShort;
     music: { id: number; name: string }[];
     builtin: { file: string; name: string }[];
     suggestion: { mood: string | null; track_id: number | null; file: string | null };
     price: number;
+    defaults: { style: 'fast' | 'page'; watermark: string };
 }) {
     // Giá trị ô nhạc: "track:<id>" (nhạc của bạn) hoặc "file:<tên file>" (nhạc có sẵn trong public/nhac).
-    const { data, setData, post, processing, transform } = useForm<{ music: string; music_volume: number; sfx: boolean }>({
+    const { data, setData, post, processing, transform } = useForm<{
+        music: string;
+        music_volume: number;
+        sfx: boolean;
+        style: 'fast' | 'page';
+        watermark: string;
+    }>({
         music: suggestion.track_id
             ? `track:${suggestion.track_id}`
             : suggestion.file
@@ -936,6 +953,8 @@ function RenderPanel({
                 : '',
         music_volume: 12,
         sfx: true,
+        style: defaults.style,
+        watermark: defaults.watermark,
     });
     const rendering = short.video_status === 'rendering';
 
@@ -1010,6 +1029,31 @@ function RenderPanel({
                             max={40}
                             value={data.music_volume}
                             onChange={(e) => setData('music_volume', Number(e.target.value))}
+                        />
+                    </div>
+                )}
+                <div className="grid gap-2">
+                    <Label htmlFor="style">Kiểu dựng</Label>
+                    <select
+                        id="style"
+                        className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                        value={data.style}
+                        onChange={(e) => setData('style', e.target.value as 'fast' | 'page')}
+                    >
+                        <option value="fast">Cắt nhanh: mỗi khung một cảnh, chữ từng từ giữa màn hình</option>
+                        <option value="page">Trang manga: cả trang lia chậm, phụ đề dưới</option>
+                    </select>
+                </div>
+                {data.style === 'fast' && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="watermark">Tên kênh (chữ mờ)</Label>
+                        <Input
+                            id="watermark"
+                            className="w-44"
+                            maxLength={30}
+                            value={data.watermark}
+                            onChange={(e) => setData('watermark', e.target.value)}
+                            placeholder="WOW ANIME"
                         />
                     </div>
                 )}

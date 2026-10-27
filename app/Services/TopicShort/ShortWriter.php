@@ -29,9 +29,9 @@ class ShortWriter
     Structure (follow it, the requested format below says how the body is organised):
     1. Hook, first 3 seconds (scene 1): one shocking question or bold claim, under 12 words, that makes viewers stay. Scene 1 shows the most famous character of the topic, face clearly visible.
     2. Context (scene 2, 1–2 sentences): set up the situation, usually showing the second character or the villain.
-    3. Body: 3–4 fast points, one scene each, 4–7 seconds of speech per scene.
+    3. Body: 3–4 fast points, one scene each, 4–7 seconds of speech per scene, told as a quick list of concrete facts ("Chẳng hạn như...", "Thêm vào đó...", "Trong anime... còn trong manga...").
     4. Twist / climax: save the most surprising detail or the most powerful moment (e.g. the transformation) for the second-to-last scene.
-    5. Ending (last scene): ask the viewers a direct question that invites them to comment (e.g. "Theo các bạn thì...? Comment cho mình biết nhé.").
+    5. Ending (last scene): a sentence that leads straight back into the hook, so the short loops seamlessly when it replays (e.g. the hook asks "Đại thiên sứ mạnh đến mức nào?" and the last line ends "...mạnh đến mức có thể hạ thần hủy diệt chỉ trong một đòn đánh."). Put the question for comments in the caption, not in the narration.
 
     Rules:
     - Facts must match the original work (canon). Never invent events, quotes or numbers. If unsure about a detail, leave it out. Theories must be clearly framed as theories.
