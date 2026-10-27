@@ -162,7 +162,8 @@ class TopicShortController extends Controller
                 'video_url' => Media::url($short->video_path),
                 'video_ms' => $short->video_ms,
                 'estimated_ms' => $estimatedMs,
-                'images_busy' => $scenes->contains(fn ($scene) => in_array($scene->image_status, ['searching', 'pending'], true) || $scene->clip_status === 'pending'),
+                'images_busy' => $scenes->contains(fn ($scene) => in_array($scene->image_status, ['searching', 'pending'], true)),
+                'clips_busy' => $scenes->where('clip_status', 'pending')->count(),
                 'image_stats' => collect(['ready', 'failed', 'pending', 'searching'])->mapWithKeys(fn ($status) => [$status => $scenes->where('image_status', $status)->count()]),
                 'all_images_ready' => $scenes->isNotEmpty() && $scenes->every(fn ($scene) => $scene->image_status === 'ready'),
                 'scenes' => $scenes->map(fn (TopicShortScene $scene) => [
@@ -189,6 +190,7 @@ class TopicShortController extends Controller
                     'voice_url' => Media::url($scene->voice_path),
                     'clip_url' => Media::url($scene->clip_path),
                     'clip_status' => $scene->clip_status,
+                    'clip_sent' => $scene->clip_request_id !== null,
                     'clip_error' => $scene->clip_error,
                     'voice_ms' => $scene->voice_ms,
                     'panels' => collect(MangaPage::resolve($scene, $library))->map(fn ($item) => [

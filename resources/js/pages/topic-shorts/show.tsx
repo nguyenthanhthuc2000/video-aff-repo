@@ -68,6 +68,7 @@ interface ShortScene {
     voice_url: string | null;
     clip_url: string | null;
     clip_status: 'none' | 'pending' | 'ready' | 'failed';
+    clip_sent: boolean;
     clip_error: string | null;
     voice_ms: number | null;
     panels: { character: string; pose: string; camera: string; name: string; label: string; url: string | null; exact: boolean }[];
@@ -106,6 +107,7 @@ interface TopicShort {
     video_ms: number | null;
     estimated_ms: number;
     images_busy: boolean;
+    clips_busy: number;
     image_stats: { ready: number; failed: number; pending: number; searching: number };
     all_images_ready: boolean;
     scenes: ShortScene[];
@@ -145,6 +147,7 @@ export default function TopicShortShow({
             checking ||
             drawing ||
             short.images_busy ||
+            short.clips_busy > 0 ||
             short.video_status === 'rendering' ||
             short.publish?.status === 'writing',
         ['short'],
@@ -325,6 +328,12 @@ export default function TopicShortShow({
                                 {short.image_stats.pending + short.image_stats.searching > 0 &&
                                     ` · ${short.image_stats.pending + short.image_stats.searching} đang tạo`}
                             </p>
+                            {short.clips_busy > 0 && (
+                                <div className="flex items-center gap-2 rounded-md border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-sm">
+                                    <Loader2 className="size-4 animate-spin text-violet-600" />
+                                    Muse đang tạo {short.clips_busy} video ngắn, mỗi video vài phút. Trang tự cập nhật khi xong.
+                                </div>
+                            )}
                             <MangaPanelsBar short={short} price={prices.image} />
                             <div className="grid gap-4 lg:grid-cols-2">
                                 {short.scenes.map((scene) => (
@@ -610,6 +619,15 @@ function SceneImageCard({ scene, clipPrice }: { scene: ShortScene; clipPrice: nu
         <div className="flex gap-3 rounded-lg border p-3">
             <div className="bg-muted relative flex aspect-[9/16] w-32 shrink-0 items-center justify-center overflow-hidden rounded-md border">
                 {busy && <Loader2 className="text-muted-foreground size-5 animate-spin" />}
+                {scene.clip_status === 'ready' && scene.clip_url && !clipBusy && (
+                    <Badge className="absolute top-1 right-1 bg-violet-600 text-white">Video</Badge>
+                )}
+                {clipBusy && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-black/55 text-center text-xs font-medium text-white">
+                        <Loader2 className="size-6 animate-spin" />
+                        Đang tạo video
+                    </div>
+                )}
                 {!busy && scene.image_url && <img src={scene.image_url} alt={`Cảnh ${scene.position}`} className="h-full w-full object-contain" />}
                 {!busy && !scene.image_url && <ImageOff className="text-muted-foreground size-5" />}
                 {scene.image_source && scene.image_status === 'ready' && (
@@ -654,7 +672,12 @@ function SceneImageCard({ scene, clipPrice }: { scene: ShortScene; clipPrice: nu
                 {scene.image_status === 'pending' && <p className="text-muted-foreground text-xs">Muse đang vẽ...</p>}
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
                 {scene.muse_fix_prompt && !busy && <MuseFix key={scene.muse_fix_prompt} scene={scene} />}
-                {clipBusy && <p className="text-muted-foreground text-xs">Muse đang làm video ngắn (vài phút)...</p>}
+                {clipBusy && (
+                    <p className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400">
+                        <Loader2 className="size-3 animate-spin" />
+                        {scene.clip_sent ? 'Muse đang làm video từ ảnh này (thường 2–5 phút)...' : 'Đang gửi ảnh cho Muse (chờ lượt nếu Muse bận)...'}
+                    </p>
+                )}
                 {scene.clip_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.clip_error}</p>}
                 {scene.clip_status === 'ready' && scene.clip_url && (
                     <div className="flex items-end gap-2">
@@ -762,7 +785,8 @@ function SceneImageCard({ scene, clipPrice }: { scene: ShortScene; clipPrice: nu
                         disabled={busy || clipBusy || !scene.image_url}
                         title="Muse làm video ngắn từ ảnh hiện tại của cảnh; khi dựng, cảnh dùng video thay ảnh động"
                     >
-                        <Clapperboard /> Muse tạo video ngắn
+                        {clipBusy ? <Loader2 className="animate-spin" /> : <Clapperboard />}
+                        {clipBusy ? 'Đang tạo video...' : scene.clip_status === 'ready' ? 'Tạo lại video' : 'Muse tạo video ngắn'}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => upload.current?.click()} disabled={busy}>
                         <Upload /> Thay bằng 1 ảnh
