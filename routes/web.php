@@ -139,6 +139,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('topic-short-scenes/{scene}/library', [TopicShortController::class, 'library'])->name('topic-short-scenes.library');
     Route::post('topic-short-scenes/{scene}/compose', [TopicShortController::class, 'compose'])->name('topic-short-scenes.compose');
     Route::post('topic-short-scenes/{scene}/muse', [TopicShortController::class, 'muse'])->name('topic-short-scenes.muse');
+    Route::post('topic-short-scenes/{scene}/find-images', [TopicShortController::class, 'findSceneImages'])->name('topic-short-scenes.find-images');
+    Route::post('topic-short-scenes/{scene}/add-images', [TopicShortController::class, 'addImages'])->name('topic-short-scenes.add-images');
+    Route::post('topic-shorts/{short}/find-images', [TopicShortController::class, 'findImages'])->name('topic-shorts.find-images');
     Route::put('topic-short-scenes/{scene}/manga', [TopicShortController::class, 'manga'])->name('topic-short-scenes.manga');
     Route::post('topic-short-scenes/{scene}/voice', [TopicShortController::class, 'voice'])->name('topic-short-scenes.voice');
     Route::delete('topic-short-scenes/{scene}/voice', [TopicShortController::class, 'voiceDestroy'])->name('topic-short-scenes.voice.destroy');

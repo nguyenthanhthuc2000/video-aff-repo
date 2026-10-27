@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\CheckTopicShortFactsJob;
+use App\Jobs\FindSceneImagesJob;
 use App\Jobs\FindTopicSceneImageJob;
 use App\Jobs\GenerateCharacterPortraitJob;
 use App\Jobs\GenerateTopicSceneImageJob;
 use App\Jobs\PlanTopicSeriesJob;
+use App\Jobs\ProcessMangaScanJob;
 use App\Jobs\RenderTopicShortJob;
 use App\Jobs\ResearchTopicJob;
 use App\Jobs\WriteTopicShortJob;
@@ -491,6 +493,7 @@ class TopicShortController extends Controller
         }
         $old = $scene->image_path;
         $scene->update([
+            'manga_panels' => null,
             'image_source' => 'upload',
             'image_status' => 'ready',
             'image_path' => Media::store($request->file('image'), "topic-shorts/{$scene->topic_short_id}"),
@@ -500,6 +503,58 @@ class TopicShortController extends Controller
         Media::delete($old);
 
         return back()->with('status', "Đã tải ảnh cảnh {$scene->position}.");
+    }
+
+    /** Claude tìm ảnh thật trên mạng cho mọi cảnh (hoặc các cảnh còn thiếu ảnh). */
+    public function findImages(Request $request, TopicShort $short): RedirectResponse
+    {
+        $this->authorize('update', $short);
+        $scenes = $short->scenes()->whereNotIn('image_status', ['searching', 'pending'])
+            ->when($request->boolean('missing'), fn ($q) => $q->where(fn ($q) => $q->whereNull('manga_panels')->orWhere('manga_panels', '[]')))->get();
+        if ($short->status !== 'ready' || $scenes->isEmpty()) {
+            return back()->with('status', 'Không có cảnh nào cần tìm ảnh.');
+        }
+
+        return $this->startFinding($short, $scenes->pluck('id')->all());
+    }
+
+    public function findSceneImages(TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        if ($this->busy($scene)) {
+            return back()->with('status', 'Ảnh cảnh này đang được tạo.');
+        }
+
+        return $this->startFinding($scene->topicShort, [$scene->id]);
+    }
+
+    /** @param list<int> $ids */
+    private function startFinding(TopicShort $short, array $ids): RedirectResponse
+    {
+        TopicShortScene::whereIn('id', $ids)->update(['image_status' => 'searching', 'image_error' => null]);
+        FindSceneImagesJob::dispatch($short, $ids);
+
+        return back()->with('status', 'Claude đang tìm ảnh trên mạng (vài phút), tìm xong ảnh tự gắn vào cảnh.');
+    }
+
+    /** Ảnh bạn tự tìm: thêm vào cảnh (mỗi ảnh một cảnh quay, tối đa 3) và lưu vào Kho khung manga. */
+    public function addImages(Request $request, TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        $request->validate(['images' => ['required', 'array', 'max:'.ShortWriter::MAX_PANELS], 'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:15360']], [], ['images' => 'ảnh', 'images.*' => 'ảnh']);
+        $ids = [];
+        foreach ($request->file('images') as $file) {
+            $path = Media::store($file, "manga/{$request->user()->id}/uploads");
+            $size = @getimagesize($file->getRealPath()) ?: [0, 0];
+            $scan = $request->user()->mangaScans()->create(['chapter' => 'Tự tải lên', 'name' => mb_substr($file->getClientOriginalName(), 0, 250), 'image_path' => $path, 'status' => 'processing']);
+            $ids[] = $scan->panels()->create(['user_id' => $request->user()->id, 'position' => 1, 'image_path' => $path, 'width' => $size[0], 'height' => $size[1], 'characters' => [], 'useful' => true])->id;
+            // Claude xem ảnh để ghi nhân vật / mô tả (dùng lại cho video sau).
+            ProcessMangaScanJob::dispatch($scan);
+        }
+        $scene->update(['manga_panels' => array_slice([...($scene->manga_panels ?? []), ...$ids], -ShortWriter::MAX_PANELS)]);
+        MangaPage::composeOrExplain($scene->fresh());
+
+        return back()->with('status', 'Đã thêm '.count($ids)." ảnh vào cảnh {$scene->position}.");
     }
 
     /** Chọn khung manga thật cho cảnh (tối đa 3, theo thứ tự), ghép lại trang; bỏ hết thì quay về khung thư viện nhân vật. */

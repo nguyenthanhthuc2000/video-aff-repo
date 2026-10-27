@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\FindSceneImagesJob;
 use App\Jobs\ProcessMangaScanJob;
 use App\Jobs\RenderTopicShortJob;
 use App\Jobs\WriteTopicShortJob;
@@ -9,6 +10,7 @@ use App\Models\MangaPanel;
 use App\Models\TopicShort;
 use App\Models\User;
 use App\Services\Manga\PanelCutter;
+use App\Services\Manga\WebImage;
 use App\Services\TopicShort\ShortVideo;
 use App\Support\Media;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -155,6 +157,58 @@ class MangaPanelTest extends TestCase
         $short->refresh();
         $this->assertSame('done', $short->video_status, (string) $short->video_error);
         $this->actingAs($this->user)->get(route('topic-shorts.show', $short))->assertInertia(fn (Assert $page) => $page->where('render_defaults.watermark', 'Wow Anime'));
+    }
+
+    public function test_claude_finds_web_images_and_user_adds_own_images_per_scene()
+    {
+        Queue::fake();
+        WebImage::$resolver = fn (string $host) => $host === 'intranet.local' ? ['10.0.0.5'] : ['93.184.216.34'];
+        $big = imagecreatetruecolor(600, 800);
+        ob_start();
+        imagepng($big);
+        $png = (string) ob_get_clean();
+        Http::fake([
+            'images.example.com/scene-1-a.png' => Http::response($png, 200, ['Content-Type' => 'image/png']),
+            'images.example.com/scene-1-b.png' => Http::response('not found', 404),
+            '*' => Http::response('<html>page</html>', 200),
+        ]);
+        $this->assertFalse(WebImage::safe('http://intranet.local/x.png'));
+        $this->assertFalse(WebImage::safe('http://127.0.0.1/x.png'));
+        $this->assertFalse(WebImage::safe('file:///etc/passwd'));
+
+        $short = TopicShort::factory()->for($this->user)->create(['status' => 'ready', 'topic' => 'Goku trên Namek']);
+        $first = $short->scenes()->create(['position' => 1, 'narration' => 'Goku hoá Super Saiyan.', 'characters' => ['Goku'], 'image_status' => 'none']);
+        $second = $short->scenes()->create(['position' => 2, 'narration' => 'Frieza cười.', 'image_status' => 'none']);
+        $this->actingAs($this->user)->post(route('topic-shorts.find-images', $short))->assertSessionHas('status');
+        $this->assertSame('searching', $first->fresh()->image_status);
+        Queue::assertPushed(FindSceneImagesJob::class, fn ($job) => $job->sceneIds === [$first->id, $second->id]);
+
+        (new FindSceneImagesJob($short, [$first->id, $second->id]))->handle();
+        $first->refresh();
+        $this->assertCount(1, $first->manga_panels);
+        $this->assertSame('ready', $first->image_status);
+        $this->assertSame('page', $first->image_source);
+        $panel = MangaPanel::find($first->manga_panels[0]);
+        $this->assertSame(['goku'], $panel->characters);
+        $this->assertStringStartsWith('Claude tìm:', $panel->scan->chapter);
+        // Cảnh 2: mọi ảnh tìm được đều không tải về được (trang HTML / 404) → báo lỗi, không có ảnh.
+        $this->assertSame('failed', $second->fresh()->image_status);
+        $this->assertStringContainsString('Claude chưa tìm được', $second->fresh()->image_error);
+
+        // Ảnh tự tìm: thêm nhiều ảnh vào cảnh, mỗi ảnh một cảnh quay (tối đa 3, giữ ảnh mới nhất).
+        $this->actingAs($this->user)->post(route('topic-short-scenes.add-images', $first), ['images' => [
+            UploadedFile::fake()->image('a.png', 500, 700), UploadedFile::fake()->image('b.png', 900, 500), UploadedFile::fake()->image('c.jpg', 600, 600),
+        ]])->assertSessionHasNoErrors();
+        $first->refresh();
+        $this->assertCount(3, $first->manga_panels);
+        $this->assertNotContains($panel->id, $first->manga_panels);
+        Queue::assertPushed(ProcessMangaScanJob::class, 3);
+        $this->actingAs(User::factory()->create())->post(route('topic-short-scenes.find-images', $first))->assertForbidden();
+
+        // Thay bằng một ảnh: bỏ các ảnh / khung đã gắn.
+        $this->actingAs($this->user)->post(route('topic-short-scenes.upload', $first), ['image' => UploadedFile::fake()->image('one.png', 600, 900)])->assertSessionHasNoErrors();
+        $this->assertNull($first->fresh()->manga_panels);
+        WebImage::$resolver = null;
     }
 
     public function test_word_captions_split_by_length_without_punctuation()

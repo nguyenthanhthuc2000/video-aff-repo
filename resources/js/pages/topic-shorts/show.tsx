@@ -292,6 +292,13 @@ export default function TopicShortShow({
                                             <RefreshCw /> Tạo lại {failedCount} ảnh lỗi
                                         </Button>
                                     )}
+                                    <Button
+                                        size="sm"
+                                        onClick={() => router.post(route('topic-shorts.find-images', short.id), {}, { preserveScroll: true })}
+                                        disabled={short.images_busy}
+                                    >
+                                        <Search /> Claude tìm ảnh cho mọi cảnh
+                                    </Button>
                                     <Button variant="outline" size="sm" onClick={museAll} disabled={short.images_busy}>
                                         <Wand2 /> Muse vẽ lại tất cả
                                     </Button>
@@ -580,6 +587,11 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
     const muse = () => router.post(route('topic-short-scenes.muse', scene.id), {}, options);
     const compose = () => router.post(route('topic-short-scenes.compose', scene.id), {}, options);
     const pickLibrary = (portraitId: number) => router.post(route('topic-short-scenes.library', scene.id), { portrait_id: portraitId }, options);
+    const more = useRef<HTMLInputElement>(null);
+    const findImages = () => router.post(route('topic-short-scenes.find-images', scene.id), {}, options);
+    const addImages = (files: File[]) =>
+        files.length > 0 &&
+        router.post(route('topic-short-scenes.add-images', scene.id), { images: files.slice(0, 3) }, { ...options, forceFormData: true });
     const send = (file: File | undefined) =>
         file && router.post(route('topic-short-scenes.upload', scene.id), { image: file }, { ...options, forceFormData: true });
 
@@ -627,7 +639,7 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                         </Button>
                     </div>
                 )}
-                {scene.image_status === 'searching' && <p className="text-muted-foreground text-xs">Đang tìm ảnh trên wiki...</p>}
+                {scene.image_status === 'searching' && <p className="text-muted-foreground text-xs">Claude đang tìm ảnh trên mạng (vài phút)...</p>}
                 {scene.image_status === 'pending' && <p className="text-muted-foreground text-xs">Muse đang vẽ...</p>}
                 {scene.image_error && <p className="text-xs text-red-600 dark:text-red-400">{scene.image_error}</p>}
                 <InputError message={errors[`scene_${scene.id}`]} />
@@ -678,11 +690,35 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                     </div>
                 </details>
                 <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={findImages} disabled={busy}>
+                        <Search /> Claude tìm ảnh
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => more.current?.click()}
+                        disabled={busy}
+                        title="Mỗi ảnh là một cảnh quay, tối đa 3"
+                    >
+                        <Upload /> Thêm ảnh bạn tìm
+                    </Button>
+                    <input
+                        ref={more}
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        aria-label={`Thêm ảnh cảnh ${scene.position}`}
+                        onChange={(e) => {
+                            addImages(Array.from(e.target.files ?? []));
+                            e.target.value = '';
+                        }}
+                    />
                     <Button size="sm" variant="outline" onClick={muse} disabled={busy}>
                         <Wand2 /> Muse vẽ
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => upload.current?.click()} disabled={busy}>
-                        <Upload /> Tải ảnh lên
+                        <Upload /> Thay bằng 1 ảnh
                     </Button>
                     <input
                         ref={upload}
