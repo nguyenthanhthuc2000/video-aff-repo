@@ -1,6 +1,7 @@
 import FlashStatus from '@/components/flash-status';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { MangaPicker } from '@/components/topic-shorts/manga-picker';
 import { type PronunciationRow, PronunciationPanel } from '@/components/topic-shorts/pronunciation-panel';
 import { type PublishPack, CopyButton, PublishPanel } from '@/components/topic-shorts/publish-panel';
 import { type FactCheck, type Research, HookPicker, ResearchPanel, SceneFacts } from '@/components/topic-shorts/research-panel';
@@ -12,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { usePoll } from '@/hooks/use-poll';
 import AppLayout from '@/layouts/app-layout';
 import { formatNumber } from '@/lib/pricing';
+import { type Panel } from '@/pages/manga-panels/index';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import {
@@ -59,6 +61,7 @@ interface ShortScene {
     fact_ids: string[];
     fact_check: FactCheck | null;
     mood: string | null;
+    manga_panels: Panel[];
     voice_url: string | null;
     voice_ms: number | null;
     panels: { character: string; pose: string; camera: string; name: string; label: string; url: string | null; exact: boolean }[];
@@ -293,9 +296,10 @@ export default function TopicShortShow({
                                 </div>
                             </div>
                             <p className="text-muted-foreground text-sm">
-                                Mỗi cảnh là một trang manga ghép từ thư viện Nhân vật Ngọc Rồng (miễn phí). Thư viện thiếu ảnh thì bấm "Vẽ khung còn
-                                thiếu", vẽ xong trang tự ghép lại. Có thể thay bằng ảnh tải lên hoặc Muse vẽ riêng ({formatNumber(prices.image)}{' '}
-                                Credits / ảnh).
+                                Mỗi cảnh là một trang manga ghép từ khung truyện thật trong Kho khung manga (Claude tự chọn khi viết lời kể, bấm "Chọn
+                                khung manga" để đổi), cảnh không có khung thật thì ghép từ thư viện Nhân vật Ngọc Rồng. Thư viện thiếu ảnh thì bấm "Vẽ
+                                khung còn thiếu", vẽ xong trang tự ghép lại. Có thể thay bằng ảnh tải lên hoặc Muse vẽ riêng (
+                                {formatNumber(prices.image)} Credits / ảnh).
                             </p>
                             <p className="text-sm">
                                 {short.scenes.length} cảnh:{' '}
@@ -587,7 +591,13 @@ function SceneImageCard({ scene }: { scene: ShortScene }) {
                     Cảnh {scene.position}: {scene.on_screen_text}
                 </div>
                 {scene.characters.length > 0 && <p className="text-muted-foreground text-xs">Nhân vật: {scene.characters.join(', ')}</p>}
-                {scene.panels.length > 0 && (
+                <MangaPicker
+                    key={scene.manga_panels.map((p) => p.id).join(',')}
+                    sceneId={scene.id}
+                    current={scene.manga_panels}
+                    hint={scene.characters[0] ?? ''}
+                />
+                {scene.panels.length > 0 && scene.manga_panels.length === 0 && (
                     <div className="flex flex-wrap items-center gap-1">
                         <span className="text-muted-foreground text-xs">Khung manga:</span>
                         {scene.panels.map((panel, i) => (

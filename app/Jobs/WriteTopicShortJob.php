@@ -50,7 +50,7 @@ class WriteTopicShortJob implements ShouldQueue
             $short->scenes()->delete();
             $scenes = [];
             foreach ($script['scenes'] as $i => $scene) {
-                // Ảnh cảnh lấy từ thư viện nhân vật: Claude không chọn khung thì dùng nhân vật trong cảnh với biểu cảm của cảnh.
+                // Ảnh cảnh: khung manga thật Claude chọn (manga_panels), không có thì thư viện nhân vật; Claude không chọn khung thì dùng nhân vật trong cảnh với biểu cảm của cảnh.
                 $panels = ($scene['panels'] ?? []) ?: ShortWriter::panelsFor($scene['characters'] ?? [], $scene['expression'] ?? null);
                 $scenes[] = $short->scenes()->create([...$scene, 'panels' => $panels, 'position' => $i + 1, 'image_status' => 'none']);
             }

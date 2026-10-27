@@ -133,6 +133,16 @@ class User extends Authenticatable
         return $this->hasMany(TopicSeries::class);
     }
 
+    public function mangaScans(): HasMany
+    {
+        return $this->hasMany(MangaScan::class);
+    }
+
+    public function mangaPanels(): HasMany
+    {
+        return $this->hasMany(MangaPanel::class);
+    }
+
     public function pronunciations(): HasMany
     {
         return $this->hasMany(Pronunciation::class);

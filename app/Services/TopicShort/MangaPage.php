@@ -3,6 +3,7 @@
 namespace App\Services\TopicShort;
 
 use App\Models\CharacterPortrait;
+use App\Models\MangaPanel;
 use App\Models\TopicShortScene;
 use App\Support\DragonBall;
 use App\Support\Media;
@@ -12,6 +13,7 @@ use Illuminate\Support\Collection;
 /**
  * Trang manga dọc 1080x1920 cho một cảnh: 1–3 khung xếp từ trên xuống, mỗi khung là ảnh thư viện nhân vật đúng tư thế
  * (chưa có thì dùng mặt thường E1), nền trắng, viền đen như trang truyện. Không tốn Credits, không gọi Muse.
+ * Cảnh có khung manga thật (manga_panels) thì ghép các khung đó trước.
  */
 final class MangaPage
 {
@@ -47,6 +49,9 @@ final class MangaPage
     /** Ghép trang và gắn làm ảnh cảnh. Trả false khi không khung nào có ảnh (cảnh giữ ảnh cũ). */
     public static function compose(TopicShortScene $scene): bool
     {
+        if (($scene->manga_panels ?? []) !== [] && self::composeReal($scene)) {
+            return true;
+        }
         $images = [];
         foreach (self::resolve($scene) as $item) {
             $contents = $item['portrait'] ? Media::disk()->get($item['portrait']->image_path) : null;
@@ -72,6 +77,53 @@ final class MangaPage
             self::cover($page, $image, $x + self::BORDER, $y + self::BORDER, $width - 2 * self::BORDER, $height - 2 * self::BORDER);
             imagedestroy($image);
         }
+        self::save($scene, $page);
+
+        return true;
+    }
+
+    /**
+     * Trang từ khung manga thật: xếp từ trên xuống, mỗi khung giữ nguyên tỉ lệ (không cắt mất chữ / nhân vật),
+     * chiều cao chia theo tỉ lệ khung, nền trắng như trang truyện. False khi không đọc được khung nào.
+     */
+    public static function composeReal(TopicShortScene $scene): bool
+    {
+        $ids = array_map('intval', $scene->manga_panels ?? []);
+        $panels = MangaPanel::where('user_id', $scene->topicShort->user_id)->whereIn('id', $ids)->get()->sortBy(fn ($p) => array_search($p->id, $ids, true));
+        $images = [];
+        foreach ($panels as $panel) {
+            $contents = Media::disk()->get($panel->image_path);
+            $image = $contents ? @imagecreatefromstring($contents) : false;
+            if ($image instanceof GdImage) {
+                $images[] = $image;
+            }
+        }
+        if ($images === []) {
+            return false;
+        }
+
+        $page = imagecreatetruecolor(self::WIDTH, self::HEIGHT);
+        imagefill($page, 0, 0, imagecolorallocate($page, 255, 255, 255));
+        $width = self::WIDTH - 2 * self::MARGIN;
+        $free = self::HEIGHT - 2 * self::MARGIN - (count($images) - 1) * self::GUTTER;
+        // Chiều cao tự nhiên khi khung rộng hết trang; quá trang thì co tất cả theo cùng tỉ lệ.
+        $natural = array_map(fn (GdImage $image) => imagesy($image) * $width / imagesx($image), $images);
+        $shrink = min(1, $free / array_sum($natural));
+        $y = self::MARGIN + (int) round(($free - array_sum($natural) * $shrink) / 2);
+        foreach ($images as $i => $image) {
+            $h = (int) round($natural[$i] * $shrink);
+            $w = (int) round($width * $shrink);
+            imagecopyresampled($page, $image, intdiv(self::WIDTH - $w, 2), $y, 0, 0, $w, $h, imagesx($image), imagesy($image));
+            $y += $h + self::GUTTER;
+            imagedestroy($image);
+        }
+        self::save($scene, $page);
+
+        return true;
+    }
+
+    private static function save(TopicShortScene $scene, GdImage $page): void
+    {
         ob_start();
         imagepng($page, null, 6);
         $contents = (string) ob_get_clean();
@@ -82,8 +134,6 @@ final class MangaPage
         $old = $scene->image_path;
         $scene->update(['image_source' => 'page', 'image_status' => 'ready', 'image_path' => $path, 'image_url' => null, 'image_error' => null, 'request_id' => null]);
         $old && $old !== $path && Media::delete($old);
-
-        return true;
     }
 
     /** Ghép trang; không ghép được thì cảnh báo lỗi kèm cách sửa (không tìm wiki, không tự gọi Muse tốn Credits). */
@@ -128,7 +178,8 @@ final class MangaPage
      */
     public static function missing(iterable $scenes, int $userId): array
     {
-        $wanted = collect($scenes)->flatMap(fn (TopicShortScene $scene) => $scene->panels ?? [])
+        // Cảnh đã dùng khung manga thật thì không cần ảnh thư viện.
+        $wanted = collect($scenes)->filter(fn (TopicShortScene $scene) => ($scene->manga_panels ?? []) === [])->flatMap(fn (TopicShortScene $scene) => $scene->panels ?? [])
             ->map(fn ($panel) => ['character' => $panel['character'], 'pose' => $panel['pose']])->unique(fn ($p) => "{$p['character']}:{$p['pose']}");
         if ($wanted->isEmpty()) {
             return [];

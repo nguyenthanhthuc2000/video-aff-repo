@@ -13,6 +13,7 @@ use App\Jobs\WriteTopicShortJob;
 use App\Jobs\WriteTopicShortPublishJob;
 use App\Models\AudioTrack;
 use App\Models\CharacterPortrait;
+use App\Models\MangaPanel;
 use App\Models\TopicShort;
 use App\Models\TopicShortScene;
 use App\Services\Film\EpisodeRenderer;
@@ -117,6 +118,8 @@ class TopicShortController extends Controller
         $library = CharacterPortrait::where('user_id', $short->user_id)->where('status', 'ready')->whereNotNull('image_path')
             ->whereIn('character', $scenes->flatMap(fn ($scene) => array_column($scene->panels ?? [], 'character'))->unique())->get();
         $missing = MangaPage::missing($scenes, $short->user_id);
+        $mangaPanels = MangaPanel::where('user_id', $short->user_id)->with('scan:id,chapter,name')
+            ->whereIn('id', $scenes->flatMap(fn ($scene) => $scene->manga_panels ?? [])->unique())->get()->keyBy('id');
         $words = $scenes->sum(fn ($scene) => count(preg_split('/\s+/u', trim($scene->narration), -1, PREG_SPLIT_NO_EMPTY) ?: []));
         $estimatedMs = (int) round($words / ShortWriter::WORDS_PER_SECOND[$short->language === 'en' ? 'en' : 'vi'] * 1000);
 
@@ -178,6 +181,7 @@ class TopicShortController extends Controller
                     'fact_ids' => $scene->fact_ids ?? [],
                     'fact_check' => $scene->fact_check,
                     'mood' => $scene->mood,
+                    'manga_panels' => collect($scene->manga_panels ?? [])->map(fn ($id) => $mangaPanels->get($id))->filter()->map(fn (MangaPanel $panel) => MangaPanelController::present($panel))->values(),
                     'voice_url' => Media::url($scene->voice_path),
                     'voice_ms' => $scene->voice_ms,
                     'panels' => collect(MangaPage::resolve($scene, $library))->map(fn ($item) => [
@@ -490,6 +494,19 @@ class TopicShortController extends Controller
         Media::delete($old);
 
         return back()->with('status', "Đã tải ảnh cảnh {$scene->position}.");
+    }
+
+    /** Chọn khung manga thật cho cảnh (tối đa 3, theo thứ tự), ghép lại trang; bỏ hết thì quay về khung thư viện nhân vật. */
+    public function manga(Request $request, TopicShortScene $scene): RedirectResponse
+    {
+        $this->authorize('update', $scene->topicShort);
+        $validated = $request->validate(['ids' => ['present', 'array', 'max:'.ShortWriter::MAX_PANELS], 'ids.*' => ['integer']]);
+        $ids = array_values(array_unique(array_map('intval', $validated['ids'])));
+        $mine = $request->user()->mangaPanels()->whereIn('id', $ids)->pluck('id')->all();
+        $scene->update(['manga_panels' => array_values(array_filter($ids, fn ($id) => in_array($id, $mine, true)))]);
+        MangaPage::composeOrExplain($scene);
+
+        return back()->with('status', "Đã ghép lại ảnh cảnh {$scene->position}.");
     }
 
     /** Giọng tự thu cho một cảnh: dựng video dùng file này thay giọng máy. */

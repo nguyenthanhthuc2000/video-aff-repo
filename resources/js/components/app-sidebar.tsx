@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import {
+    BookImage,
     BookOpen,
     Clapperboard,
     Coins,
@@ -64,6 +65,11 @@ const mainNavItems: NavItem[] = [
         title: 'Video truyện',
         url: '/story-videos',
         icon: ScrollText,
+    },
+    {
+        title: 'Kho khung manga',
+        url: '/manga-panels',
+        icon: BookImage,
     },
     {
         title: 'Kho tư liệu',

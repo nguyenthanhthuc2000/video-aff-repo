@@ -2,8 +2,10 @@
 
 namespace App\Services\TopicShort;
 
+use App\Models\MangaPanel;
 use App\Models\TopicShort;
 use App\Services\Film\FilmClaude;
+use App\Services\Manga\MangaCatalog;
 use App\Services\Script\ScriptWriterException;
 use App\Support\DragonBall;
 
@@ -51,6 +53,7 @@ class ShortWriter
     - hooks: exactly 3 alternative hooks for scene 1, each under 14 words, one per style: "question" (a curiosity question), "shock" (a bold or shocking claim), "number" (a number, record or comparison). Scene 1 narration must be exactly hooks[0].text.
     - scene mood: one of tense, sad, epic, funny, calm (drives background music and sound effects).
     - scene panels: the scene's picture as a vertical manga page of 1–3 panels stacked top to bottom (use 2–3 panels for action or a reaction, 1 big panel for a key moment). Each panel: character = a name from our picture library list exactly as given, pose = one code that exists for that character (faces E1–E9 for everyone; fighting A1 punch, A2 kick, A3 guard, A4 dash, A5 charging ki, A6 knocked back; S1–S4 signature moves as listed), camera = a few English words (e.g. "close-up", "low angle full body"). Pictures come ONLY from this library (no web images), so give every scene 1–3 panels with library characters; leave panels empty only when no library character can fit at all.
+    - scene manga_panels: when a list of real manga panels is given, ids of 1–3 of them (top to bottom, in story order) that show exactly what this scene's narration says. Viewers want real manga art, so prefer real panels over library panels whenever one fits the scene; do not reuse a panel in two scenes; empty when none fits or no list is given (then the library panels are used).
     - scene fact_ids: ids of the research facts this scene is based on (empty when there is no research brief).
     PROMPT;
 
@@ -106,9 +109,14 @@ class ShortWriter
                 .($short->part < $series->parts ? 'End with a teaser for the next part and "Xem phần tiếp nhé" instead of a question.' : 'End the series with a question to the viewers.');
         }
 
-        $data = FilmClaude::json($system, $text, self::schema(), 'topic_short', "topic_short:{$short->id}", 8000, fn () => self::sample($short));
+        $catalog = MangaCatalog::for($short);
+        if ($catalog->isNotEmpty()) {
+            $text .= "\n\nReal manga panels available (id [chapter] characters | mood: what happens):\n".$catalog->map(fn (MangaPanel $panel) => MangaCatalog::line($panel))->implode("\n");
+        }
 
-        return self::normalize($data, array_column($short->approvedFacts(), 'id'));
+        $data = FilmClaude::json($system, $text, self::schema(), 'topic_short', "topic_short:{$short->id}", 8000, fn () => self::sample($short, $catalog->pluck('id')->all()));
+
+        return self::normalize($data, array_column($short->approvedFacts(), 'id'), $catalog->pluck('id')->all());
     }
 
     public static function schema(): array
@@ -145,7 +153,7 @@ class ShortWriter
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression', 'mood', 'panels', 'fact_ids'],
+                        'required' => ['narration', 'on_screen_text', 'image_query', 'image_prompt', 'characters', 'expression', 'mood', 'panels', 'manga_panels', 'fact_ids'],
                         'properties' => [
                             'narration' => $string,
                             'on_screen_text' => $string,
@@ -163,6 +171,7 @@ class ShortWriter
                                     'properties' => ['character' => $string, 'pose' => $string, 'camera' => $string],
                                 ],
                             ],
+                            'manga_panels' => ['type' => 'array', 'items' => ['type' => 'integer']],
                             'fact_ids' => ['type' => 'array', 'items' => $string],
                         ],
                     ],
@@ -175,11 +184,13 @@ class ShortWriter
 
     /**
      * @param  list<string>  $factIds  Id tư liệu đã duyệt (fact_ids ngoài danh sách bị bỏ).
+     * @param  list<int>  $panelIds  Id khung manga thật đã gửi cho Claude (id khác bị bỏ, mỗi khung chỉ dùng một lần).
      *
      * @throws ScriptWriterException
      */
-    public static function normalize(mixed $data, array $factIds = []): array
+    public static function normalize(mixed $data, array $factIds = [], array $panelIds = []): array
     {
+        $used = [];
         $characters = [];
         foreach ((array) ($data['characters'] ?? []) as $character) {
             $name = mb_substr(trim((string) ($character['name'] ?? '')), 0, 80);
@@ -209,6 +220,7 @@ class ShortWriter
                 )))),
                 'mood' => in_array($scene['mood'] ?? null, self::MOODS, true) ? $scene['mood'] : null,
                 'panels' => self::panels((array) ($scene['panels'] ?? [])),
+                'manga_panels' => self::mangaPanels((array) ($scene['manga_panels'] ?? []), $panelIds, $used),
                 'fact_ids' => array_values(array_unique(array_intersect(array_map('strval', (array) ($scene['fact_ids'] ?? [])), $factIds))),
             ];
         }
@@ -260,6 +272,25 @@ class ShortWriter
     }
 
     /**
+     * @param  list<int>  $allowed
+     * @param  list<int>  $used  Khung đã dùng ở cảnh trước (cập nhật tại chỗ).
+     * @return list<int>
+     */
+    private static function mangaPanels(array $ids, array $allowed, array &$used): array
+    {
+        $result = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if (in_array($id, $allowed, true) && ! in_array($id, $used, true) && count($result) < self::MAX_PANELS) {
+                $result[] = $id;
+                $used[] = $id;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Khung mặc định khi Claude không chọn: tối đa 2 nhân vật thư viện có trong cảnh, nhân vật đầu với biểu cảm của cảnh.
      *
      * @param  list<string>  $characters
@@ -273,7 +304,7 @@ class ShortWriter
     }
 
     /** Kết quả mẫu cho driver fake (test, dev không có Claude). */
-    private static function sample(TopicShort $short): array
+    private static function sample(TopicShort $short, array $panelIds = []): array
     {
         return [
             'title' => "Short: {$short->topic}",
@@ -288,9 +319,9 @@ class ShortWriter
                 ['style' => 'number', 'text' => 'Chỉ một giây, sức mạnh tăng gấp năm mươi lần.'],
             ],
             'scenes' => [
-                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku'], 'expression' => 'E8', 'mood' => 'epic', 'panels' => [['character' => 'Goku', 'pose' => 'A5', 'camera' => 'low angle full body']], 'fact_ids' => ['F1']],
-                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza'], 'expression' => 'E7', 'mood' => 'tense', 'panels' => [['character' => 'Frieza', 'pose' => 'E7', 'camera' => 'close-up'], ['character' => 'Goku', 'pose' => 'E3', 'camera' => 'close-up']], 'fact_ids' => ['F2']],
-                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza'], 'expression' => 'E3', 'mood' => 'epic', 'panels' => [], 'fact_ids' => []],
+                ['narration' => 'Bạn có biết khoảnh khắc này làm cả thế hệ nổi da gà?', 'on_screen_text' => 'Khoảnh khắc huyền thoại', 'image_query' => 'Goku Super Saiyan Namek', 'image_prompt' => 'Goku powering up with a glowing golden aura, stormy sky, low angle', 'characters' => ['Goku'], 'expression' => 'E8', 'mood' => 'epic', 'panels' => [['character' => 'Goku', 'pose' => 'A5', 'camera' => 'low angle full body']], 'manga_panels' => array_slice($panelIds, 0, 2), 'fact_ids' => ['F1']],
+                ['narration' => 'Kẻ thù vừa làm điều không thể tha thứ.', 'on_screen_text' => 'Giới hạn bị phá vỡ', 'image_query' => 'Frieza Namek', 'image_prompt' => 'Frieza smirking, green planet Namek, close-up', 'characters' => ['Frieza'], 'expression' => 'E7', 'mood' => 'tense', 'panels' => [['character' => 'Frieza', 'pose' => 'E7', 'camera' => 'close-up'], ['character' => 'Goku', 'pose' => 'E3', 'camera' => 'close-up']], 'manga_panels' => [], 'fact_ids' => ['F2']],
+                ['narration' => 'Và cơn giận ấy đã thay đổi tất cả. Bạn nhớ cảnh này không?', 'on_screen_text' => 'Bùng nổ', 'image_query' => 'Super Saiyan transformation', 'image_prompt' => 'Goku with golden hair rising, lightning, facing Frieza', 'characters' => ['Goku', 'Frieza'], 'expression' => 'E3', 'mood' => 'epic', 'panels' => [], 'manga_panels' => [], 'fact_ids' => []],
             ],
             'caption' => 'Khoảnh khắc làm nên huyền thoại.',
             'hashtags' => ['#anime', '#shorts'],
